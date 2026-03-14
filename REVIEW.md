@@ -11,7 +11,7 @@
 
 - Fixed: `brain/runtime/memory/api.py` now matches the local schema (`memory_events`, `tasks`, `knowledge`, `experiences`).
 - Fixed: `ocmemog/sidecar/app.py` now enforces a table allow-list in `_get_row()`.
-- High risk: distillation, identity extraction, and provider-backed embeddings are advertised by the copied package but are still shim-backed in this repo. `brain/runtime/inference.py`, `brain/runtime/model_roles.py`, and `brain/runtime/providers.py` do not implement real runtime behavior.
+- Updated: inference and provider embeddings now call OpenAI when API keys are present; still requires env config.
 - Fixed: health/integrity now report coverage using `vector_embeddings`.
 - Medium risk: some modules are effectively orphaned from the sidecar flow (`memory_synthesis`, `memory_gate`, `memory_graph`, `semantic_search`, `tool_catalog`, `unresolved_state`) and currently document capability more than they deliver.
 
@@ -29,10 +29,9 @@
 
 ### `brain/runtime/inference.py`
 
-- Bug: `infer()` always raises. Anything that depends on LLM distillation is non-functional until a real runtime is wired.
-- Assumption: `parse_operator_name()` is only a temporary heuristic.
-- Gap: the regex only captures a single capitalized token, so multi-word names and lower-case introductions fall back immediately.
-- TODO: replace with an OpenClaw-native inference adapter or remove codepaths that imply distillation is available.
+- Updated: `infer()` now calls OpenAI chat completions when `OCMEMOG_OPENAI_API_KEY` is set.
+- Gap: fails closed with `missing_api_key` when not configured (distill falls back to heuristics).
+- Improvement: name regex now captures multi-word names.
 
 ### `brain/runtime/instrumentation.py`
 
@@ -41,21 +40,18 @@
 
 ### `brain/runtime/model_roles.py`
 
-- Bug: always returns the placeholder `"shim-memory-model"`.
-- Gap: there is no role-to-model contract for ocmemog, so the copied brAIn role-based code has no meaningful routing target.
-- TODO: bind memory/distillation roles to real OpenClaw model configuration.
+- Updated: roles now resolve to env-configured models (`OCMEMOG_MEMORY_MODEL`, `OCMEMOG_OPENAI_EMBED_MODEL`).
+- Gap: role registry for context priorities is still missing (`brain.runtime.roles`).
 
 ### `brain/runtime/model_router.py`
 
-- Assumption: provider-backed embeddings are optional.
-- Gap: always returns an empty `ModelSelection`, so provider embedding is unreachable even if `BRAIN_EMBED_MODEL_PROVIDER` is set.
-- TODO: route the `"embedding"` role to an actual OpenClaw provider selection.
+- Updated: returns an OpenAI provider selection when `BRAIN_EMBED_MODEL_PROVIDER=openai`.
+- Gap: only OpenAI is supported right now.
 
 ### `brain/runtime/providers.py`
 
-- Bug: the shim returns `{}` for embedding calls, so provider-backed embeddings never succeed.
-- Gap: `probe_runtime()` correctly flags this, but the repo docs need to treat provider embeddings as unsupported today.
-- TODO: implement an adapter over the host plugin/provider system.
+- Updated: executes OpenAI embedding calls when API key is present.
+- Gap: no retry/backoff or non-OpenAI providers yet.
 
 ### `brain/runtime/state_store.py`
 

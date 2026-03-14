@@ -96,27 +96,21 @@ The sidecar exposes:
 
 The sidecar also reports runtime readiness through `mode`, `missingDeps`, `todo`, and `warnings`. That status is important because several copied brAIn modules are shimmed and should be treated as degraded.
 
-## Runtime shim boundary
+## Runtime adapters
 
-These repo-local modules are placeholders, not full implementations:
+ocmemog ships lightweight runtime adapters for inference + embeddings. They require environment configuration:
 
-- `brain/runtime/inference.py`
-- `brain/runtime/model_roles.py`
-- `brain/runtime/model_router.py`
-- `brain/runtime/providers.py`
+- `brain/runtime/inference.py` → OpenAI chat completions (requires `OCMEMOG_OPENAI_API_KEY`)
+- `brain/runtime/providers.py` → OpenAI embeddings (requires `BRAIN_EMBED_MODEL_PROVIDER=openai` + API key)
+- `brain/runtime/model_roles.py` + `model_router.py` → role-to-model and provider routing
 
 Effect on behavior:
 
-- Distillation falls back to heuristics
-- Identity extraction is heuristic-only
-- Provider-backed embeddings are effectively unavailable
-- Role-aware context selection is partially stubbed because `brain.runtime.roles` is not present
+- Distillation uses OpenAI when API key is set, otherwise falls back to heuristics
+- Embeddings use OpenAI when configured, otherwise fall back to local hash or sentence-transformers
+- Role-aware context selection is still partially stubbed because `brain.runtime.roles` is not present
 
 ## TODO: Missing runtime dependencies
 
-- TODO: replace `brain.runtime.inference` with an OpenClaw-native inference adapter before relying on distillation or name extraction
-- TODO: replace `brain.runtime.model_roles` and `brain.runtime.model_router` with real model/provider routing
-- TODO: replace `brain.runtime.providers.provider_execute` with a real embedding provider bridge
 - TODO: add a repo-local `brain.runtime.roles` implementation or remove role-priority logic from `context_builder`
-- TODO: decide whether `runbooks` and `lessons` are first-class plugin memory types and expose them consistently if they are
-- TODO: fix `brain/runtime/memory/api.py` or remove it from the supported surface, because it targets a schema this repo does not create
+- TODO: decide whether to add additional provider backends beyond OpenAI

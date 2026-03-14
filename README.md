@@ -31,7 +31,12 @@ Optional environment variables:
 - `OCMEMOG_PORT`
 - `OCMEMOG_STATE_DIR` (defaults to `/Users/simbimbo/ocmemog/.ocmemog-state`)
 - `OCMEMOG_DB_PATH`
+- `OCMEMOG_MEMORY_MODEL` (default: `gpt-4o-mini`)
+- `OCMEMOG_OPENAI_API_KEY` (required for model-backed distill)
+- `OCMEMOG_OPENAI_API_BASE` (default: `https://api.openai.com/v1`)
+- `OCMEMOG_OPENAI_EMBED_MODEL` (default: `text-embedding-3-small`)
 - `BRAIN_EMBED_MODEL_LOCAL` (`simple` by default)
+- `BRAIN_EMBED_MODEL_PROVIDER` (`openai` to enable provider embeddings)
 
 ## Enable in OpenClaw
 

@@ -23,8 +23,12 @@ export OCMEMOG_HOST=127.0.0.1
 export OCMEMOG_PORT=17890
 export OCMEMOG_STATE_DIR=/path/to/state
 export OCMEMOG_DB_PATH=/path/to/brain_memory.sqlite3
+export OCMEMOG_MEMORY_MODEL=gpt-4o-mini
+export OCMEMOG_OPENAI_API_KEY=sk-...
+export OCMEMOG_OPENAI_API_BASE=https://api.openai.com/v1
+export OCMEMOG_OPENAI_EMBED_MODEL=text-embedding-3-small
 export BRAIN_EMBED_MODEL_LOCAL=simple
-export BRAIN_EMBED_MODEL_PROVIDER=
+export BRAIN_EMBED_MODEL_PROVIDER=openai
 ```
 
 Default state location in this repo is `.ocmemog-state/`.
@@ -71,9 +75,10 @@ Notes:
 - `brain/runtime/memory/api.py`
   - It targets missing/legacy tables and columns.
 - Provider-backed embeddings
-  - `brain.runtime.providers` and `brain.runtime.model_router` are still shims.
+  - Available when `BRAIN_EMBED_MODEL_PROVIDER=openai` and `OCMEMOG_OPENAI_API_KEY` is set.
+  - Falls back to local embeddings when missing.
 - Model-backed distillation
-  - `brain.runtime.inference.infer()` is a hard failure stub.
+  - Available when `OCMEMOG_OPENAI_API_KEY` is set; otherwise falls back to heuristic distill.
 - Role-prioritized context building
   - `brain.runtime.roles.role_registry` is not bundled here.
 - Full brAIn memory parity

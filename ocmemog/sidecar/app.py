@@ -72,6 +72,7 @@ class IngestRequest(BaseModel):
     message_id: Optional[str] = None
     transcript_path: Optional[str] = None
     transcript_offset: Optional[int] = None
+    timestamp: Optional[str] = None
 
 
 class DistillRequest(BaseModel):
@@ -351,7 +352,13 @@ def memory_ingest(request: IngestRequest) -> dict[str, Any]:
             "transcript_path": request.transcript_path,
             "transcript_offset": request.transcript_offset,
         }
-        memory_id = api.store_memory(memory_type, content, source=request.source, metadata=metadata)
+        memory_id = api.store_memory(
+            memory_type,
+            content,
+            source=request.source,
+            metadata=metadata,
+            timestamp=request.timestamp,
+        )
         reference = f"{memory_type}:{memory_id}"
         if request.session_id:
             memory_links.add_memory_link(reference, "session", f"session:{request.session_id}")

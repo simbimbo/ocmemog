@@ -49,6 +49,7 @@ def store_memory(
     *,
     source: str | None = None,
     metadata: Dict[str, Any] | None = None,
+    timestamp: str | None = None,
 ) -> int:
     content = _sanitize(content)
     table = memory_type.strip().lower() if memory_type else "knowledge"
@@ -56,10 +57,16 @@ def store_memory(
     if table not in allowed:
         table = "knowledge"
     conn = store.connect()
-    cur = conn.execute(
-        f"INSERT INTO {table} (source, confidence, metadata_json, content, schema_version) VALUES (?, ?, ?, ?, ?)",
-        (source, 1.0, json.dumps(metadata or {}), content, store.SCHEMA_VERSION),
-    )
+    if timestamp:
+        cur = conn.execute(
+            f"INSERT INTO {table} (source, confidence, metadata_json, content, schema_version, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+            (source, 1.0, json.dumps(metadata or {}), content, store.SCHEMA_VERSION, timestamp),
+        )
+    else:
+        cur = conn.execute(
+            f"INSERT INTO {table} (source, confidence, metadata_json, content, schema_version) VALUES (?, ?, ?, ?, ?)",
+            (source, 1.0, json.dumps(metadata or {}), content, store.SCHEMA_VERSION),
+        )
     conn.commit()
     conn.close()
     _emit("store_memory")

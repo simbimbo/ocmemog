@@ -149,7 +149,8 @@ curl -s http://127.0.0.1:17890/memory/ingest \
         "thread_id":"thread-abc",
         "message_id":"msg-987",
         "transcript_path":"/path/to/transcript.log",
-        "transcript_offset":420
+        "transcript_offset":420,
+        "timestamp":"2026-02-22 16:04:52"
       }'
 ```
 

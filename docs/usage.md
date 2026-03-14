@@ -18,10 +18,19 @@ scripts/ocmemog-sidecar.sh
 
 ## Transcript watcher (auto-ingest)
 
+Manual watcher:
+
 ```bash
 export OCMEMOG_TRANSCRIPT_DIR="$HOME/.openclaw/workspace/memory/transcripts"
 export OCMEMOG_INGEST_ENDPOINT="http://127.0.0.1:17890/memory/ingest"
 ./scripts/ocmemog-transcript-watcher.sh
+```
+
+Auto-start inside sidecar:
+
+```bash
+export OCMEMOG_TRANSCRIPT_WATCHER=true
+./scripts/ocmemog-sidecar.sh
 ```
 
 Useful environment variables:
@@ -42,6 +51,7 @@ export OCMEMOG_TRANSCRIPT_GLOB=*.log
 export OCMEMOG_TRANSCRIPT_POLL_SECONDS=1
 export OCMEMOG_INGEST_KIND=experience
 export OCMEMOG_INGEST_SOURCE=transcript
+export OCMEMOG_TRANSCRIPT_WATCHER=true
 ```
 
 Default state location in this repo is `.ocmemog-state/`.

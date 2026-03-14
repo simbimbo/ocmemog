@@ -44,6 +44,7 @@ Optional environment variables:
 - `OCMEMOG_OPENAI_EMBED_MODEL` (default: `text-embedding-3-small`)
 - `BRAIN_EMBED_MODEL_LOCAL` (`simple` by default)
 - `BRAIN_EMBED_MODEL_PROVIDER` (`openai` to enable provider embeddings)
+- `OCMEMOG_TRANSCRIPT_WATCHER` (`true` to auto-start transcript watcher inside the sidecar)
 
 ## Enable in OpenClaw
 

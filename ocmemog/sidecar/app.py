@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import threading
 from typing import Any, Dict, Iterable, List, Optional
 
 from fastapi import FastAPI
@@ -7,10 +9,20 @@ from pydantic import BaseModel, Field
 
 from brain.runtime.memory import retrieval, store, api, distill
 from ocmemog.sidecar.compat import flatten_results, probe_runtime
+from ocmemog.sidecar.transcript_watcher import watch_forever
 
 DEFAULT_CATEGORIES = ("knowledge", "reflections", "directives", "tasks", "runbooks", "lessons")
 
 app = FastAPI(title="ocmemog sidecar", version="0.0.1")
+
+
+@app.on_event("startup")
+def _start_transcript_watcher() -> None:
+    enabled = os.environ.get("OCMEMOG_TRANSCRIPT_WATCHER", "").lower() in {"1", "true", "yes"}
+    if not enabled:
+        return
+    thread = threading.Thread(target=watch_forever, daemon=True)
+    thread.start()
 
 
 class SearchRequest(BaseModel):

@@ -28,6 +28,9 @@ DEFAULT_SKIP_DIRS = {
     ".openclaw/logs",
 }
 
+ASYNC_DEFAULT = os.environ.get("OCMEMOG_INGEST_ASYNC_DEFAULT", "true").lower() in {"1", "true", "yes"}
+INGEST_PATH = "/memory/ingest_async" if ASYNC_DEFAULT else "/memory/ingest"
+
 
 def _post_json(endpoint: str, path: str, payload: dict, *, timeout: int = 20) -> dict:
     data = json.dumps(payload).encode("utf-8")
@@ -218,7 +221,7 @@ def main() -> int:
             "transcript_path": entry["source"],
             "transcript_offset": None,
         }
-        _post_json(args.endpoint, "/memory/ingest", payload)
+        _post_json(args.endpoint, INGEST_PATH, payload)
         mem_count += 1
     ingest_elapsed = time.time() - ingest_start
 
@@ -229,7 +232,7 @@ def main() -> int:
             "kind": "experience",
             "source": f"rig:{entry['source']}",
         }
-        _post_json(args.endpoint, "/memory/ingest", payload)
+        _post_json(args.endpoint, INGEST_PATH, payload)
         exp_count += 1
 
     distill_result = _distill_batches(

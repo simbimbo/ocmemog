@@ -22,6 +22,15 @@ app = FastAPI(title="ocmemog sidecar", version="0.0.1")
 
 API_TOKEN = os.environ.get("OCMEMOG_API_TOKEN")
 
+QUEUE_LOCK = threading.Lock()
+QUEUE_STATS = {
+    "last_run": None,
+    "processed": 0,
+    "errors": 0,
+    "last_error": None,
+    "last_batch": 0,
+}
+
 
 @app.middleware("http")
 async def _auth_middleware(request: Request, call_next):
@@ -39,6 +48,136 @@ def _start_transcript_watcher() -> None:
     if not enabled:
         return
     thread = threading.Thread(target=watch_forever, daemon=True)
+    thread.start()
+
+
+def _queue_path() -> Path:
+    path = state_store.data_dir() / "ingest_queue.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.write_text("")
+    return path
+
+
+def _queue_depth() -> int:
+    path = _queue_path()
+    try:
+        return sum(1 for _ in path.open("r", encoding="utf-8", errors="ignore"))
+    except Exception:
+        return 0
+
+
+def _enqueue_payload(payload: Dict[str, Any]) -> int:
+    path = _queue_path()
+    line = json.dumps(payload, ensure_ascii=False)
+    with QUEUE_LOCK:
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+    return _queue_depth()
+
+
+def _ingest_worker() -> None:
+    enabled = os.environ.get("OCMEMOG_INGEST_ASYNC_WORKER", "true").lower() in {"1", "true", "yes"}
+    if not enabled:
+        return
+    poll_seconds = float(os.environ.get("OCMEMOG_INGEST_ASYNC_POLL_SECONDS", "5"))
+    batch_max = int(os.environ.get("OCMEMOG_INGEST_ASYNC_BATCH_MAX", "25"))
+    path = _queue_path()
+
+    while True:
+        batch: List[Dict[str, Any]] = []
+        remaining: List[str] = []
+        with QUEUE_LOCK:
+            try:
+                with path.open("r", encoding="utf-8", errors="ignore") as handle:
+                    for line in handle:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        if len(batch) < batch_max:
+                            try:
+                                batch.append(json.loads(line))
+                            except Exception:
+                                continue
+                        else:
+                            remaining.append(line)
+                with path.open("w", encoding="utf-8") as handle:
+                    for line in remaining:
+                        handle.write(line + "\n")
+            except Exception:
+                batch = []
+
+        if batch:
+            QUEUE_STATS["last_run"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            QUEUE_STATS["last_batch"] = len(batch)
+            for payload in batch:
+                try:
+                    req = IngestRequest(**payload)
+                    _ingest_request(req)
+                    QUEUE_STATS["processed"] += 1
+                except Exception as exc:
+                    QUEUE_STATS["errors"] += 1
+                    QUEUE_STATS["last_error"] = str(exc)
+        time.sleep(poll_seconds)
+
+
+def _drain_queue(limit: Optional[int] = None) -> Dict[str, Any]:
+    path = _queue_path()
+    processed = 0
+    errors = 0
+    last_error = None
+
+    while True:
+        batch: List[Dict[str, Any]] = []
+        remaining: List[str] = []
+        with QUEUE_LOCK:
+            try:
+                with path.open("r", encoding="utf-8", errors="ignore") as handle:
+                    for line in handle:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        if limit is not None and processed + len(batch) >= limit:
+                            remaining.append(line)
+                            continue
+                        try:
+                            batch.append(json.loads(line))
+                        except Exception:
+                            continue
+                with path.open("w", encoding="utf-8") as handle:
+                    for line in remaining:
+                        handle.write(line + "\n")
+            except Exception as exc:
+                last_error = str(exc)
+                break
+
+        if not batch:
+            break
+
+        for payload in batch:
+            try:
+                req = IngestRequest(**payload)
+                _ingest_request(req)
+                processed += 1
+            except Exception as exc:
+                errors += 1
+                last_error = str(exc)
+
+        if limit is not None and processed >= limit:
+            break
+
+    QUEUE_STATS["last_run"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    QUEUE_STATS["last_batch"] = processed
+    if errors:
+        QUEUE_STATS["errors"] += errors
+        QUEUE_STATS["last_error"] = last_error
+    QUEUE_STATS["processed"] += processed
+    return {"processed": processed, "errors": errors, "last_error": last_error}
+
+
+@app.on_event("startup")
+def _start_ingest_worker() -> None:
+    thread = threading.Thread(target=_ingest_worker, daemon=True)
     thread.start()
 
 
@@ -332,8 +471,7 @@ def memory_ponder_latest(limit: int = 5) -> dict[str, Any]:
     return {"ok": True, "items": items, **runtime}
 
 
-@app.post("/memory/ingest")
-def memory_ingest(request: IngestRequest) -> dict[str, Any]:
+def _ingest_request(request: IngestRequest) -> dict[str, Any]:
     runtime = _runtime_payload()
     content = request.content.strip() if isinstance(request.content, str) else ""
     if not content:
@@ -391,6 +529,30 @@ def memory_ingest(request: IngestRequest) -> dict[str, Any]:
     return {"ok": True, "kind": "experience", **runtime}
 
 
+@app.post("/memory/ingest")
+def memory_ingest(request: IngestRequest) -> dict[str, Any]:
+    return _ingest_request(request)
+
+
+@app.post("/memory/ingest_async")
+def memory_ingest_async(request: IngestRequest) -> dict[str, Any]:
+    payload = request.dict()
+    payload["queued_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    depth = _enqueue_payload(payload)
+    return {"ok": True, "queued": True, "queueDepth": depth}
+
+
+@app.get("/memory/ingest_status")
+def memory_ingest_status() -> dict[str, Any]:
+    return {"ok": True, "queueDepth": _queue_depth(), **QUEUE_STATS}
+
+
+@app.post("/memory/ingest_flush")
+def memory_ingest_flush(limit: int = 0) -> dict[str, Any]:
+    stats = _drain_queue(limit if limit > 0 else None)
+    return {"ok": True, "queueDepth": _queue_depth(), **stats}
+
+
 @app.post("/memory/distill")
 def memory_distill(request: DistillRequest) -> dict[str, Any]:
     runtime = _runtime_payload()
@@ -401,7 +563,14 @@ def memory_distill(request: DistillRequest) -> dict[str, Any]:
 @app.get("/metrics")
 def metrics() -> dict[str, Any]:
     runtime = _runtime_payload()
-    return {"ok": True, "metrics": health.get_memory_health(), **runtime}
+    payload = health.get_memory_health()
+    counts = payload.get("counts", {})
+    counts["queue_depth"] = _queue_depth()
+    counts["queue_processed"] = QUEUE_STATS.get("processed", 0)
+    counts["queue_errors"] = QUEUE_STATS.get("errors", 0)
+    payload["counts"] = counts
+    payload["queue"] = QUEUE_STATS
+    return {"ok": True, "metrics": payload, **runtime}
 
 
 def _event_stream():

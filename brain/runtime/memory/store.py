@@ -192,8 +192,12 @@ def connect(*, ensure_schema: bool = True) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), timeout=5)
     conn.row_factory = sqlite3.Row
+
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=3000")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA temp_store=MEMORY")
+    conn.execute("PRAGMA cache_size=-20000")
     return conn
 
 

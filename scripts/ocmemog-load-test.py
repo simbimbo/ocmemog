@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib import request as urlrequest
 
 ENDPOINT = "http://127.0.0.1:17890"
+ASYNC_DEFAULT = os.environ.get("OCMEMOG_INGEST_ASYNC_DEFAULT", "true").lower() in {"1", "true", "yes"}
+INGEST_PATH = "/memory/ingest_async" if ASYNC_DEFAULT else "/memory/ingest"
 
 QUERIES = [
     "ssh key policy",
@@ -49,14 +52,14 @@ def run_load(mode: str, duration: int, concurrency: int, token: str | None) -> d
                     post("/memory/search", {"query": query, "limit": 5}, token)
                 elif mode == "ingest":
                     content = f"load test {random.randint(1, 100000)}"
-                    post("/memory/ingest", {"content": content, "kind": "memory", "memory_type": "knowledge"}, token)
+                    post(INGEST_PATH, {"content": content, "kind": "memory", "memory_type": "knowledge"}, token)
                 else:
                     if random.random() < 0.7:
                         query = random.choice(QUERIES)
                         post("/memory/search", {"query": query, "limit": 5}, token)
                     else:
                         content = f"load test {random.randint(1, 100000)}"
-                        post("/memory/ingest", {"content": content, "kind": "memory", "memory_type": "knowledge"}, token)
+                        post(INGEST_PATH, {"content": content, "kind": "memory", "memory_type": "knowledge"}, token)
             except Exception:
                 errors += 1
             else:

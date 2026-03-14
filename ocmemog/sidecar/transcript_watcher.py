@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 from urllib import request as urlrequest
 
-DEFAULT_ENDPOINT = "http://127.0.0.1:17890/memory/ingest"
+DEFAULT_ENDPOINT = "http://127.0.0.1:17890/memory/ingest_async"
 DEFAULT_GLOB = "*.log"
 DEFAULT_SESSION_GLOB = "*.jsonl"
 
@@ -61,7 +61,9 @@ def watch_forever() -> None:
     session_glob = os.environ.get("OCMEMOG_SESSION_GLOB", DEFAULT_SESSION_GLOB)
 
     endpoint = os.environ.get("OCMEMOG_INGEST_ENDPOINT", DEFAULT_ENDPOINT)
-    poll_seconds = float(os.environ.get("OCMEMOG_TRANSCRIPT_POLL_SECONDS", "1"))
+    poll_seconds = float(os.environ.get("OCMEMOG_TRANSCRIPT_POLL_SECONDS", "30"))
+    batch_seconds = float(os.environ.get("OCMEMOG_INGEST_BATCH_SECONDS", "30"))
+    batch_max = int(os.environ.get("OCMEMOG_INGEST_BATCH_MAX", "25"))
     start_at_end = os.environ.get("OCMEMOG_TRANSCRIPT_START_AT_END", "true").lower() in {"1", "true", "yes"}
 
     kind = os.environ.get("OCMEMOG_INGEST_KIND", "memory").strip() or "memory"
@@ -83,6 +85,31 @@ def watch_forever() -> None:
     session_file: Optional[Path] = None
     session_pos = 0
 
+    transcript_buffer: list[str] = []
+    session_buffer: list[str] = []
+    transcript_last_path: Optional[Path] = None
+    session_last_path: Optional[Path] = None
+    transcript_last_timestamp: Optional[str] = None
+    session_last_timestamp: Optional[str] = None
+    last_transcript_flush = time.time()
+    last_session_flush = time.time()
+
+    def _flush_buffer(buffer: list[str], *, source_label: str, transcript_path: Optional[Path], timestamp: Optional[str]) -> None:
+        if not buffer:
+            return
+        payload = {
+            "content": "\n".join(buffer),
+            "kind": kind,
+            "memory_type": memory_type,
+            "source": source_label,
+        }
+        if transcript_path is not None:
+            payload["transcript_path"] = str(transcript_path)
+        if timestamp:
+            payload["timestamp"] = timestamp.replace("T", " ")[:19]
+        _post_ingest(endpoint, payload)
+        buffer.clear()
+
     while True:
         # 1) Watch transcript logs (if any)
         latest = _pick_latest(transcript_target, glob_pattern)
@@ -103,13 +130,18 @@ def watch_forever() -> None:
                         text = line.rstrip("\n")
                         if not text.strip():
                             continue
-                        payload = {
-                            "content": text,
-                            "kind": kind,
-                            "memory_type": memory_type,
-                            "source": source,
-                        }
-                        _post_ingest(endpoint, payload)
+                        transcript_buffer.append(text)
+                        transcript_last_path = current_file
+                        if text and " " in text:
+                            transcript_last_timestamp = text.split(" ", 1)[0]
+                        if len(transcript_buffer) >= batch_max:
+                            _flush_buffer(
+                                transcript_buffer,
+                                source_label=source,
+                                transcript_path=transcript_last_path,
+                                timestamp=transcript_last_timestamp,
+                            )
+                            last_transcript_flush = time.time()
                     position = handle.tell()
             except Exception:
                 pass
@@ -152,17 +184,37 @@ def watch_forever() -> None:
                             continue
                         timestamp = entry.get("timestamp") or time.strftime("%Y-%m-%dT%H:%M:%S")
                         transcript_path = _append_transcript(transcript_target, timestamp, role, text)
-                        payload = {
-                            "content": text,
-                            "kind": kind,
-                            "memory_type": memory_type,
-                            "source": "session",
-                            "transcript_path": str(transcript_path),
-                            "timestamp": timestamp.replace("T", " ")[:19],
-                        }
-                        _post_ingest(endpoint, payload)
+                        session_buffer.append(f"{timestamp} [{role}] {text}")
+                        session_last_path = transcript_path
+                        session_last_timestamp = timestamp
+                        if len(session_buffer) >= batch_max:
+                            _flush_buffer(
+                                session_buffer,
+                                source_label="session",
+                                transcript_path=session_last_path,
+                                timestamp=session_last_timestamp,
+                            )
+                            last_session_flush = time.time()
                     session_pos = handle.tell()
             except Exception:
                 pass
+
+        now = time.time()
+        if transcript_buffer and (now - last_transcript_flush) >= batch_seconds:
+            _flush_buffer(
+                transcript_buffer,
+                source_label=source,
+                transcript_path=transcript_last_path,
+                timestamp=transcript_last_timestamp,
+            )
+            last_transcript_flush = now
+        if session_buffer and (now - last_session_flush) >= batch_seconds:
+            _flush_buffer(
+                session_buffer,
+                source_label="session",
+                transcript_path=session_last_path,
+                timestamp=session_last_timestamp,
+            )
+            last_session_flush = now
 
         time.sleep(poll_seconds)

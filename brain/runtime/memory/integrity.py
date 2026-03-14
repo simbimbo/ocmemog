@@ -7,6 +7,9 @@ from brain.runtime import state_store
 from brain.runtime.memory import store
 
 
+EMBED_TABLES = ("knowledge", "runbooks", "lessons")
+
+
 def run_integrity_check() -> Dict[str, Any]:
     emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_integrity_start", status="ok")
     conn = store.connect()
@@ -23,6 +26,8 @@ def run_integrity_check() -> Dict[str, Any]:
         "candidates",
         "memory_index",
         "vector_embeddings",
+        "runbooks",
+        "lessons",
     }
     tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
     missing = required - tables
@@ -63,26 +68,35 @@ def run_integrity_check() -> Dict[str, Any]:
     except Exception:
         pass
 
-    # vector index mismatch (knowledge vs vector_embeddings)
+    # vector index mismatch (knowledge/runbooks/lessons vs vector_embeddings)
+    missing_vectors = 0
+    orphan_vectors = 0
     try:
-        missing_index = conn.execute(
-            "SELECT COUNT(*) FROM knowledge WHERE id NOT IN (SELECT CAST(source_id AS INTEGER) FROM vector_embeddings WHERE source_type='knowledge')",
-        ).fetchone()[0]
-        if missing_index:
-            issues.append(f"vector_missing:{missing_index}")
-            emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_vector_integrity_issue", status="warn")
+        for table in EMBED_TABLES:
+            missing_vectors += conn.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE id NOT IN (SELECT CAST(source_id AS INTEGER) FROM vector_embeddings WHERE source_type=?)",
+                (table,),
+            ).fetchone()[0]
     except Exception:
         pass
 
     try:
-        orphan_index = conn.execute(
-            "SELECT COUNT(*) FROM vector_embeddings WHERE source_type='knowledge' AND CAST(source_id AS INTEGER) NOT IN (SELECT id FROM knowledge)",
-        ).fetchone()[0]
-        if orphan_index:
-            issues.append(f"vector_orphan:{orphan_index}")
-            emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_vector_integrity_issue", status="warn")
+        for table in EMBED_TABLES:
+            orphan_vectors += conn.execute(
+                "SELECT COUNT(*) FROM vector_embeddings WHERE source_type=? AND CAST(source_id AS INTEGER) NOT IN (SELECT id FROM %s)"
+                % table,
+                (table,),
+            ).fetchone()[0]
     except Exception:
         pass
+
+    if missing_vectors:
+        issues.append(f"vector_missing:{missing_vectors}")
+        emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_vector_integrity_issue", status="warn")
+
+    if orphan_vectors:
+        issues.append(f"vector_orphan:{orphan_vectors}")
+        emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_vector_integrity_issue", status="warn")
 
     warning_type = ""
     warning_summary = ""

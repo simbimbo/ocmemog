@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import math
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Iterable
 
 from brain.runtime import state_store
 from brain.runtime.instrumentation import emit_event
@@ -10,6 +10,8 @@ from brain.runtime.memory import embedding_engine, store, memory_links
 from brain.runtime.security import redaction
 
 LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
+
+EMBEDDING_TABLES: tuple[str, ...] = ("knowledge", "runbooks", "lessons")
 
 
 def _ensure_vector_table(conn) -> None:
@@ -45,14 +47,21 @@ def _cosine_similarity(a: List[float], b: List[float]) -> float:
     return dot / (mag_a * mag_b)
 
 
-def insert_memory(memory_id: int, content: str, confidence: float) -> None:
+def insert_memory(memory_id: int, content: str, confidence: float, *, source_type: str = "knowledge") -> None:
+    source_type = source_type if source_type in EMBEDDING_TABLES else "knowledge"
     redacted_content, changed = redaction.redact_text(content)
     conn = store.connect()
     _ensure_vector_table(conn)
 
     conn.execute(
         "INSERT INTO memory_index (source, confidence, metadata_json, content, schema_version) VALUES (?, ?, ?, ?, ?)",
-        (str(memory_id), confidence, json.dumps({"redacted": changed}), redacted_content, store.SCHEMA_VERSION),
+        (
+            f"{source_type}:{memory_id}",
+            confidence,
+            json.dumps({"redacted": changed, "source_type": source_type}),
+            redacted_content,
+            store.SCHEMA_VERSION,
+        ),
     )
 
     embedding = embedding_engine.generate_embedding(redacted_content)
@@ -64,19 +73,16 @@ def insert_memory(memory_id: int, content: str, confidence: float) -> None:
             VALUES (?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET embedding=excluded.embedding
             """,
-            (f"knowledge:{memory_id}", "knowledge", str(memory_id), json.dumps(embedding)),
+            (f"{source_type}:{memory_id}", source_type, str(memory_id), json.dumps(embedding)),
         )
 
     conn.commit()
     conn.close()
 
 
-def index_memory(limit: int = 100) -> int:
-    emit_event(LOGFILE, "brain_memory_vector_index_start", status="ok")
-    conn = store.connect()
-    _ensure_vector_table(conn)
+def _index_table(conn, table: str, limit: int) -> int:
     rows = conn.execute(
-        "SELECT id, content, confidence FROM knowledge ORDER BY id DESC LIMIT ?",
+        f"SELECT id, content, confidence FROM {table} ORDER BY id DESC LIMIT ?",
         (limit,),
     ).fetchall()
     count = 0
@@ -87,7 +93,7 @@ def index_memory(limit: int = 100) -> int:
         if not embedding:
             continue
         conn.execute(
-            "UPDATE knowledge SET content=?, metadata_json=? WHERE id=?",
+            f"UPDATE {table} SET content=?, metadata_json=? WHERE id=?",
             (redacted_content, json.dumps({"redacted": changed}), row["id"]),
         )
         conn.execute(
@@ -96,9 +102,21 @@ def index_memory(limit: int = 100) -> int:
             VALUES (?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET embedding=excluded.embedding
             """,
-            (f"knowledge:{row['id']}", "knowledge", str(row["id"]), json.dumps(embedding)),
+            (f"{table}:{row['id']}", table, str(row["id"]), json.dumps(embedding)),
         )
         count += 1
+    return count
+
+
+def index_memory(limit: int = 100, *, tables: Iterable[str] | None = None) -> int:
+    emit_event(LOGFILE, "brain_memory_vector_index_start", status="ok")
+    conn = store.connect()
+    _ensure_vector_table(conn)
+    count = 0
+    for table in (tables or EMBEDDING_TABLES):
+        if table not in EMBEDDING_TABLES:
+            continue
+        count += _index_table(conn, table, limit)
     conn.commit()
     conn.close()
     emit_event(LOGFILE, "brain_memory_vector_index_complete", status="ok", indexed=count)
@@ -136,7 +154,7 @@ def search_memory(query: str, limit: int = 5) -> List[Dict[str, Any]]:
 
     if not results:
         rows = conn.execute(
-            "SELECT id, source, content, confidence FROM memory_index WHERE content LIKE ? ORDER BY id DESC LIMIT ?",
+            "SELECT id, source, content, confidence, metadata_json FROM memory_index WHERE content LIKE ? ORDER BY id DESC LIMIT ?",
             (f"%{query}%", limit),
         ).fetchall()
         results = [
@@ -146,7 +164,7 @@ def search_memory(query: str, limit: int = 5) -> List[Dict[str, Any]]:
                 "source_id": str(row["source"]),
                 "score": float(row["confidence"] or 0.0),
                 "content": str(row["content"] or "")[:240],
-                "links": memory_links.get_memory_links(f"memory_index:{row['id']}")
+                "links": memory_links.get_memory_links(f"memory_index:{row['id']}"),
             }
             for row in rows
         ]

@@ -75,26 +75,31 @@ def retrieve(prompt: str, limit: int = 5, categories: Iterable[str] | None = Non
 
         results[key] = sorted(results[key], key=lambda x: x["score"], reverse=True)[:limit]
 
-    if prompt.strip() and not results.get("knowledge"):
+    if prompt.strip() and all(not results.get(bucket) for bucket in selected_categories):
         semantic = vector_index.search_memory(prompt, limit=limit)
         for item in semantic:
-            if item.get("source_type") == "knowledge":
-                row = conn.execute(
-                    "SELECT id, content, confidence FROM knowledge WHERE id=?",
-                    (int(item.get("source_id") or 0),),
-                ).fetchone()
+            source_type = item.get("source_type") or "knowledge"
+            if source_type in selected_categories:
+                try:
+                    row = conn.execute(
+                        f"SELECT id, content, confidence FROM {source_type} WHERE id=?",
+                        (int(item.get("source_id") or 0),),
+                    ).fetchone()
+                except Exception:
+                    continue
                 if not row:
                     continue
                 content = row["content"] if isinstance(row, dict) else row[1]
-                mem_ref = f"knowledge:{row[0]}"
+                mem_ref = f"{source_type}:{row[0]}"
                 promo_conf = row["confidence"] if isinstance(row, dict) else row[2]
-                results["knowledge"].append({
+                results[source_type].append({
                     "content": content,
                     "score": score_record(content, mem_ref, promo_conf),
                     "memory_reference": mem_ref,
                     "links": memory_links.get_memory_links(mem_ref),
                 })
             else:
+                # fallback (memory_index entries)
                 content = item.get("content") or ""
                 mem_ref = str(item.get("entry_id") or "")
                 results["knowledge"].append({
@@ -103,7 +108,8 @@ def retrieve(prompt: str, limit: int = 5, categories: Iterable[str] | None = Non
                     "memory_reference": mem_ref,
                     "links": item.get("links", []),
                 })
-        results["knowledge"] = sorted(results["knowledge"], key=lambda x: x["score"], reverse=True)[:limit]
+        for bucket in selected_categories:
+            results[bucket] = sorted(results[bucket], key=lambda x: x["score"], reverse=True)[:limit]
 
     conn.close()
     emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_retrieval_rank_complete", status="ok")

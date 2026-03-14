@@ -125,7 +125,7 @@
 ### `brain/runtime/memory/health.py`
 
 - Resolved: vector coverage now uses `vector_embeddings` counts.
-- Note: coverage still only considers `knowledge` embeddings.
+- Note: coverage now includes `knowledge`, `runbooks`, and `lessons` embeddings.
 
 ### `brain/runtime/memory/integrity.py`
 
@@ -215,7 +215,7 @@
 ### `brain/runtime/memory/retrieval.py`
 
 - Assumption: keyword match is the primary retrieval mode; semantic search is a fallback for empty knowledge hits.
-- Gap: semantic fallback only populates `knowledge`, even if the query targets directives/tasks/reflections.
+- Updated: semantic fallback now rehydrates `knowledge`, `runbooks`, and `lessons` when there are no keyword hits.
 - Gap: reinforcement lookup uses a plain dict keyed by `memory_reference`, so multiple experiences for the same memory overwrite each other instead of aggregating.
 - Gap: only exact substring matching gets a keyword score. Token overlap, stemming, and fuzzy matching are absent.
 
@@ -255,7 +255,7 @@
 
 - Assumption: `memory_index` is a keyword/fallback index, while `vector_embeddings` is the real embedding store.
 - Gap: `index_memory()` rewrites `knowledge.content` with redacted content, which mutates the source record rather than storing redaction metadata separately.
-- Gap: `insert_memory()` indexes only promoted `knowledge` rows. `runbooks` and `lessons` are never embedded, even though `promote.py` can route there.
+- Updated: `insert_memory()` and `index_memory()` now embed `knowledge`, `runbooks`, and `lessons`.
 - Gap: fallback search returns `memory_index` entries, not canonical knowledge references, so sidecar consumers can see references that `/memory/get` cannot resolve meaningfully.
 
 ### `ocmemog/__init__.py`

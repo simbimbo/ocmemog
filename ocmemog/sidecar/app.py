@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from brain.runtime import state_store
-from brain.runtime.memory import retrieval, store, api, distill, health, memory_links, pondering_engine
+from brain.runtime.memory import retrieval, store, api, distill, health, memory_links, pondering_engine, reinforcement
 from ocmemog.sidecar.compat import flatten_results, probe_runtime
 from ocmemog.sidecar.transcript_watcher import watch_forever
 
@@ -216,6 +216,17 @@ class IngestRequest(BaseModel):
 
 class DistillRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=100)
+
+
+class ReinforceRequest(BaseModel):
+    task_id: str
+    outcome: str
+    reward_score: float = Field(default=1.0, ge=0.0, le=1.0)
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    memory_reference: str = Field(default="feedback")
+    experience_type: str = Field(default="reinforcement")
+    source_module: str = Field(default="sidecar")
+    note: Optional[str] = None
 
 
 def _normalize_categories(categories: Optional[Iterable[str]]) -> List[str]:
@@ -551,6 +562,23 @@ def memory_ingest_status() -> dict[str, Any]:
 def memory_ingest_flush(limit: int = 0) -> dict[str, Any]:
     stats = _drain_queue(limit if limit > 0 else None)
     return {"ok": True, "queueDepth": _queue_depth(), **stats}
+
+
+@app.post("/memory/reinforce")
+def memory_reinforce(request: ReinforceRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    result = reinforcement.log_experience(
+        task_id=request.task_id,
+        outcome=request.outcome,
+        confidence=request.confidence,
+        reward_score=request.reward_score,
+        memory_reference=request.memory_reference,
+        experience_type=request.experience_type,
+        source_module=request.source_module,
+    )
+    if request.note:
+        api.record_reinforcement(request.task_id, request.outcome, request.note, source_module=request.source_module)
+    return {"ok": True, "result": result, **runtime}
 
 
 @app.post("/memory/distill")

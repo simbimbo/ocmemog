@@ -31,4 +31,12 @@ if ! ollama list | rg -q "nomic-embed-text"; then
   ollama pull nomic-embed-text
 fi
 
+if ! command -v ffmpeg >/dev/null 2>&1; then
+  echo "ffmpeg not found. Install with: brew install ffmpeg"
+fi
+
+if [ -z "${OPENAI_API_KEY:-}" ]; then
+  echo "OPENAI_API_KEY not set. Whisper transcription will be disabled."
+fi
+
 echo "ocmemog install complete."

@@ -1,0 +1,23 @@
+{
+  "name": "@simbimbo/memory-ocmemog",
+  "version": "0.0.1",
+  "private": true,
+  "description": "OpenClaw memory plugin scaffold backed by ocmemog",
+  "type": "module",
+  "devDependencies": {
+    "openclaw": "workspace:*"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.3.11"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

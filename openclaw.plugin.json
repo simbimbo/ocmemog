@@ -1,0 +1,18 @@
+{
+  "id": "memory-ocmemog",
+  "kind": "memory",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "endpoint": {
+        "type": "string",
+        "description": "Optional HTTP endpoint for the ocmemog memory sidecar."
+      },
+      "timeoutMs": {
+        "type": "number",
+        "description": "Request timeout in milliseconds."
+      }
+    }
+  }
+}

@@ -10,6 +10,26 @@ from urllib import request as urlrequest
 DEFAULT_ENDPOINT = "http://127.0.0.1:17890/memory/ingest_async"
 DEFAULT_GLOB = "*.log"
 DEFAULT_SESSION_GLOB = "*.jsonl"
+DEFAULT_REINFORCE_POSITIVE = [
+    "good job",
+    "nice job",
+    "well done",
+    "great work",
+    "awesome",
+    "thanks",
+    "thank you",
+    "love it",
+]
+DEFAULT_REINFORCE_NEGATIVE = [
+    "not good",
+    "bad job",
+    "this sucks",
+    "terrible",
+    "awful",
+    "wrong",
+    "disappointed",
+    "frustrated",
+]
 
 
 def _pick_latest(path: Path, pattern: str) -> Optional[Path]:
@@ -22,6 +42,17 @@ def _pick_latest(path: Path, pattern: str) -> Optional[Path]:
 
 
 def _post_ingest(endpoint: str, payload: dict) -> None:
+    data = json.dumps(payload).encode("utf-8")
+    req = urlrequest.Request(endpoint, data=data, method="POST")
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urlrequest.urlopen(req, timeout=10) as resp:
+            resp.read()
+    except Exception:
+        return
+
+
+def _post_json(endpoint: str, payload: dict) -> None:
     data = json.dumps(payload).encode("utf-8")
     req = urlrequest.Request(endpoint, data=data, method="POST")
     req.add_header("Content-Type", "application/json")
@@ -70,6 +101,15 @@ def watch_forever() -> None:
     source = os.environ.get("OCMEMOG_INGEST_SOURCE", "transcript").strip() or "transcript"
     memory_type = os.environ.get("OCMEMOG_INGEST_MEMORY_TYPE", "knowledge").strip() or "knowledge"
 
+    reinforce_enabled = os.environ.get("OCMEMOG_REINFORCE_SENTIMENT", "true").lower() in {"1", "true", "yes"}
+    reinforce_endpoint = os.environ.get(
+        "OCMEMOG_REINFORCE_ENDPOINT", "http://127.0.0.1:17890/memory/reinforce"
+    ).strip()
+    pos_terms = os.environ.get("OCMEMOG_REINFORCE_POSITIVE", ",".join(DEFAULT_REINFORCE_POSITIVE))
+    neg_terms = os.environ.get("OCMEMOG_REINFORCE_NEGATIVE", ",".join(DEFAULT_REINFORCE_NEGATIVE))
+    positive_terms = [t.strip().lower() for t in pos_terms.split(",") if t.strip()]
+    negative_terms = [t.strip().lower() for t in neg_terms.split(",") if t.strip()]
+
     if transcript_path or transcript_dir:
         transcript_target = Path(transcript_path or transcript_dir).expanduser().resolve()
     else:
@@ -109,6 +149,35 @@ def watch_forever() -> None:
             payload["timestamp"] = timestamp.replace("T", " ")[:19]
         _post_ingest(endpoint, payload)
         buffer.clear()
+
+    def _maybe_reinforce(text: str, timestamp: str) -> None:
+        if not reinforce_enabled:
+            return
+        lowered = text.lower()
+        if any(term in lowered for term in positive_terms):
+            payload = {
+                "task_id": f"feedback:{timestamp}",
+                "outcome": "positive feedback",
+                "reward_score": 1.0,
+                "confidence": 1.0,
+                "memory_reference": "feedback:chat",
+                "experience_type": "reinforcement",
+                "source_module": "sentiment",
+                "note": text,
+            }
+            _post_json(reinforce_endpoint, payload)
+        elif any(term in lowered for term in negative_terms):
+            payload = {
+                "task_id": f"feedback:{timestamp}",
+                "outcome": "negative feedback",
+                "reward_score": 0.0,
+                "confidence": 1.0,
+                "memory_reference": "feedback:chat",
+                "experience_type": "reinforcement",
+                "source_module": "sentiment",
+                "note": text,
+            }
+            _post_json(reinforce_endpoint, payload)
 
     while True:
         # 1) Watch transcript logs (if any)
@@ -183,6 +252,8 @@ def watch_forever() -> None:
                         if not text:
                             continue
                         timestamp = entry.get("timestamp") or time.strftime("%Y-%m-%dT%H:%M:%S")
+                        if role == "user":
+                            _maybe_reinforce(text, timestamp)
                         transcript_path = _append_transcript(transcript_target, timestamp, role, text)
                         session_buffer.append(f"{timestamp} [{role}] {text}")
                         session_last_path = transcript_path

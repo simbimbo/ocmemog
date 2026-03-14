@@ -20,6 +20,13 @@ pip install -r requirements.txt
 ./scripts/ocmemog-sidecar.sh
 ```
 
+## Optional: transcript watcher (auto-ingest)
+
+```bash
+export OCMEMOG_TRANSCRIPT_DIR="$HOME/.openclaw/workspace/memory/transcripts"
+./scripts/ocmemog-transcript-watcher.sh
+```
+
 Default bind:
 
 - endpoint: `http://127.0.0.1:17890`

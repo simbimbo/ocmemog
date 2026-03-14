@@ -16,6 +16,14 @@ Use the provided launcher:
 scripts/ocmemog-sidecar.sh
 ```
 
+## Transcript watcher (auto-ingest)
+
+```bash
+export OCMEMOG_TRANSCRIPT_DIR="$HOME/.openclaw/workspace/memory/transcripts"
+export OCMEMOG_INGEST_ENDPOINT="http://127.0.0.1:17890/memory/ingest"
+./scripts/ocmemog-transcript-watcher.sh
+```
+
 Useful environment variables:
 
 ```bash
@@ -29,6 +37,11 @@ export OCMEMOG_OPENAI_API_BASE=https://api.openai.com/v1
 export OCMEMOG_OPENAI_EMBED_MODEL=text-embedding-3-small
 export BRAIN_EMBED_MODEL_LOCAL=simple
 export BRAIN_EMBED_MODEL_PROVIDER=openai
+export OCMEMOG_TRANSCRIPT_DIR=$HOME/.openclaw/workspace/memory/transcripts
+export OCMEMOG_TRANSCRIPT_GLOB=*.log
+export OCMEMOG_TRANSCRIPT_POLL_SECONDS=1
+export OCMEMOG_INGEST_KIND=experience
+export OCMEMOG_INGEST_SOURCE=transcript
 ```
 
 Default state location in this repo is `.ocmemog-state/`.

@@ -4,6 +4,9 @@
   "private": true,
   "description": "OpenClaw memory plugin scaffold backed by ocmemog",
   "type": "module",
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.41"
+  },
   "devDependencies": {
     "openclaw": "workspace:*"
   },
@@ -14,6 +17,9 @@
     "openclaw": {
       "optional": true
     }
+  },
+  "scripts": {
+    "sidecar": "./scripts/ocmemog-sidecar.sh"
   },
   "openclaw": {
     "extensions": [

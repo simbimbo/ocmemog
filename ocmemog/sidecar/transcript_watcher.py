@@ -39,7 +39,7 @@ def watch_forever() -> None:
     poll_seconds = float(os.environ.get("OCMEMOG_TRANSCRIPT_POLL_SECONDS", "1"))
     start_at_end = os.environ.get("OCMEMOG_TRANSCRIPT_START_AT_END", "true").lower() in {"1", "true", "yes"}
 
-    kind = os.environ.get("OCMEMOG_INGEST_KIND", "experience").strip() or "experience"
+    kind = os.environ.get("OCMEMOG_INGEST_KIND", "memory").strip() or "memory"
     source = os.environ.get("OCMEMOG_INGEST_SOURCE", "transcript").strip() or "transcript"
     memory_type = os.environ.get("OCMEMOG_INGEST_MEMORY_TYPE", "knowledge").strip() or "knowledge"
 

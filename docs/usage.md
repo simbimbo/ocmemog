@@ -50,7 +50,7 @@ export BRAIN_EMBED_MODEL_PROVIDER=openai
 export OCMEMOG_TRANSCRIPT_DIR=$HOME/.openclaw/workspace/memory/transcripts
 export OCMEMOG_TRANSCRIPT_GLOB=*.log
 export OCMEMOG_TRANSCRIPT_POLL_SECONDS=1
-export OCMEMOG_INGEST_KIND=experience
+export OCMEMOG_INGEST_KIND=memory
 export OCMEMOG_INGEST_SOURCE=transcript
 export OCMEMOG_TRANSCRIPT_WATCHER=true
 ```

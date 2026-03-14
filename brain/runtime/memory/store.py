@@ -180,13 +180,20 @@ def db_path() -> Path:
     return state_store.memory_db_path()
 
 
+_SCHEMA_READY = False
+
+
 def connect(*, ensure_schema: bool = True) -> sqlite3.Connection:
-    if ensure_schema:
+    global _SCHEMA_READY
+    if ensure_schema and not _SCHEMA_READY:
         init_db()
+        _SCHEMA_READY = True
     path = db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
+    conn = sqlite3.connect(str(path), timeout=5)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=3000")
     return conn
 
 

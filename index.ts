@@ -191,6 +191,92 @@ const ocmemogPlugin = {
       },
       { name: "memory_get" },
     );
+
+    api.registerTool(
+      {
+        name: "memory_ingest",
+        label: "Memory Ingest",
+        description: "Ingest raw content into ocmemog as an experience or memory record.",
+        parameters: Type.Object({
+          content: Type.String({ description: "Raw content to ingest." }),
+          kind: Type.Optional(Type.String({ description: "experience or memory" })),
+          memoryType: Type.Optional(Type.String({ description: "memory bucket (knowledge/reflections/etc.)" })),
+          source: Type.Optional(Type.String({ description: "Optional source label." })),
+          taskId: Type.Optional(Type.String({ description: "Optional task id for experience ingest." })),
+        }),
+        async execute(_toolCallId: string, params: Record<string, unknown>) {
+          try {
+            const payload = await postJson<{ ok: boolean }>(config, "/memory/ingest", {
+              content: params.content,
+              kind: params.kind,
+              memory_type: params.memoryType,
+              source: params.source,
+              task_id: params.taskId,
+            });
+            return {
+              content: [{ type: "text", text: `memory_ingest: ${payload.ok ? "ok" : "failed"}` }],
+              details: payload,
+            };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "unknown sidecar failure";
+            return {
+              content: [
+                {
+                  type: "text",
+                  text:
+                    `ocmemog sidecar request failed for memory_ingest.\n` +
+                    `endpoint: ${config.endpoint}\n` +
+                    `error: ${message}\n` +
+                    `TODO: start the FastAPI sidecar before using this tool.`,
+                },
+              ],
+              details: { ok: false, endpoint: config.endpoint, error: message },
+            };
+          }
+        },
+      },
+      { name: "memory_ingest" },
+    );
+
+    api.registerTool(
+      {
+        name: "memory_distill",
+        label: "Memory Distill",
+        description: "Run a distillation pass on recent experiences in ocmemog.",
+        parameters: Type.Object({
+          limit: Type.Optional(Type.Number({ description: "Max experiences to distill." })),
+        }),
+        async execute(_toolCallId: string, params: Record<string, unknown>) {
+          try {
+            const payload = await postJson<{ ok: boolean; count?: number }>(config, "/memory/distill", {
+              limit: params.limit,
+            });
+            return {
+              content: [
+                { type: "text", text: `memory_distill: ${payload.ok ? "ok" : "failed"} (${payload.count ?? 0})` },
+              ],
+              details: payload,
+            };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "unknown sidecar failure";
+            return {
+              content: [
+                {
+                  type: "text",
+                  text:
+                    `ocmemog sidecar request failed for memory_distill.\n` +
+                    `endpoint: ${config.endpoint}\n` +
+                    `error: ${message}\n` +
+                    `TODO: start the FastAPI sidecar before using this tool.`,
+                },
+              ],
+              details: { ok: false, endpoint: config.endpoint, error: message },
+            };
+          }
+        },
+      },
+      { name: "memory_distill" },
+    );
   },
 };
 

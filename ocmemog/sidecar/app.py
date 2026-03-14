@@ -5,7 +5,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
-from brain.runtime.memory import retrieval, store
+from brain.runtime.memory import retrieval, store, api, distill
 from ocmemog.sidecar.compat import flatten_results, probe_runtime
 
 DEFAULT_CATEGORIES = ("knowledge", "reflections", "directives", "tasks", "runbooks", "lessons")
@@ -21,6 +21,18 @@ class SearchRequest(BaseModel):
 
 class GetRequest(BaseModel):
     reference: str
+
+
+class IngestRequest(BaseModel):
+    content: str
+    kind: str = Field(default="experience", description="experience or memory")
+    memory_type: Optional[str] = Field(default=None, description="knowledge|reflections|directives|tasks|runbooks|lessons")
+    source: Optional[str] = None
+    task_id: Optional[str] = None
+
+
+class DistillRequest(BaseModel):
+    limit: int = Field(default=10, ge=1, le=100)
 
 
 def _normalize_categories(categories: Optional[Iterable[str]]) -> List[str]:
@@ -146,3 +158,42 @@ def memory_get(request: GetRequest) -> dict[str, Any]:
         "memory": row,
         **runtime,
     }
+
+
+@app.post("/memory/ingest")
+def memory_ingest(request: IngestRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    content = request.content.strip() if isinstance(request.content, str) else ""
+    if not content:
+        return {"ok": False, "error": "empty_content", **runtime}
+
+    kind = (request.kind or "experience").lower()
+    if kind == "memory":
+        api.store_memory(request.memory_type or "knowledge", content, source=request.source)
+        return {"ok": True, "kind": "memory", "memory_type": request.memory_type or "knowledge", **runtime}
+
+    # experience ingest
+    conn = store.connect()
+    conn.execute(
+        "INSERT INTO experiences (task_id, outcome, reward_score, confidence, experience_type, source_module, schema_version) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            request.task_id,
+            content,
+            None,
+            1.0,
+            "ingest",
+            request.source or "sidecar",
+            store.SCHEMA_VERSION,
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return {"ok": True, "kind": "experience", **runtime}
+
+
+@app.post("/memory/distill")
+def memory_distill(request: DistillRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    results = distill.distill_experiences(limit=request.limit)
+    return {"ok": True, "count": len(results), "results": results, **runtime}

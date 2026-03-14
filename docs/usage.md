@@ -57,6 +57,22 @@ curl -s http://127.0.0.1:17890/memory/get \
   -d '{"reference":"knowledge:12"}'
 ```
 
+Ingest content:
+
+```bash
+curl -s http://127.0.0.1:17890/memory/ingest \
+  -H 'content-type: application/json' \
+  -d '{"content":"remember this","kind":"memory","memory_type":"knowledge"}'
+```
+
+Distill recent experiences:
+
+```bash
+curl -s http://127.0.0.1:17890/memory/distill \
+  -H 'content-type: application/json' \
+  -d '{"limit":10}'
+```
+
 Notes:
 
 - Valid sidecar categories today are `knowledge`, `reflections`, `directives`, `tasks`, `runbooks`, and `lessons`.

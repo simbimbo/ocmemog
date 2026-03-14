@@ -93,6 +93,8 @@ The sidecar exposes:
 - `GET /healthz`
 - `POST /memory/search`
 - `POST /memory/get`
+- `POST /memory/ingest`
+- `POST /memory/distill`
 
 The sidecar also reports runtime readiness through `mode`, `missingDeps`, `todo`, and `warnings`. That status is important because several copied brAIn modules are shimmed and should be treated as degraded.
 

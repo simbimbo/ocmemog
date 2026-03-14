@@ -18,6 +18,9 @@ python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
 ./scripts/ocmemog-sidecar.sh
+
+# then open
+# http://127.0.0.1:17890/dashboard
 ```
 
 ## Optional: transcript watcher (auto-ingest)

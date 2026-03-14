@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from typing import Any, Dict, Iterable, List, Optional
 
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from brain.runtime.memory import retrieval, store, api, distill
+from brain.runtime import state_store
+from brain.runtime.memory import retrieval, store, api, distill, health
 from ocmemog.sidecar.compat import flatten_results, probe_runtime
 from ocmemog.sidecar.transcript_watcher import watch_forever
 
@@ -209,3 +212,76 @@ def memory_distill(request: DistillRequest) -> dict[str, Any]:
     runtime = _runtime_payload()
     results = distill.distill_experiences(limit=request.limit)
     return {"ok": True, "count": len(results), "results": results, **runtime}
+
+
+@app.get("/metrics")
+def metrics() -> dict[str, Any]:
+    runtime = _runtime_payload()
+    return {"ok": True, "metrics": health.get_memory_health(), **runtime}
+
+
+def _event_stream():
+    path = state_store.reports_dir() / "brain_memory.log.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.write_text("")
+    with path.open("r", encoding="utf-8", errors="ignore") as handle:
+        handle.seek(0, 2)
+        while True:
+            line = handle.readline()
+            if not line:
+                time.sleep(0.5)
+                continue
+            yield f"data: {line.strip()}\n\n"
+
+
+@app.get("/events")
+def events() -> StreamingResponse:
+    return StreamingResponse(_event_stream(), media_type="text/event-stream")
+
+
+@app.get("/dashboard")
+def dashboard() -> HTMLResponse:
+    html = """
+    <!doctype html>
+    <html>
+    <head>
+      <meta charset='utf-8'/>
+      <title>ocmemog realtime</title>
+      <style>
+        body { font-family: system-ui, sans-serif; padding: 20px; }
+        .metrics { display: flex; gap: 12px; flex-wrap: wrap; }
+        .card { border: 1px solid #ddd; padding: 10px 14px; border-radius: 8px; min-width: 140px; }
+        pre { background: #f7f7f7; padding: 10px; height: 320px; overflow: auto; }
+      </style>
+    </head>
+    <body>
+      <h2>ocmemog realtime</h2>
+      <div class="metrics" id="metrics"></div>
+      <h3>Live events</h3>
+      <pre id="events"></pre>
+      <script>
+        const metricsEl = document.getElementById('metrics');
+        const eventsEl = document.getElementById('events');
+
+        async function refreshMetrics() {
+          const res = await fetch('/metrics');
+          const data = await res.json();
+          const counts = data.metrics?.counts || {};
+          metricsEl.innerHTML = Object.entries(counts).map(([k,v]) => 
+            `<div class="card"><strong>${k}</strong><br/>${v}</div>`
+          ).join('');
+        }
+        refreshMetrics();
+        setInterval(refreshMetrics, 5000);
+
+        const es = new EventSource('/events');
+        es.onmessage = (ev) => {
+          eventsEl.textContent += ev.data + "\n";
+          eventsEl.scrollTop = eventsEl.scrollHeight;
+        };
+      </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(html)

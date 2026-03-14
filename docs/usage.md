@@ -65,6 +65,19 @@ Health:
 curl http://127.0.0.1:17890/healthz
 ```
 
+Realtime metrics + events:
+
+```bash
+curl http://127.0.0.1:17890/metrics
+curl http://127.0.0.1:17890/events
+```
+
+Dashboard:
+
+```bash
+open http://127.0.0.1:17890/dashboard
+```
+
 Search:
 
 ```bash

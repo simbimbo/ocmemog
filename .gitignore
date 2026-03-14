@@ -1,0 +1,4 @@
+.venv/
+.ocmemog-state/
+__pycache__/
+*.pyc

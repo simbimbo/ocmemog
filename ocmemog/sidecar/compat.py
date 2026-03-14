@@ -15,9 +15,8 @@ class RuntimeStatus:
 
 
 TODO_ITEMS = [
-    "Replace shimmed brAIn runtime modules with real OpenClaw-native integrations.",
-    "Wire provider-backed embeddings if you need non-local embedding generation.",
-    "Wire inference/model-role modules before enabling distillation or identity extraction paths.",
+    "Add a role registry (brain.runtime.roles) if you want role-prioritized context building.",
+    "Add non-OpenAI embedding providers if required.",
 ]
 
 

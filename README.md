@@ -66,6 +66,17 @@ Optional environment variables:
 - Sidecar binds to **127.0.0.1** by default. Keep it local unless you add auth + firewall rules.
 - If you expose the sidecar, set `OCMEMOG_API_TOKEN` and pass the header `x-ocmemog-token`.
 
+## One‑shot installer (macOS)
+
+```bash
+./scripts/ocmemog-install.sh
+```
+
+This will:
+- install LaunchAgents
+- start sidecar + guard + hourly ponder
+- prompt for Ollama install and pull required models
+
 ## LaunchAgents (macOS)
 
 Templates are included under `scripts/launchagents/`:

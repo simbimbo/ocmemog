@@ -1,4 +1,3 @@
-import { Type } from "@sinclair/typebox";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/memory-core";
 
 const DEFAULT_ENDPOINT = "http://127.0.0.1:17890";
@@ -98,11 +97,20 @@ const ocmemogPlugin = {
         name: "memory_search",
         label: "Memory Search",
         description: "Search the ocmemog sidecar for stored long-term memories.",
-        parameters: Type.Object({
-          query: Type.String({ description: "Search query." }),
-          limit: Type.Optional(Type.Number({ description: "Maximum results to return." })),
-          categories: Type.Optional(Type.Array(Type.String({ description: "Memory category." }))),
-        }),
+        parameters: {
+          type: "object",
+          additionalProperties: false,
+          required: ["query"],
+          properties: {
+            query: { type: "string", description: "Search query." },
+            limit: { type: "number", description: "Maximum results to return." },
+            categories: {
+              type: "array",
+              items: { type: "string" },
+              description: "Memory category.",
+            },
+          },
+        },
         async execute(_toolCallId: string, params: Record<string, unknown>) {
           try {
             const payload = await postJson<SearchResponse>(config, "/memory/search", {
@@ -153,9 +161,14 @@ const ocmemogPlugin = {
         name: "memory_get",
         label: "Memory Get",
         description: "Fetch a memory record by the reference returned from memory_search.",
-        parameters: Type.Object({
-          reference: Type.String({ description: "Memory reference, for example knowledge:12." }),
-        }),
+        parameters: {
+          type: "object",
+          additionalProperties: false,
+          required: ["reference"],
+          properties: {
+            reference: { type: "string", description: "Memory reference, for example knowledge:12." },
+          },
+        },
         async execute(_toolCallId: string, params: Record<string, unknown>) {
           try {
             const payload = await postJson<GetResponse>(config, "/memory/get", {
@@ -197,13 +210,18 @@ const ocmemogPlugin = {
         name: "memory_ingest",
         label: "Memory Ingest",
         description: "Ingest raw content into ocmemog as an experience or memory record.",
-        parameters: Type.Object({
-          content: Type.String({ description: "Raw content to ingest." }),
-          kind: Type.Optional(Type.String({ description: "experience or memory" })),
-          memoryType: Type.Optional(Type.String({ description: "memory bucket (knowledge/reflections/etc.)" })),
-          source: Type.Optional(Type.String({ description: "Optional source label." })),
-          taskId: Type.Optional(Type.String({ description: "Optional task id for experience ingest." })),
-        }),
+        parameters: {
+          type: "object",
+          additionalProperties: false,
+          required: ["content"],
+          properties: {
+            content: { type: "string", description: "Raw content to ingest." },
+            kind: { type: "string", description: "experience or memory" },
+            memoryType: { type: "string", description: "memory bucket (knowledge/reflections/etc.)" },
+            source: { type: "string", description: "Optional source label." },
+            taskId: { type: "string", description: "Optional task id for experience ingest." },
+          },
+        },
         async execute(_toolCallId: string, params: Record<string, unknown>) {
           try {
             const payload = await postJson<{ ok: boolean }>(config, "/memory/ingest", {
@@ -243,9 +261,13 @@ const ocmemogPlugin = {
         name: "memory_distill",
         label: "Memory Distill",
         description: "Run a distillation pass on recent experiences in ocmemog.",
-        parameters: Type.Object({
-          limit: Type.Optional(Type.Number({ description: "Max experiences to distill." })),
-        }),
+        parameters: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            limit: { type: "number", description: "Max experiences to distill." },
+          },
+        },
         async execute(_toolCallId: string, params: Record<string, unknown>) {
           try {
             const payload = await postJson<{ ok: boolean; count?: number }>(config, "/memory/distill", {

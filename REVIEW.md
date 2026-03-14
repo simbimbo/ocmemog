@@ -9,8 +9,8 @@
 
 ## Summary findings
 
-- High risk: `brain/runtime/memory/api.py` is not usable against this repo's schema. It writes to `events`, `memories`, and `reinforcement` tables that do not exist, and it treats `tasks` as `(task_id, status, created_at)` even though `store.py` defines `tasks` as content memory.
-- High risk: `ocmemog/sidecar/app.py` interpolates the table name from `reference` directly into SQL in `_get_row()`. Invalid input can raise SQL errors, and the endpoint does not constrain lookups to known memory tables.
+- Fixed: `brain/runtime/memory/api.py` now matches the local schema (`memory_events`, `tasks`, `knowledge`, `experiences`).
+- Fixed: `ocmemog/sidecar/app.py` now enforces a table allow-list in `_get_row()`.
 - High risk: distillation, identity extraction, and provider-backed embeddings are advertised by the copied package but are still shim-backed in this repo. `brain/runtime/inference.py`, `brain/runtime/model_roles.py`, and `brain/runtime/providers.py` do not implement real runtime behavior.
 - Medium risk: integrity/health coverage is internally inconsistent. `health.py` reports `memory_index` count as vector coverage, while real vectors live in `vector_embeddings`.
 - Medium risk: some modules are effectively orphaned from the sidecar flow (`memory_synthesis`, `memory_gate`, `memory_graph`, `semantic_search`, `tool_catalog`, `unresolved_state`) and currently document capability more than they deliver.
@@ -79,13 +79,9 @@
 
 ### `brain/runtime/memory/api.py`
 
-- Bug: `record_event()` inserts into `events`, but `store.py` creates `memory_events`.
-- Bug: `record_task()` inserts `(task_id, status)` into `tasks`, but `tasks` is defined as a content table with `timestamp/source/confidence/metadata_json/content/schema_version`.
-- Bug: `store_memory()` inserts into `memories`, which does not exist.
-- Bug: `record_reinforcement()` inserts into `reinforcement`, which does not exist.
-- Bug: `get_recent_tasks()` and `get_memories()` select `created_at`, but the actual schema uses `timestamp`.
-- Gap: this file reflects a different memory API contract than the schema copied into this repo.
-- TODO: either delete this API surface or rewrite it against `memory_events`, `knowledge`, `tasks`, and `experiences`.
+- Resolved: rewritten to align with the local schema (`memory_events`, `tasks`, `knowledge`, `experiences`).
+- Behavior: `record_task()` stores `task_id` in `metadata_json` and `status` as content.
+- Behavior: `record_reinforcement()` now logs to `experiences` and a `memory_events` note.
 
 ### `brain/runtime/memory/artifacts.py`
 
@@ -275,11 +271,11 @@
 
 ### `ocmemog/sidecar/app.py`
 
-- Bug: `_get_row()` interpolates `table` directly into SQL. `raw_id.isdigit()` protects the id only; the table name still needs allow-list validation.
+- Resolved: `_get_row()` now enforces a table allow-list.
 - Gap: `/memory/get` can only fetch rows from one SQLite table and returns a TODO error for unsupported references, so linked/derived references are not really supported.
 - Gap: `/memory/search` falls back to substring search on the same categories, but fallback results still claim `ok: true` even when runtime is degraded.
 - Assumption: `DEFAULT_CATEGORIES` intentionally excludes `runbooks` and `lessons`, so promoted procedural/lesson memories are invisible to the sidecar by default.
-- TODO: add an allow-list for resolvable tables and decide whether `runbooks`/`lessons` should become searchable categories.
+- TODO: decide whether `runbooks`/`lessons` should become searchable categories.
 
 ### `ocmemog/sidecar/compat.py`
 
@@ -290,7 +286,6 @@
 
 ## Recommended next steps
 
-- Remove or rewrite `brain/runtime/memory/api.py` so the repo has one memory schema contract.
-- Lock down `_get_row()` with a fixed table allow-list and decide which memory tables are actually part of the plugin API.
+- Decide which memory tables are actually part of the plugin API (`runbooks`/`lessons`?).
 - Treat distillation, role-aware context, provider embeddings, and identity extraction as unsupported until the shim dependencies are replaced.
 - Decide whether `runbooks` and `lessons` are real first-class memory types in ocmemog. If yes, expose them in retrieval, docs, and sidecar endpoints consistently.

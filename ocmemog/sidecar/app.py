@@ -70,6 +70,19 @@ def _get_row(reference: str) -> Optional[Dict[str, Any]]:
     if not sep or not table or not raw_id.isdigit():
         return None
 
+    allowed_tables = {
+        "knowledge",
+        "reflections",
+        "directives",
+        "tasks",
+        "runbooks",
+        "lessons",
+        "candidates",
+        "promotions",
+    }
+    if table not in allowed_tables:
+        return None
+
     conn = store.connect()
     try:
         row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (int(raw_id),)).fetchone()

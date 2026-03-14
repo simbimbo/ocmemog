@@ -32,6 +32,18 @@ def _post_ingest(endpoint: str, payload: dict) -> None:
         return
 
 
+def _extract_user_text(text: str) -> str:
+    # Prefer the final user line: "[Sat ...] message"
+    candidate = ""
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("[") and "]" in line:
+            tail = line.split("]", 1)[-1].strip()
+            if tail:
+                candidate = tail
+    return candidate or text
+
+
 def _append_transcript(transcripts_dir: Path, timestamp: str, role: str, text: str) -> Path:
     date = timestamp.split("T")[0] if "T" in timestamp else time.strftime("%Y-%m-%d")
     path = transcripts_dir / f"{date}.log"
@@ -132,7 +144,10 @@ def watch_forever() -> None:
                             text = next((c.get("text") for c in content if c.get("type") == "text"), "")
                         else:
                             text = content or ""
-                        text = str(text).replace("\n", " ").strip()
+                        text = str(text).strip()
+                        if role == "user":
+                            text = _extract_user_text(text)
+                        text = text.replace("\n", " ").strip()
                         if not text:
                             continue
                         timestamp = entry.get("timestamp") or time.strftime("%Y-%m-%dT%H:%M:%S")

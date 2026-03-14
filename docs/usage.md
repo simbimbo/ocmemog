@@ -63,7 +63,7 @@ Notes:
 
 - `store.init_db()` creates the local schema automatically
 - `retrieval.retrieve_for_queries()` is the main sidecar search path
-- `vector_index.search_memory()` provides a semantic fallback over `knowledge`, `runbooks`, and `lessons` when keyword retrieval misses
+- `vector_index.search_memory()` provides a semantic fallback over `knowledge`, `runbooks`, `lessons`, `directives`, `reflections`, and `tasks` when keyword retrieval misses
 - `probe_runtime()` exposes missing shim replacements and optional embedding warnings
 
 ## What is not safe to rely on yet

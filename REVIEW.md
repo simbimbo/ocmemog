@@ -125,7 +125,7 @@
 ### `brain/runtime/memory/health.py`
 
 - Resolved: vector coverage now uses `vector_embeddings` counts.
-- Note: coverage now includes `knowledge`, `runbooks`, and `lessons` embeddings.
+- Note: coverage now includes `knowledge`, `runbooks`, `lessons`, `directives`, `reflections`, and `tasks` embeddings.
 
 ### `brain/runtime/memory/integrity.py`
 
@@ -255,7 +255,7 @@
 
 - Assumption: `memory_index` is a keyword/fallback index, while `vector_embeddings` is the real embedding store.
 - Gap: `index_memory()` rewrites `knowledge.content` with redacted content, which mutates the source record rather than storing redaction metadata separately.
-- Updated: `insert_memory()` and `index_memory()` now embed `knowledge`, `runbooks`, and `lessons`.
+- Updated: `insert_memory()` and `index_memory()` now embed `knowledge`, `runbooks`, `lessons`, `directives`, `reflections`, and `tasks`.
 - Gap: fallback search returns `memory_index` entries, not canonical knowledge references, so sidecar consumers can see references that `/memory/get` cannot resolve meaningfully.
 
 ### `ocmemog/__init__.py`

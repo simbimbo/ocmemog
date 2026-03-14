@@ -11,7 +11,14 @@ from brain.runtime.security import redaction
 
 LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
 
-EMBEDDING_TABLES: tuple[str, ...] = ("knowledge", "runbooks", "lessons")
+EMBEDDING_TABLES: tuple[str, ...] = (
+    "knowledge",
+    "runbooks",
+    "lessons",
+    "directives",
+    "reflections",
+    "tasks",
+)
 
 
 def _ensure_vector_table(conn) -> None:

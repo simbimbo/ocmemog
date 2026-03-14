@@ -49,7 +49,7 @@ Operational limits:
 
 - Semantic fallback now rehydrates any embedded bucket (`knowledge`, `runbooks`, `lessons`) when there are no keyword hits.
 - Default embeddings are local hash vectors (`BRAIN_EMBED_MODEL_LOCAL=simple`), which are deterministic but weak.
-- `runbooks` and `lessons` are now included in the default searchable categories and embedding index.
+- `runbooks`, `lessons`, `directives`, `reflections`, and `tasks` are now included in the default searchable categories and embedding index.
 
 ## Write paths
 

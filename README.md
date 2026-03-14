@@ -66,6 +66,20 @@ Optional environment variables:
 - Sidecar binds to **127.0.0.1** by default. Keep it local unless you add auth + firewall rules.
 - If you expose the sidecar, set `OCMEMOG_API_TOKEN` and pass the header `x-ocmemog-token`.
 
+## LaunchAgents (macOS)
+
+Templates are included under `scripts/launchagents/`:
+- `com.openclaw.ocmemog.sidecar.plist`
+- `com.openclaw.ocmemog.ponder.plist`
+- `com.openclaw.ocmemog.guard.plist`
+
+You can load them with:
+```bash
+launchctl bootstrap gui/$UID scripts/launchagents/com.openclaw.ocmemog.sidecar.plist
+launchctl bootstrap gui/$UID scripts/launchagents/com.openclaw.ocmemog.ponder.plist
+launchctl bootstrap gui/$UID scripts/launchagents/com.openclaw.ocmemog.guard.plist
+```
+
 ## Install from npm
 
 ```bash

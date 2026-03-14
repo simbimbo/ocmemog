@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from brain.runtime.memory import retrieval, store
 from ocmemog.sidecar.compat import flatten_results, probe_runtime
 
-DEFAULT_CATEGORIES = ("knowledge", "reflections", "directives", "tasks")
+DEFAULT_CATEGORIES = ("knowledge", "reflections", "directives", "tasks", "runbooks", "lessons")
 
 app = FastAPI(title="ocmemog sidecar", version="0.0.1")
 

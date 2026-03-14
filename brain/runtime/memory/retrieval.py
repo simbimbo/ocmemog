@@ -17,7 +17,14 @@ def _match_score(text: str, query: str) -> float:
     return 0.0
 
 
-MEMORY_BUCKETS: Tuple[str, ...] = ("knowledge", "reflections", "directives", "tasks")
+MEMORY_BUCKETS: Tuple[str, ...] = (
+    "knowledge",
+    "reflections",
+    "directives",
+    "tasks",
+    "runbooks",
+    "lessons",
+)
 
 
 def _empty_results() -> Dict[str, List[Dict[str, Any]]]:

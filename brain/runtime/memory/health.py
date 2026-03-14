@@ -7,15 +7,15 @@ from brain.runtime.memory import store, integrity
 
 def get_memory_health() -> Dict[str, Any]:
     conn = store.connect()
-    counts = {}
-    for table in ["experiences", "candidates", "promotions", "memory_index", "knowledge"]:
+    counts: Dict[str, int] = {}
+    for table in ["experiences", "candidates", "promotions", "memory_index", "knowledge", "vector_embeddings"]:
         try:
             counts[table] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         except Exception:
             counts[table] = 0
     conn.close()
     integrity_result = integrity.run_integrity_check()
-    vector_count = counts.get("memory_index", 0)
+    vector_count = counts.get("vector_embeddings", 0)
     knowledge_count = counts.get("knowledge", 0)
     coverage = 0.0
     if knowledge_count:

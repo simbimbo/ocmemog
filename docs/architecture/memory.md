@@ -49,7 +49,7 @@ Operational limits:
 
 - Semantic fallback is knowledge-centric. It does not restore directives, reflections, or tasks.
 - Default embeddings are local hash vectors (`BRAIN_EMBED_MODEL_LOCAL=simple`), which are deterministic but weak.
-- `runbooks` and `lessons` can be created by promotion logic but are not part of the sidecar's default searchable categories.
+- `runbooks` and `lessons` are now included in the default searchable categories.
 
 ## Write paths
 

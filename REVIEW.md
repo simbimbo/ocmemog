@@ -12,7 +12,7 @@
 - Fixed: `brain/runtime/memory/api.py` now matches the local schema (`memory_events`, `tasks`, `knowledge`, `experiences`).
 - Fixed: `ocmemog/sidecar/app.py` now enforces a table allow-list in `_get_row()`.
 - High risk: distillation, identity extraction, and provider-backed embeddings are advertised by the copied package but are still shim-backed in this repo. `brain/runtime/inference.py`, `brain/runtime/model_roles.py`, and `brain/runtime/providers.py` do not implement real runtime behavior.
-- Medium risk: integrity/health coverage is internally inconsistent. `health.py` reports `memory_index` count as vector coverage, while real vectors live in `vector_embeddings`.
+- Fixed: health/integrity now report coverage using `vector_embeddings`.
 - Medium risk: some modules are effectively orphaned from the sidecar flow (`memory_synthesis`, `memory_gate`, `memory_graph`, `semantic_search`, `tool_catalog`, `unresolved_state`) and currently document capability more than they deliver.
 
 ## File-by-file review
@@ -124,14 +124,13 @@
 
 ### `brain/runtime/memory/health.py`
 
-- Bug: `vector_index_count` uses `memory_index` count, not `vector_embeddings` count.
-- Bug: `vector_index_coverage` therefore measures keyword index rows against `knowledge`, not actual embedding coverage.
-- Gap: health status can look healthy while `vector_embeddings` is empty.
+- Resolved: vector coverage now uses `vector_embeddings` counts.
+- Note: coverage still only considers `knowledge` embeddings.
 
 ### `brain/runtime/memory/integrity.py`
 
 - Assumption: integrity is schema-light and warning-oriented.
-- Gap: the vector checks compare `knowledge` to `memory_index`, not to `vector_embeddings`, so the warning labels `vector_missing` and `vector_orphan` are misleading.
+- Resolved: vector checks now compare `knowledge` to `vector_embeddings` (source_type=knowledge).
 - Gap: duplicate promotion detection only returns the first grouped row, so it reports existence rather than cardinality.
 
 ### `brain/runtime/memory/interaction_memory.py`
@@ -274,8 +273,7 @@
 - Resolved: `_get_row()` now enforces a table allow-list.
 - Gap: `/memory/get` can only fetch rows from one SQLite table and returns a TODO error for unsupported references, so linked/derived references are not really supported.
 - Gap: `/memory/search` falls back to substring search on the same categories, but fallback results still claim `ok: true` even when runtime is degraded.
-- Assumption: `DEFAULT_CATEGORIES` intentionally excludes `runbooks` and `lessons`, so promoted procedural/lesson memories are invisible to the sidecar by default.
-- TODO: decide whether `runbooks`/`lessons` should become searchable categories.
+- Updated: `DEFAULT_CATEGORIES` includes `runbooks` and `lessons`; ensure those tables are populated intentionally.
 
 ### `ocmemog/sidecar/compat.py`
 
@@ -286,6 +284,6 @@
 
 ## Recommended next steps
 
-- Decide which memory tables are actually part of the plugin API (`runbooks`/`lessons`?).
+- Verify vector embedding coverage and decide whether to embed `runbooks`/`lessons` too.
 - Treat distillation, role-aware context, provider embeddings, and identity extraction as unsupported until the shim dependencies are replaced.
 - Decide whether `runbooks` and `lessons` are real first-class memory types in ocmemog. If yes, expose them in retrieval, docs, and sidecar endpoints consistently.

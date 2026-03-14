@@ -13,7 +13,17 @@ def run_integrity_check() -> Dict[str, Any]:
     issues: List[str] = []
 
     # required tables
-    required = {"experiences", "knowledge", "reflections", "tasks", "directives", "promotions", "candidates", "memory_index"}
+    required = {
+        "experiences",
+        "knowledge",
+        "reflections",
+        "tasks",
+        "directives",
+        "promotions",
+        "candidates",
+        "memory_index",
+        "vector_embeddings",
+    }
     tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
     missing = required - tables
     if missing:
@@ -53,10 +63,10 @@ def run_integrity_check() -> Dict[str, Any]:
     except Exception:
         pass
 
-    # vector index mismatch
+    # vector index mismatch (knowledge vs vector_embeddings)
     try:
         missing_index = conn.execute(
-            "SELECT COUNT(*) FROM knowledge WHERE id NOT IN (SELECT CAST(source AS INTEGER) FROM memory_index)",
+            "SELECT COUNT(*) FROM knowledge WHERE id NOT IN (SELECT CAST(source_id AS INTEGER) FROM vector_embeddings WHERE source_type='knowledge')",
         ).fetchone()[0]
         if missing_index:
             issues.append(f"vector_missing:{missing_index}")
@@ -66,7 +76,7 @@ def run_integrity_check() -> Dict[str, Any]:
 
     try:
         orphan_index = conn.execute(
-            "SELECT COUNT(*) FROM memory_index WHERE CAST(source AS INTEGER) NOT IN (SELECT id FROM knowledge)",
+            "SELECT COUNT(*) FROM vector_embeddings WHERE source_type='knowledge' AND CAST(source_id AS INTEGER) NOT IN (SELECT id FROM knowledge)",
         ).fetchone()[0]
         if orphan_index:
             issues.append(f"vector_orphan:{orphan_index}")
@@ -79,11 +89,11 @@ def run_integrity_check() -> Dict[str, Any]:
     for issue in issues:
         if issue.startswith("vector_missing"):
             warning_type = "vector_missing"
-            warning_summary = "Vector index missing entries"
+            warning_summary = "Vector embeddings missing entries"
             break
         if issue.startswith("vector_orphan"):
             warning_type = "vector_orphan"
-            warning_summary = "Vector index has orphan entries"
+            warning_summary = "Vector embeddings have orphan entries"
             break
 
     conn.close()

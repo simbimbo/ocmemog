@@ -55,7 +55,7 @@ curl -s http://127.0.0.1:17890/memory/get \
 
 Notes:
 
-- Valid sidecar categories today are `knowledge`, `reflections`, `directives`, and `tasks`.
+- Valid sidecar categories today are `knowledge`, `reflections`, `directives`, `tasks`, `runbooks`, and `lessons`.
 - `/memory/get` currently expects a `table:id` reference.
 - Runtime degradation is reported in every sidecar response.
 

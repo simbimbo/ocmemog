@@ -1,9 +1,31 @@
 {
-  "name": "@simbimbo/memory-ocmemog",
-  "version": "0.0.1",
-  "private": true,
+  "name": "@openclaw/memory-ocmemog",
+  "version": "0.1.0",
   "description": "OpenClaw memory plugin scaffold backed by ocmemog",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/openclaw/memory-ocmemog"
+  },
+  "homepage": "https://github.com/openclaw/memory-ocmemog",
+  "keywords": [
+    "openclaw",
+    "plugin",
+    "memory",
+    "ocmemog",
+    "sidecar"
+  ],
   "type": "module",
+  "files": [
+    "index.ts",
+    "openclaw.plugin.json",
+    "ocmemog/**",
+    "brain/**",
+    "scripts/**",
+    "docs/**",
+    "README.md",
+    "LICENSE"
+  ],
   "dependencies": {
     "@sinclair/typebox": "^0.34.41"
   },
@@ -25,5 +47,8 @@
     "extensions": [
       "./index.ts"
     ]
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

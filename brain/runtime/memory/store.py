@@ -76,6 +76,27 @@ CREATE TABLE IF NOT EXISTS promotions (
   schema_version TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS demotions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+  memory_reference TEXT NOT NULL,
+  previous_confidence REAL,
+  new_confidence REAL,
+  reason TEXT,
+  schema_version TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS cold_storage (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  archived_at TEXT NOT NULL DEFAULT (datetime('now')),
+  source_table TEXT NOT NULL,
+  source_id INTEGER NOT NULL,
+  content TEXT NOT NULL,
+  metadata_json TEXT DEFAULT '{}',
+  reason TEXT,
+  schema_version TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS knowledge (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   timestamp TEXT NOT NULL DEFAULT (datetime('now')),

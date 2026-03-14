@@ -5,18 +5,50 @@ import os
 import re
 import urllib.request
 
-from brain.runtime import config
+from brain.runtime import config, state_store
+from brain.runtime.instrumentation import emit_event
+
+LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
+
+
+def _infer_ollama(prompt: str, model: str | None = None) -> dict[str, str]:
+    payload = {
+        "model": model or config.OCMEMOG_OLLAMA_MODEL,
+        "prompt": prompt,
+        "stream": False,
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(f"{config.OCMEMOG_OLLAMA_HOST.rstrip('/')}/api/generate", data=data, method="POST")
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            response = json.loads(resp.read().decode("utf-8"))
+    except Exception as exc:
+        emit_event(LOGFILE, "brain_infer_error", status="error", provider="ollama", error=str(exc))
+        return {"status": "error", "error": f"ollama_failed:{exc}"}
+    output = response.get("response")
+    if not output:
+        emit_event(LOGFILE, "brain_infer_error", status="error", provider="ollama", error="invalid_response")
+        return {"status": "error", "error": "invalid_response"}
+    return {"status": "ok", "output": str(output).strip()}
 
 
 def infer(prompt: str, provider_name: str | None = None) -> dict[str, str]:
     if not isinstance(prompt, str) or not prompt.strip():
         return {"status": "error", "error": "empty_prompt"}
 
+    use_ollama = os.environ.get("OCMEMOG_USE_OLLAMA", "").lower() in {"1", "true", "yes"}
+    model_override = provider_name or config.OCMEMOG_MEMORY_MODEL
+    if use_ollama or model_override.startswith("ollama:"):
+        model = model_override.split(":", 1)[-1] if model_override.startswith("ollama:") else model_override
+        return _infer_ollama(prompt, model)
+
     api_key = os.environ.get("OCMEMOG_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        return {"status": "error", "error": "missing_api_key"}
+        # fall back to local ollama if configured
+        return _infer_ollama(prompt, config.OCMEMOG_OLLAMA_MODEL)
 
-    model = provider_name or config.OCMEMOG_MEMORY_MODEL
+    model = model_override
     url = f"{config.OCMEMOG_OPENAI_API_BASE.rstrip('/')}/chat/completions"
     payload = {
         "model": model,
@@ -32,11 +64,13 @@ def infer(prompt: str, provider_name: str | None = None) -> dict[str, str]:
         with urllib.request.urlopen(req, timeout=30) as resp:
             response = json.loads(resp.read().decode("utf-8"))
     except Exception as exc:
+        emit_event(LOGFILE, "brain_infer_error", status="error", provider="openai", error=str(exc))
         return {"status": "error", "error": f"request_failed:{exc}"}
 
     try:
         output = response["choices"][0]["message"]["content"]
-    except Exception:
+    except Exception as exc:
+        emit_event(LOGFILE, "brain_infer_error", status="error", provider="openai", error=str(exc))
         return {"status": "error", "error": "invalid_response"}
 
     return {"status": "ok", "output": str(output).strip()}

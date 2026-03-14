@@ -6,13 +6,15 @@ from typing import Dict, Any
 from brain.runtime.instrumentation import emit_event
 from brain.runtime import state_store
 from brain.runtime.memory import store
+from brain.runtime import config
 
 
 LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
 
 
-def _should_promote(confidence: float, threshold: float = 0.5) -> bool:
-    return confidence >= threshold
+def _should_promote(confidence: float, threshold: float | None = None) -> bool:
+    threshold = config.OCMEMOG_PROMOTION_THRESHOLD if threshold is None else threshold
+    return confidence >= float(threshold)
 
 
 def _destination_table(summary: str) -> str:
@@ -149,3 +151,74 @@ def promote_candidate_by_id(candidate_id: str) -> Dict[str, Any]:
     except Exception:
         payload["metadata"] = {}
     return promote_candidate(payload)
+
+
+def demote_memory(reference: str, reason: str = "low_confidence", new_confidence: float = 0.1) -> Dict[str, Any]:
+    table, sep, raw_id = reference.partition(":")
+    if not sep or not raw_id.isdigit():
+        return {"ok": False, "error": "invalid_reference"}
+    allowed = {"knowledge", "runbooks", "lessons", "directives", "reflections", "tasks"}
+    if table not in allowed:
+        return {"ok": False, "error": "unsupported_table"}
+    conn = store.connect()
+    row = conn.execute(
+        f"SELECT confidence, content, metadata_json FROM {table} WHERE id=?",
+        (int(raw_id),),
+    ).fetchone()
+    if not row:
+        conn.close()
+        return {"ok": False, "error": "not_found"}
+    previous = float(row[0] or 0.0)
+    content = str(row[1] or "")
+    metadata_json = row[2] or "{}"
+
+    # archive into cold storage, then remove from hot table
+    conn.execute(
+        "INSERT INTO cold_storage (source_table, source_id, content, metadata_json, reason, schema_version) VALUES (?, ?, ?, ?, ?, ?)",
+        (table, int(raw_id), content, metadata_json, reason, store.SCHEMA_VERSION),
+    )
+    conn.execute(
+        f"DELETE FROM {table} WHERE id=?",
+        (int(raw_id),),
+    )
+    conn.execute(
+        "INSERT INTO demotions (memory_reference, previous_confidence, new_confidence, reason, schema_version) VALUES (?, ?, ?, ?, ?)",
+        (reference, previous, float(new_confidence), reason, store.SCHEMA_VERSION),
+    )
+    conn.commit()
+    conn.close()
+    emit_event(LOGFILE, "brain_memory_demoted", status="ok", reference=reference)
+    return {"ok": True, "reference": reference, "previous": previous, "new": float(new_confidence), "archived": True}
+
+
+def demote_by_confidence(limit: int = 20, threshold: float | None = None, force: bool = False) -> Dict[str, Any]:
+    threshold = config.OCMEMOG_DEMOTION_THRESHOLD if threshold is None else threshold
+    tables = ("knowledge", "runbooks", "lessons", "directives", "reflections", "tasks")
+    conn = store.connect()
+    rows = []
+    for table in tables:
+        try:
+            rows.extend(
+                conn.execute(
+                    f"SELECT '{table}' AS table_name, id, confidence FROM {table} ORDER BY confidence ASC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            )
+        except Exception:
+            continue
+    conn.close()
+    # sort by confidence and demote below threshold
+    ranked = sorted(rows, key=lambda r: float(r[2] or 0.0))
+    demoted = []
+    for row in ranked:
+        table = row[0]
+        memory_id = int(row[1])
+        confidence = float(row[2] or 0.0)
+        if confidence >= float(threshold) and not force:
+            continue
+        result = demote_memory(f"{table}:{memory_id}", reason="low_confidence", new_confidence=confidence * 0.5)
+        if result.get("ok"):
+            demoted.append(result)
+        if len(demoted) >= limit:
+            break
+    return {"ok": True, "threshold": float(threshold), "demoted": demoted, "count": len(demoted)}

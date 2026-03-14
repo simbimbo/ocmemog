@@ -86,6 +86,12 @@ curl -s http://127.0.0.1:17890/memory/search \
   -d '{"query":"deploy risk","limit":5,"categories":["knowledge","tasks"]}'
 ```
 
+If `OCMEMOG_API_TOKEN` is set, include the header:
+
+```bash
+-H 'x-ocmemog-token: YOUR_TOKEN'
+```
+
 Get by reference:
 
 ```bash
@@ -94,12 +100,57 @@ curl -s http://127.0.0.1:17890/memory/get \
   -d '{"reference":"knowledge:12"}'
 ```
 
+Fetch linked context (transcript snippet):
+
+```bash
+curl -s http://127.0.0.1:17890/memory/context \
+  -H 'content-type: application/json' \
+  -d '{"reference":"knowledge:12","radius":10}'
+```
+
+Helper script:
+
+```bash
+./scripts/ocmemog-context.sh knowledge:12 10
+```
+
+Run pondering (writes summaries into reflections):
+
+```bash
+curl -s http://127.0.0.1:17890/memory/ponder \
+  -H 'content-type: application/json' \
+  -d '{"max_items":5}'
+```
+
+Fetch latest ponder recommendations:
+
+```bash
+curl -s http://127.0.0.1:17890/memory/ponder/latest?limit=5
+```
+
 Ingest content:
 
 ```bash
 curl -s http://127.0.0.1:17890/memory/ingest \
   -H 'content-type: application/json' \
   -d '{"content":"remember this","kind":"memory","memory_type":"knowledge"}'
+```
+
+Ingest with context anchors (links to chat/transcript):
+
+```bash
+curl -s http://127.0.0.1:17890/memory/ingest \
+  -H 'content-type: application/json' \
+  -d '{
+        "content":"remember this",
+        "kind":"memory",
+        "memory_type":"knowledge",
+        "session_id":"session-123",
+        "thread_id":"thread-abc",
+        "message_id":"msg-987",
+        "transcript_path":"/path/to/transcript.log",
+        "transcript_offset":420
+      }'
 ```
 
 Distill recent experiences:

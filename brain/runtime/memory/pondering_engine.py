@@ -2,28 +2,129 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from brain.runtime import state_store
+from brain.runtime import state_store, config, inference
 from brain.runtime.instrumentation import emit_event
-from brain.runtime.memory import unresolved_state, memory_consolidation, memory_links
+from brain.runtime.memory import unresolved_state, memory_consolidation, memory_links, store, integrity, vector_index, api
 
 LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
 
 
+def _load_recent(table: str, limit: int) -> List[Dict[str, object]]:
+    conn = store.connect()
+    try:
+        rows = conn.execute(
+            f"SELECT id, content, confidence, timestamp FROM {table} ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    except Exception:
+        rows = []
+    conn.close()
+    return [
+        {
+            "reference": f"{table}:{row['id']}",
+            "content": str(row["content"] or ""),
+            "confidence": float(row["confidence"] or 0.0),
+            "timestamp": row["timestamp"],
+        }
+        for row in rows
+    ]
+
+
+def _ponder_with_model(text: str) -> Dict[str, str]:
+    prompt = (
+        "You are the memory pondering engine.\n"
+        "Given this memory, return: (1) a concise insight, (2) a concrete recommendation.\n\n"
+        f"Memory: {text}\n\n"
+        "Format:\nInsight: ...\nRecommendation: ..."
+    )
+    result = inference.infer(prompt, provider_name=config.OCMEMOG_PONDER_MODEL)
+    output = str(result.get("output") or "").strip()
+    insight = ""
+    recommendation = ""
+    for line in output.splitlines():
+        if line.lower().startswith("insight:"):
+            insight = line.split(":", 1)[-1].strip()
+        if line.lower().startswith("recommendation:"):
+            recommendation = line.split(":", 1)[-1].strip()
+    if not insight:
+        insight = output[:240]
+    return {"insight": insight, "recommendation": recommendation}
+
+
+def _extract_lesson(text: str) -> str | None:
+    prompt = (
+        "Extract a single actionable lesson learned from this memory.\n"
+        "If there is no clear lesson, reply with NONE.\n\n"
+        f"Memory: {text}\n\n"
+        "Lesson:"
+    )
+    result = inference.infer(prompt, provider_name=config.OCMEMOG_PONDER_MODEL)
+    output = str(result.get("output") or "").strip()
+    if not output or output.upper().startswith("NONE"):
+        return None
+    return output[:240]
+
+
 def run_ponder_cycle(max_items: int = 5) -> Dict[str, object]:
     emit_event(LOGFILE, "brain_ponder_cycle_start", status="ok")
+
     unresolved = unresolved_state.list_unresolved_state(limit=max_items)
     consolidation = memory_consolidation.consolidate_memories([], max_clusters=max_items)
+
+    # candidate memories
+    candidates = _load_recent("reflections", max_items) + _load_recent("knowledge", max_items)
+    candidates = candidates[:max_items]
+
     insights: List[Dict[str, object]] = []
     for item in unresolved[:max_items]:
         insights.append({"type": "unresolved", "summary": item.get("summary", "")})
-        emit_event(LOGFILE, "brain_ponder_insight_generated", status="ok")
+        emit_event(LOGFILE, "brain_ponder_insight_generated", status="ok", kind="unresolved")
+
+    if str(config.OCMEMOG_PONDER_ENABLED).lower() in {"1", "true", "yes"}:
+        for item in candidates:
+            content = str(item.get("content", ""))
+            if not content:
+                continue
+            model_result = _ponder_with_model(content)
+            insights.append({
+                "type": "memory",
+                "reference": item.get("reference"),
+                "summary": model_result.get("insight"),
+                "recommendation": model_result.get("recommendation"),
+            })
+            emit_event(LOGFILE, "brain_ponder_insight_generated", status="ok", kind="memory")
+
+    # lesson mining
+    lessons: List[Dict[str, object]] = []
+    if str(config.OCMEMOG_LESSON_MINING_ENABLED).lower() in {"1", "true", "yes"}:
+        for item in candidates:
+            reference = str(item.get("reference") or "")
+            if not reference.startswith("reflections:"):
+                continue
+            content = str(item.get("content", ""))
+            lesson = _extract_lesson(content)
+            if not lesson:
+                continue
+            api.store_memory("lessons", lesson, source="ponder", metadata={"reference": reference})
+            lessons.append({"reference": reference, "lesson": lesson})
+            emit_event(LOGFILE, "brain_ponder_lesson_generated", status="ok")
+
     links: List[Dict[str, object]] = []
     for cluster in consolidation.get("consolidated", []):
         links.append({"type": "cluster", "summary": cluster.get("summary")})
         memory_links.add_memory_link("ponder", "conceptual", str(cluster.get("summary")))
+
+    # maintenance: integrity + vector rebuild on demand
+    maintenance = integrity.run_integrity_check()
+    if any(item.startswith("vector_missing") or item.startswith("vector_orphan") for item in maintenance.get("issues", [])):
+        rebuild_count = vector_index.rebuild_vector_index()
+        maintenance["vector_rebuild"] = rebuild_count
+
     emit_event(LOGFILE, "brain_ponder_cycle_complete", status="ok")
     return {
         "unresolved": unresolved,
         "insights": insights,
+        "lessons": lessons,
         "links": links,
+        "maintenance": maintenance,
     }

@@ -49,8 +49,31 @@ Optional environment variables:
 - `BRAIN_EMBED_MODEL_LOCAL` (`simple` by default)
 - `BRAIN_EMBED_MODEL_PROVIDER` (`openai` to enable provider embeddings)
 - `OCMEMOG_TRANSCRIPT_WATCHER` (`true` to auto-start transcript watcher inside the sidecar)
+- `OCMEMOG_TRANSCRIPT_ROOTS` (comma-separated allowed roots for transcript context retrieval; default: `~/.openclaw/workspace/memory`)
+- `OCMEMOG_API_TOKEN` (optional; if set, requests must include `x-ocmemog-token` or `Authorization: Bearer ...`)
+- `OCMEMOG_USE_OLLAMA` (`true` to use Ollama for distill/inference)
+- `OCMEMOG_OLLAMA_HOST` (default: `http://127.0.0.1:11434`)
+- `OCMEMOG_OLLAMA_MODEL` (default: `phi3:latest`)
+- `OCMEMOG_OLLAMA_EMBED_MODEL` (default: `nomic-embed-text:latest`)
+- `OCMEMOG_PROMOTION_THRESHOLD` (default: `0.5`)
+- `OCMEMOG_DEMOTION_THRESHOLD` (default: `0.2`)
+- `OCMEMOG_PONDER_ENABLED` (default: `true`)
+- `OCMEMOG_PONDER_MODEL` (default: `OCMEMOG_MEMORY_MODEL`)
+- `OCMEMOG_LESSON_MINING_ENABLED` (default: `true`)
 
-## Enable in OpenClaw
+## Security
+
+- Sidecar binds to **127.0.0.1** by default. Keep it local unless you add auth + firewall rules.
+- If you expose the sidecar, set `OCMEMOG_API_TOKEN` and pass the header `x-ocmemog-token`.
+
+## Install from npm
+
+```bash
+openclaw plugins install @openclaw/memory-ocmemog
+openclaw plugins enable memory-ocmemog
+```
+
+## Enable in OpenClaw (local dev)
 
 Add the plugin to your OpenClaw config. The key setting is selecting `memory-ocmemog` in the `memory` slot and pointing the plugin entry at this repo.
 

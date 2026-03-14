@@ -43,20 +43,27 @@ def record_task(task_id: str, status: str, *, source: str | None = None) -> None
     _emit("record_task")
 
 
-def store_memory(memory_type: str, content: str, *, source: str | None = None) -> None:
+def store_memory(
+    memory_type: str,
+    content: str,
+    *,
+    source: str | None = None,
+    metadata: Dict[str, Any] | None = None,
+) -> int:
     content = _sanitize(content)
     table = memory_type.strip().lower() if memory_type else "knowledge"
     allowed = {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons"}
     if table not in allowed:
         table = "knowledge"
     conn = store.connect()
-    conn.execute(
+    cur = conn.execute(
         f"INSERT INTO {table} (source, confidence, metadata_json, content, schema_version) VALUES (?, ?, ?, ?, ?)",
-        (source, 1.0, "{}", content, store.SCHEMA_VERSION),
+        (source, 1.0, json.dumps(metadata or {}), content, store.SCHEMA_VERSION),
     )
     conn.commit()
     conn.close()
     _emit("store_memory")
+    return int(cur.lastrowid)
 
 
 def record_reinforcement(task_id: str, outcome: str, note: str, *, source_module: str | None = None) -> None:

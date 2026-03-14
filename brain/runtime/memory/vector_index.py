@@ -130,6 +130,43 @@ def index_memory(limit: int = 100, *, tables: Iterable[str] | None = None) -> in
     return count
 
 
+def rebuild_vector_index(*, tables: Iterable[str] | None = None) -> int:
+    emit_event(LOGFILE, "brain_memory_vector_rebuild_start", status="ok")
+    conn = store.connect()
+    _ensure_vector_table(conn)
+    conn.execute("DELETE FROM vector_embeddings")
+    count = 0
+    for table in (tables or EMBEDDING_TABLES):
+        if table not in EMBEDDING_TABLES:
+            continue
+        rows = conn.execute(
+            f"SELECT id, content, confidence FROM {table} ORDER BY id ASC",
+        ).fetchall()
+        for row in rows:
+            content = str(row["content"] or "")
+            redacted_content, changed = redaction.redact_text(content)
+            embedding = embedding_engine.generate_embedding(redacted_content)
+            if not embedding:
+                continue
+            conn.execute(
+                f"UPDATE {table} SET content=?, metadata_json=? WHERE id=?",
+                (redacted_content, json.dumps({"redacted": changed}), row["id"]),
+            )
+            conn.execute(
+                """
+                INSERT INTO vector_embeddings (id, source_type, source_id, embedding)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET embedding=excluded.embedding
+                """,
+                (f"{table}:{row['id']}", table, str(row["id"]), json.dumps(embedding)),
+            )
+            count += 1
+    conn.commit()
+    conn.close()
+    emit_event(LOGFILE, "brain_memory_vector_rebuild_complete", status="ok", indexed=count)
+    return count
+
+
 def search_memory(query: str, limit: int = 5) -> List[Dict[str, Any]]:
     emit_event(LOGFILE, "brain_memory_vector_search_start", status="ok")
     conn = store.connect()

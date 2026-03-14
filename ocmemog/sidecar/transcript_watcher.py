@@ -43,7 +43,10 @@ def watch_forever() -> None:
     source = os.environ.get("OCMEMOG_INGEST_SOURCE", "transcript").strip() or "transcript"
     memory_type = os.environ.get("OCMEMOG_INGEST_MEMORY_TYPE", "knowledge").strip() or "knowledge"
 
-    target = Path(transcript_path or transcript_dir or ".").expanduser().resolve()
+    if transcript_path or transcript_dir:
+        target = Path(transcript_path or transcript_dir).expanduser().resolve()
+    else:
+        target = (Path.home() / ".openclaw" / "workspace" / "memory" / "transcripts").expanduser().resolve()
 
     current_file: Optional[Path] = None
     position = 0

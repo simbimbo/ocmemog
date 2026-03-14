@@ -23,6 +23,7 @@ pip install -r requirements.txt
 ## Optional: transcript watcher (auto-ingest)
 
 ```bash
+# defaults to ~/.openclaw/workspace/memory/transcripts if not set
 export OCMEMOG_TRANSCRIPT_DIR="$HOME/.openclaw/workspace/memory/transcripts"
 ./scripts/ocmemog-transcript-watcher.sh
 ```

@@ -21,6 +21,7 @@ scripts/ocmemog-sidecar.sh
 Manual watcher:
 
 ```bash
+# defaults to ~/.openclaw/workspace/memory/transcripts if not set
 export OCMEMOG_TRANSCRIPT_DIR="$HOME/.openclaw/workspace/memory/transcripts"
 export OCMEMOG_INGEST_ENDPOINT="http://127.0.0.1:17890/memory/ingest"
 ./scripts/ocmemog-transcript-watcher.sh

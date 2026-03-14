@@ -6,7 +6,10 @@ from pathlib import Path
 
 def root_dir() -> Path:
     configured = os.environ.get("OCMEMOG_STATE_DIR") or os.environ.get("BRAIN_STATE_DIR")
-    base = Path(configured).expanduser() if configured else Path.home() / ".ocmemog"
+    if configured:
+        base = Path(configured).expanduser()
+    else:
+        base = Path(__file__).resolve().parents[2] / ".ocmemog-state"
     base.mkdir(parents=True, exist_ok=True)
     return base
 

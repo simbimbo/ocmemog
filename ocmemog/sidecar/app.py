@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any, Dict, Iterable, List, Optional
 
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
@@ -16,19 +16,19 @@ app = FastAPI(title="ocmemog sidecar", version="0.0.1")
 class SearchRequest(BaseModel):
     query: str = Field(default="")
     limit: int = Field(default=5, ge=1, le=50)
-    categories: list[str] | None = None
+    categories: Optional[List[str]] = None
 
 
 class GetRequest(BaseModel):
     reference: str
 
 
-def _normalize_categories(categories: Iterable[str] | None) -> list[str]:
+def _normalize_categories(categories: Optional[Iterable[str]]) -> List[str]:
     selected = [item for item in (categories or DEFAULT_CATEGORIES) if item in DEFAULT_CATEGORIES]
     return selected or list(DEFAULT_CATEGORIES)
 
 
-def _runtime_payload() -> dict[str, Any]:
+def _runtime_payload() -> Dict[str, Any]:
     status = probe_runtime()
     return {
         "mode": status.mode,
@@ -38,10 +38,10 @@ def _runtime_payload() -> dict[str, Any]:
     }
 
 
-def _fallback_search(query: str, limit: int, categories: list[str]) -> list[dict[str, Any]]:
+def _fallback_search(query: str, limit: int, categories: List[str]) -> List[Dict[str, Any]]:
     conn = store.connect()
     try:
-        results: list[dict[str, Any]] = []
+        results: List[Dict[str, Any]] = []
         for table in categories:
             rows = conn.execute(
                 f"SELECT id, content, confidence FROM {table} WHERE content LIKE ? ORDER BY id DESC LIMIT ?",
@@ -65,7 +65,7 @@ def _fallback_search(query: str, limit: int, categories: list[str]) -> list[dict
         conn.close()
 
 
-def _get_row(reference: str) -> dict[str, Any] | None:
+def _get_row(reference: str) -> Optional[Dict[str, Any]]:
     table, sep, raw_id = reference.partition(":")
     if not sep or not table or not raw_id.isdigit():
         return None

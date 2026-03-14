@@ -29,25 +29,37 @@ Optional environment variables:
 
 - `OCMEMOG_HOST`
 - `OCMEMOG_PORT`
-- `OCMEMOG_STATE_DIR`
+- `OCMEMOG_STATE_DIR` (defaults to `/Users/simbimbo/ocmemog/.ocmemog-state`)
 - `OCMEMOG_DB_PATH`
 - `BRAIN_EMBED_MODEL_LOCAL` (`simple` by default)
 
 ## Enable in OpenClaw
 
-Add the plugin to your OpenClaw config. The important part is assigning this repo to the `memory` plugin slot, then selecting the memory backend if your setup expects it.
+Add the plugin to your OpenClaw config. The key setting is selecting `memory-ocmemog` in the `memory` slot and pointing the plugin entry at this repo.
 
 ```yaml
 plugins:
+  load:
+    paths:
+      - /Users/simbimbo/ocmemog
   slots:
-    memory: /Users/simbimbo/ocmemog
+    memory: memory-ocmemog
   entries:
     memory-ocmemog:
-      endpoint: http://127.0.0.1:17890
-      timeoutMs: 10000
+      enabled: true
+      config:
+        endpoint: http://127.0.0.1:17890
+        timeoutMs: 10000
 ```
 
-If your OpenClaw build expects an explicit memory backend, use the plugin slot above and keep `memory.backend` set to its default (builtin) until we finalize the plugin adapter.
+Development install:
+
+```bash
+openclaw plugins install -l /Users/simbimbo/ocmemog
+openclaw plugins enable memory-ocmemog
+```
+
+If your local OpenClaw build also documents a separate `memory.backend` setting, keep that at its current default unless your build explicitly requires a plugin-backed override. The slot selection above is what activates this plugin.
 
 ## Current compatibility status
 

@@ -17,6 +17,7 @@ export BRAIN_EMBED_MODEL_LOCAL="${BRAIN_EMBED_MODEL_LOCAL:-}"
 
 # always-on transcript watcher defaults
 export OCMEMOG_TRANSCRIPT_WATCHER="${OCMEMOG_TRANSCRIPT_WATCHER:-true}"
+export OCMEMOG_SESSION_DIR="${OCMEMOG_SESSION_DIR:-$HOME/.openclaw/agents/main/sessions}"
 export OCMEMOG_INGEST_SOURCE="${OCMEMOG_INGEST_SOURCE:-transcript}"
 export OCMEMOG_INGEST_MEMORY_TYPE="${OCMEMOG_INGEST_MEMORY_TYPE:-reflections}"
 

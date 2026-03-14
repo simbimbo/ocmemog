@@ -9,6 +9,7 @@ from urllib import request as urlrequest
 
 DEFAULT_ENDPOINT = "http://127.0.0.1:17890/memory/ingest"
 DEFAULT_GLOB = "*.log"
+DEFAULT_SESSION_GLOB = "*.jsonl"
 
 
 def _pick_latest(path: Path, pattern: str) -> Optional[Path]:
@@ -31,10 +32,22 @@ def _post_ingest(endpoint: str, payload: dict) -> None:
         return
 
 
+def _append_transcript(transcripts_dir: Path, timestamp: str, role: str, text: str) -> Path:
+    date = timestamp.split("T")[0] if "T" in timestamp else time.strftime("%Y-%m-%d")
+    path = transcripts_dir / f"{date}.log"
+    transcripts_dir.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(f"{timestamp} [{role}] {text}\n")
+    return path
+
+
 def watch_forever() -> None:
     transcript_path = os.environ.get("OCMEMOG_TRANSCRIPT_PATH", "").strip()
     transcript_dir = os.environ.get("OCMEMOG_TRANSCRIPT_DIR", "").strip()
     glob_pattern = os.environ.get("OCMEMOG_TRANSCRIPT_GLOB", DEFAULT_GLOB)
+    session_dir = os.environ.get("OCMEMOG_SESSION_DIR", "").strip()
+    session_glob = os.environ.get("OCMEMOG_SESSION_GLOB", DEFAULT_SESSION_GLOB)
+
     endpoint = os.environ.get("OCMEMOG_INGEST_ENDPOINT", DEFAULT_ENDPOINT)
     poll_seconds = float(os.environ.get("OCMEMOG_TRANSCRIPT_POLL_SECONDS", "1"))
     start_at_end = os.environ.get("OCMEMOG_TRANSCRIPT_START_AT_END", "true").lower() in {"1", "true", "yes"}
@@ -44,45 +57,97 @@ def watch_forever() -> None:
     memory_type = os.environ.get("OCMEMOG_INGEST_MEMORY_TYPE", "knowledge").strip() or "knowledge"
 
     if transcript_path or transcript_dir:
-        target = Path(transcript_path or transcript_dir).expanduser().resolve()
+        transcript_target = Path(transcript_path or transcript_dir).expanduser().resolve()
     else:
-        target = (Path.home() / ".openclaw" / "workspace" / "memory" / "transcripts").expanduser().resolve()
+        transcript_target = (Path.home() / ".openclaw" / "workspace" / "memory" / "transcripts").expanduser().resolve()
+
+    if session_dir:
+        session_target = Path(session_dir).expanduser().resolve()
+    else:
+        session_target = (Path.home() / ".openclaw" / "agents" / "main" / "sessions").expanduser().resolve()
 
     current_file: Optional[Path] = None
     position = 0
+    session_file: Optional[Path] = None
+    session_pos = 0
 
     while True:
-        latest = _pick_latest(target, glob_pattern)
-        if latest is None:
-            time.sleep(poll_seconds)
-            continue
+        # 1) Watch transcript logs (if any)
+        latest = _pick_latest(transcript_target, glob_pattern)
+        if latest is not None:
+            if current_file is None or latest != current_file:
+                current_file = latest
+                position = 0
+                if start_at_end:
+                    try:
+                        position = current_file.stat().st_size
+                    except Exception:
+                        position = 0
 
-        if current_file is None or latest != current_file:
-            current_file = latest
-            position = 0
-            if start_at_end:
-                try:
-                    position = current_file.stat().st_size
-                except Exception:
-                    position = 0
+            try:
+                with current_file.open("r", encoding="utf-8", errors="ignore") as handle:
+                    handle.seek(position)
+                    for line in handle:
+                        text = line.rstrip("\n")
+                        if not text.strip():
+                            continue
+                        payload = {
+                            "content": text,
+                            "kind": kind,
+                            "memory_type": memory_type,
+                            "source": source,
+                        }
+                        _post_ingest(endpoint, payload)
+                    position = handle.tell()
+            except Exception:
+                pass
 
-        try:
-            with current_file.open("r", encoding="utf-8", errors="ignore") as handle:
-                handle.seek(position)
-                for line in handle:
-                    text = line.rstrip("\n")
-                    if not text.strip():
-                        continue
-                    payload = {
-                        "content": text,
-                        "kind": kind,
-                        "memory_type": memory_type,
-                        "source": source,
-                    }
-                    _post_ingest(endpoint, payload)
-                position = handle.tell()
-        except Exception:
-            time.sleep(poll_seconds)
-            continue
+        # 2) Watch OpenClaw session jsonl (verbatim capture)
+        session_latest = _pick_latest(session_target, session_glob)
+        if session_latest is not None:
+            if session_file is None or session_latest != session_file:
+                session_file = session_latest
+                session_pos = 0
+                if start_at_end:
+                    try:
+                        session_pos = session_file.stat().st_size
+                    except Exception:
+                        session_pos = 0
+            try:
+                with session_file.open("r", encoding="utf-8", errors="ignore") as handle:
+                    handle.seek(session_pos)
+                    for line in handle:
+                        try:
+                            entry = json.loads(line)
+                        except Exception:
+                            continue
+                        if entry.get("type") != "message":
+                            continue
+                        msg = entry.get("message") or {}
+                        role = msg.get("role")
+                        if role not in {"user", "assistant"}:
+                            continue
+                        content = msg.get("content")
+                        if isinstance(content, list):
+                            text = next((c.get("text") for c in content if c.get("type") == "text"), "")
+                        else:
+                            text = content or ""
+                        text = str(text).replace("\n", " ").strip()
+                        if not text:
+                            continue
+                        timestamp = entry.get("timestamp") or time.strftime("%Y-%m-%dT%H:%M:%S")
+                        transcript_path = _append_transcript(transcript_target, timestamp, role, text)
+                        payload = {
+                            "content": text,
+                            "kind": kind,
+                            "memory_type": memory_type,
+                            "source": "session",
+                            "transcript_path": str(transcript_path),
+                            "timestamp": timestamp.replace("T", " ")[:19],
+                        }
+                        _post_ingest(endpoint, payload)
+                    session_pos = handle.tell()
+            except Exception:
+                pass
 
         time.sleep(poll_seconds)

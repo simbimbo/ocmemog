@@ -681,9 +681,10 @@ def dashboard() -> HTMLResponse:
           const res = await fetch('/memory/ponder/latest?limit=5');
           const data = await res.json();
           const items = data.items || [];
-          const lastTs = items[0]?.timestamp || 'n/a';
+          const lastTs = items.length ? (items[0].timestamp || 'n/a') : 'n/a';
           const warnings = (data.warnings || []).join('; ');
-          ponderMetaEl.textContent = `Last update: ${lastTs} • Mode: ${data.mode || 'n/a'}${warnings ? ' • ' + warnings : ''}`;
+          const mode = data.mode || 'n/a';
+          ponderMetaEl.textContent = `Last update: ${lastTs} • Mode: ${mode}${warnings ? ' • ' + warnings : ''}`;
           ponderEl.innerHTML = items.map((item) =>
             `<div class=\"card\"><strong>${{item.summary}}</strong><br/><em>${{item.recommendation || ''}}</em><br/><small>${{item.timestamp || ''}} • ${{item.reference || ''}}</small></div>`
           ).join('');

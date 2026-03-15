@@ -658,12 +658,14 @@ def dashboard() -> HTMLResponse:
       <h2>ocmemog realtime</h2>
       <div class="metrics" id="metrics">{metrics_html}</div>
       <h3>Ponder recommendations</h3>
+      <div id="ponder-meta" style="margin-bottom:8px; color:#666;"></div>
       <div id="ponder"></div>
       <h3>Live events</h3>
       <pre id="events">{events_html}</pre>
       <script>
         const metricsEl = document.getElementById('metrics');
         const ponderEl = document.getElementById('ponder');
+        const ponderMetaEl = document.getElementById('ponder-meta');
         const eventsEl = document.getElementById('events');
 
         async function refreshMetrics() {{
@@ -679,8 +681,11 @@ def dashboard() -> HTMLResponse:
           const res = await fetch('/memory/ponder/latest?limit=5');
           const data = await res.json();
           const items = data.items || [];
+          const lastTs = items[0]?.timestamp || 'n/a';
+          const warnings = (data.warnings || []).join('; ');
+          ponderMetaEl.textContent = `Last update: ${lastTs} • Mode: ${data.mode || 'n/a'}${warnings ? ' • ' + warnings : ''}`;
           ponderEl.innerHTML = items.map((item) =>
-            `<div class=\"card\"><strong>${{item.summary}}</strong><br/><em>${{item.recommendation || ''}}</em></div>`
+            `<div class=\"card\"><strong>${{item.summary}}</strong><br/><em>${{item.recommendation || ''}}</em><br/><small>${{item.timestamp || ''}} • ${{item.reference || ''}}</small></div>`
           ).join('');
         }}
 

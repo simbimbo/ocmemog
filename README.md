@@ -1,6 +1,18 @@
 # ocmemog
 
-`ocmemog` is a sidecar-based OpenClaw memory plugin. The TypeScript plugin stays in the normal OpenClaw plugin scaffold, and a local FastAPI sidecar hosts the copied brAIn-derived memory package.
+**ocmemog** is an advanced memory engine for OpenClaw that combines durable long-term memory, transcript-backed continuity, conversation hydration, checkpoint expansion, and pondering inside a sidecar-based plugin architecture.
+
+It is designed to go beyond simple memory search by providing:
+- **durable memory and semantic retrieval**
+- **lossless-style conversation continuity**
+- **checkpointing, branch-aware hydration, and turn expansion**
+- **transcript ingestion with anchored context recovery**
+- **pondering and reflection generation**
+
+Architecture at a glance:
+- **OpenClaw plugin (`index.ts`)** handles tools and hook integration
+- **FastAPI sidecar (`ocmemog/sidecar/`)** exposes memory and continuity APIs
+- **SQLite-backed runtime (`brain/runtime/memory/`)** powers storage, hydration, checkpoints, salience ranking, and pondering
 
 ## Repo layout
 

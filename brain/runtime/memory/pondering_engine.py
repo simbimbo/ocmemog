@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Callable, Any
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
 from brain.runtime import state_store, config, inference
 from brain.runtime.instrumentation import emit_event
@@ -9,8 +10,30 @@ from brain.runtime.memory import unresolved_state, memory_consolidation, memory_
 LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
 
 
+def _run_with_timeout(name: str, fn: Callable[[], Any], timeout_s: float, default: Any) -> Any:
+    emit_event(LOGFILE, f"brain_ponder_{name}_start", status="ok")
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(fn)
+        try:
+            result = future.result(timeout=timeout_s)
+            emit_event(LOGFILE, f"brain_ponder_{name}_complete", status="ok")
+            return result
+        except TimeoutError:
+            emit_event(LOGFILE, f"brain_ponder_{name}_complete", status="timeout")
+            return default
+        except Exception as exc:  # pragma: no cover
+            emit_event(LOGFILE, f"brain_ponder_{name}_complete", status="error", error=str(exc))
+            return default
+
+
+def _infer_with_timeout(prompt: str, timeout_s: float = 20.0) -> Dict[str, str]:
+    def _call():
+        return inference.infer(prompt, provider_name=config.OCMEMOG_PONDER_MODEL)
+    return _run_with_timeout("infer", _call, timeout_s, {"output": ""})
+
+
 def _load_recent(table: str, limit: int) -> List[Dict[str, object]]:
-    conn = store.connect()
+    conn = store.connect(ensure_schema=False)
     try:
         rows = conn.execute(
             f"SELECT id, content, confidence, timestamp FROM {table} ORDER BY id DESC LIMIT ?",
@@ -37,7 +60,7 @@ def _ponder_with_model(text: str) -> Dict[str, str]:
         f"Memory: {text}\n\n"
         "Format:\nInsight: ...\nRecommendation: ..."
     )
-    result = inference.infer(prompt, provider_name=config.OCMEMOG_PONDER_MODEL)
+    result = _infer_with_timeout(prompt)
     output = str(result.get("output") or "").strip()
     insight = ""
     recommendation = ""
@@ -58,7 +81,7 @@ def _extract_lesson(text: str) -> str | None:
         f"Memory: {text}\n\n"
         "Lesson:"
     )
-    result = inference.infer(prompt, provider_name=config.OCMEMOG_PONDER_MODEL)
+    result = _infer_with_timeout(prompt)
     output = str(result.get("output") or "").strip()
     if not output or output.upper().startswith("NONE"):
         return None
@@ -68,8 +91,18 @@ def _extract_lesson(text: str) -> str | None:
 def run_ponder_cycle(max_items: int = 5) -> Dict[str, object]:
     emit_event(LOGFILE, "brain_ponder_cycle_start", status="ok")
 
-    unresolved = unresolved_state.list_unresolved_state(limit=max_items)
-    consolidation = memory_consolidation.consolidate_memories([], max_clusters=max_items)
+    unresolved = _run_with_timeout(
+        "unresolved",
+        lambda: unresolved_state.list_unresolved_state(limit=max_items),
+        5.0,
+        [],
+    )
+    consolidation = _run_with_timeout(
+        "consolidation",
+        lambda: memory_consolidation.consolidate_memories([], max_clusters=max_items),
+        15.0,
+        {"consolidated": []},
+    )
 
     # candidate memories
     candidates = _load_recent("reflections", max_items) + _load_recent("knowledge", max_items)
@@ -115,9 +148,19 @@ def run_ponder_cycle(max_items: int = 5) -> Dict[str, object]:
         memory_links.add_memory_link("ponder", "conceptual", str(cluster.get("summary")))
 
     # maintenance: integrity + vector rebuild on demand
-    maintenance = integrity.run_integrity_check()
+    maintenance = _run_with_timeout(
+        "integrity",
+        integrity.run_integrity_check,
+        10.0,
+        {"issues": []},
+    )
     if any(item.startswith("vector_missing") or item.startswith("vector_orphan") for item in maintenance.get("issues", [])):
-        rebuild_count = vector_index.rebuild_vector_index()
+        rebuild_count = _run_with_timeout(
+            "vector_rebuild",
+            vector_index.rebuild_vector_index,
+            30.0,
+            0,
+        )
         maintenance["vector_rebuild"] = rebuild_count
 
     emit_event(LOGFILE, "brain_ponder_cycle_complete", status="ok")

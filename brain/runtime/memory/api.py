@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import time
+import sqlite3
 from typing import List, Dict, Any
 
 from brain.runtime.memory import store
@@ -56,21 +58,36 @@ def store_memory(
     allowed = {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons"}
     if table not in allowed:
         table = "knowledge"
-    conn = store.connect()
-    if timestamp:
-        cur = conn.execute(
-            f"INSERT INTO {table} (source, confidence, metadata_json, content, schema_version, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-            (source, 1.0, json.dumps(metadata or {}), content, store.SCHEMA_VERSION, timestamp),
-        )
-    else:
-        cur = conn.execute(
-            f"INSERT INTO {table} (source, confidence, metadata_json, content, schema_version) VALUES (?, ?, ?, ?, ?)",
-            (source, 1.0, json.dumps(metadata or {}), content, store.SCHEMA_VERSION),
-        )
-    conn.commit()
-    conn.close()
+    last_row_id = None
+    for attempt in range(5):
+        conn = None
+        try:
+            conn = store.connect()
+            if timestamp:
+                cur = conn.execute(
+                    f"INSERT INTO {table} (source, confidence, metadata_json, content, schema_version, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+                    (source, 1.0, json.dumps(metadata or {}), content, store.SCHEMA_VERSION, timestamp),
+                )
+            else:
+                cur = conn.execute(
+                    f"INSERT INTO {table} (source, confidence, metadata_json, content, schema_version) VALUES (?, ?, ?, ?, ?)",
+                    (source, 1.0, json.dumps(metadata or {}), content, store.SCHEMA_VERSION),
+                )
+            conn.commit()
+            last_row_id = int(cur.lastrowid)
+            break
+        except sqlite3.OperationalError as exc:
+            if "locked" in str(exc).lower() and attempt < 4:
+                time.sleep(1.0 * (attempt + 1))
+                continue
+            raise
+        finally:
+            if conn is not None:
+                conn.close()
+    if last_row_id is None:
+        raise sqlite3.OperationalError("store_memory failed after retries")
     _emit("store_memory")
-    return int(cur.lastrowid)
+    return last_row_id
 
 
 def record_reinforcement(task_id: str, outcome: str, note: str, *, source_module: str | None = None) -> None:

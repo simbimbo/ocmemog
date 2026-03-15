@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
+import queue
+import threading
 from pathlib import Path
 from brain.runtime import state_store
 
@@ -174,6 +176,44 @@ CREATE TABLE IF NOT EXISTS artifacts (
   created_at TIMESTAMP DEFAULT (datetime('now'))
 );
 """
+
+_WRITE_QUEUE: "queue.Queue[tuple]" = queue.Queue()
+_WRITE_LOCK = threading.Lock()
+_WRITE_WORKER_STARTED = False
+
+
+def _write_worker() -> None:
+    while True:
+        fn, event, container = _WRITE_QUEUE.get()
+        try:
+            container["result"] = fn()
+        except Exception as exc:  # pragma: no cover
+            container["error"] = exc
+        finally:
+            event.set()
+            _WRITE_QUEUE.task_done()
+
+
+def _ensure_write_worker() -> None:
+    global _WRITE_WORKER_STARTED
+    with _WRITE_LOCK:
+        if _WRITE_WORKER_STARTED:
+            return
+        thread = threading.Thread(target=_write_worker, daemon=True)
+        thread.start()
+        _WRITE_WORKER_STARTED = True
+
+
+def submit_write(fn, timeout: float = 30.0):
+    _ensure_write_worker()
+    event = threading.Event()
+    container: dict = {}
+    _WRITE_QUEUE.put((fn, event, container))
+    if not event.wait(timeout=timeout):
+        raise TimeoutError("write queue timeout")
+    if "error" in container:
+        raise container["error"]
+    return container.get("result")
 
 
 def db_path() -> Path:

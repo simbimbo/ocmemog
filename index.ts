@@ -34,6 +34,19 @@ type GetResponse = {
   error?: string;
 };
 
+type RecentResponse = {
+  ok: boolean;
+  mode?: string;
+  warnings?: string[];
+  missingDeps?: string[];
+  todo?: string[];
+  categories?: string[];
+  since?: string | null;
+  limit?: number;
+  results?: Record<string, Array<{ reference: string; timestamp?: string; content?: string }>>;
+  error?: string;
+};
+
 function readConfig(raw: unknown): PluginConfig {
   const cfg = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   return {
@@ -203,6 +216,70 @@ const ocmemogPlugin = {
         },
       },
       { name: "memory_get" },
+    );
+
+    api.registerTool(
+      {
+        name: "memory_recent",
+        label: "Memory Recent",
+        description: "Fetch recent memories from ocmemog by category and time window.",
+        parameters: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            categories: {
+              type: "array",
+              items: { type: "string" },
+              description: "Filter by memory categories.",
+            },
+            limit: { type: "number", description: "Maximum items per category." },
+            hours: { type: "number", description: "Lookback window in hours." },
+          },
+        },
+        async execute(_toolCallId: string, params: Record<string, unknown>) {
+          try {
+            const payload = await postJson<RecentResponse>(config, "/memory/recent", {
+              categories: params.categories,
+              limit: params.limit,
+              hours: params.hours,
+            });
+
+            const results = payload.results ?? {};
+            const text = Object.keys(results).length
+              ? Object.entries(results)
+                  .map(([category, items]) => {
+                    const lines = (items || []).map((item, index) =>
+                      `${index + 1}. ${item.reference}${item.timestamp ? ` (${item.timestamp})` : ""}\n${String(item.content ?? "").slice(0, 240)}`,
+                    );
+                    return `## ${category}\n${lines.join("\n\n")}`;
+                  })
+                  .join("\n\n")
+              : payload.error || "No recent memories found.";
+
+            return {
+              content: [{ type: "text", text: `${text}${formatWarnings(payload)}` }],
+              details: payload,
+            };
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : "unknown sidecar failure";
+            return {
+              content: [
+                {
+                  type: "text",
+                  text:
+                    `ocmemog sidecar request failed for memory_recent.\n` +
+                    `endpoint: ${config.endpoint}\n` +
+                    `error: ${message}\n` +
+                    `TODO: start the FastAPI sidecar before using this tool.`,
+                },
+              ],
+              details: { ok: false, endpoint: config.endpoint, error: message },
+            };
+          }
+        },
+      },
+      { name: "memory_recent" },
     );
 
     api.registerTool(

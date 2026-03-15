@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-import time
-import sqlite3
 from typing import List, Dict, Any
 
 from brain.runtime.memory import store
@@ -22,26 +20,36 @@ def _emit(event: str) -> None:
 def record_event(event_type: str, payload: str, *, source: str | None = None) -> None:
     payload = _sanitize(payload)
     details_json = json.dumps({"payload": payload})
-    conn = store.connect()
-    conn.execute(
-        "INSERT INTO memory_events (event_type, source, details_json, schema_version) VALUES (?, ?, ?, ?)",
-        (event_type, source, details_json, store.SCHEMA_VERSION),
-    )
-    conn.commit()
-    conn.close()
+    def _write() -> None:
+        conn = store.connect()
+        try:
+            conn.execute(
+                "INSERT INTO memory_events (event_type, source, details_json, schema_version) VALUES (?, ?, ?, ?)",
+                (event_type, source, details_json, store.SCHEMA_VERSION),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    store.submit_write(_write, timeout=30.0)
     _emit("record_event")
 
 
 def record_task(task_id: str, status: str, *, source: str | None = None) -> None:
     status = _sanitize(status)
     metadata_json = json.dumps({"task_id": task_id})
-    conn = store.connect()
-    conn.execute(
-        "INSERT INTO tasks (source, confidence, metadata_json, content, schema_version) VALUES (?, ?, ?, ?, ?)",
-        (source, 1.0, metadata_json, status, store.SCHEMA_VERSION),
-    )
-    conn.commit()
-    conn.close()
+    def _write() -> None:
+        conn = store.connect()
+        try:
+            conn.execute(
+                "INSERT INTO tasks (source, confidence, metadata_json, content, schema_version) VALUES (?, ?, ?, ?, ?)",
+                (source, 1.0, metadata_json, status, store.SCHEMA_VERSION),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    store.submit_write(_write, timeout=30.0)
     _emit("record_task")
 
 
@@ -58,11 +66,9 @@ def store_memory(
     allowed = {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons"}
     if table not in allowed:
         table = "knowledge"
-    last_row_id = None
-    for attempt in range(5):
-        conn = None
+    def _write() -> int:
+        conn = store.connect()
         try:
-            conn = store.connect()
             if timestamp:
                 cur = conn.execute(
                     f"INSERT INTO {table} (source, confidence, metadata_json, content, schema_version, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
@@ -74,18 +80,11 @@ def store_memory(
                     (source, 1.0, json.dumps(metadata or {}), content, store.SCHEMA_VERSION),
                 )
             conn.commit()
-            last_row_id = int(cur.lastrowid)
-            break
-        except sqlite3.OperationalError as exc:
-            if "locked" in str(exc).lower() and attempt < 4:
-                time.sleep(1.0 * (attempt + 1))
-                continue
-            raise
+            return int(cur.lastrowid)
         finally:
-            if conn is not None:
-                conn.close()
-    if last_row_id is None:
-        raise sqlite3.OperationalError("store_memory failed after retries")
+            conn.close()
+
+    last_row_id = store.submit_write(_write, timeout=30.0)
     _emit("store_memory")
     return last_row_id
 
@@ -93,18 +92,23 @@ def store_memory(
 def record_reinforcement(task_id: str, outcome: str, note: str, *, source_module: str | None = None) -> None:
     outcome = _sanitize(outcome)
     note = _sanitize(note)
-    conn = store.connect()
-    conn.execute(
-        "INSERT INTO experiences (task_id, outcome, reward_score, confidence, experience_type, source_module, schema_version) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (task_id, outcome, None, 1.0, "reinforcement", source_module, store.SCHEMA_VERSION),
-    )
-    conn.execute(
-        "INSERT INTO memory_events (event_type, source, details_json, schema_version) VALUES (?, ?, ?, ?)",
-        ("reinforcement_note", source_module, json.dumps({"task_id": task_id, "note": note}), store.SCHEMA_VERSION),
-    )
-    conn.commit()
-    conn.close()
+    def _write() -> None:
+        conn = store.connect()
+        try:
+            conn.execute(
+                "INSERT INTO experiences (task_id, outcome, reward_score, confidence, experience_type, source_module, schema_version) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (task_id, outcome, None, 1.0, "reinforcement", source_module, store.SCHEMA_VERSION),
+            )
+            conn.execute(
+                "INSERT INTO memory_events (event_type, source, details_json, schema_version) VALUES (?, ?, ?, ?)",
+                ("reinforcement_note", source_module, json.dumps({"task_id": task_id, "note": note}), store.SCHEMA_VERSION),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    store.submit_write(_write, timeout=30.0)
     _emit("record_reinforcement")
 
 

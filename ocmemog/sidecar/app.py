@@ -10,6 +10,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
+from datetime import datetime, timedelta
 
 from brain.runtime import state_store
 from brain.runtime.memory import retrieval, store, api, distill, health, memory_links, pondering_engine, reinforcement
@@ -196,6 +197,12 @@ class ContextRequest(BaseModel):
     radius: int = Field(default=10, ge=0, le=200)
 
 
+class RecentRequest(BaseModel):
+    categories: Optional[List[str]] = Field(default=None, description="Filter by memory categories")
+    limit: int = Field(default=12, ge=1, le=100, description="Maximum items per category")
+    hours: Optional[int] = Field(default=36, ge=1, le=168, description="Lookback window in hours")
+
+
 class PonderRequest(BaseModel):
     max_items: int = Field(default=5, ge=1, le=50)
 
@@ -227,6 +234,36 @@ class ReinforceRequest(BaseModel):
     experience_type: str = Field(default="reinforcement")
     source_module: str = Field(default="sidecar")
     note: Optional[str] = None
+
+
+def _fetch_recent(category: str, limit: int, since: Optional[str]) -> List[Dict[str, Any]]:
+    conn = store.connect()
+    items: List[Dict[str, Any]] = []
+    try:
+        if since:
+            rows = conn.execute(
+                f"SELECT id, content, metadata_json, timestamp FROM {category} WHERE timestamp >= ? ORDER BY timestamp DESC LIMIT ?",
+                (since, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                f"SELECT id, content, metadata_json, timestamp FROM {category} ORDER BY timestamp DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        for row in rows:
+            try:
+                meta = json.loads(row["metadata_json"] or "{}")
+            except Exception:
+                meta = {}
+            items.append({
+                "reference": f"{category}:{row['id']}",
+                "timestamp": row["timestamp"],
+                "content": row["content"],
+                "metadata": meta,
+            })
+    finally:
+        conn.close()
+    return items
 
 
 def _normalize_categories(categories: Optional[Iterable[str]]) -> List[str]:
@@ -433,6 +470,24 @@ def memory_context(request: ContextRequest) -> dict[str, Any]:
     }
 
 
+@app.post("/memory/recent")
+def memory_recent(request: RecentRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    categories = _normalize_categories(request.categories)
+    since = None
+    if request.hours:
+        since = (datetime.utcnow() - timedelta(hours=request.hours)).strftime("%Y-%m-%d %H:%M:%S")
+    results = {category: _fetch_recent(category, request.limit, since) for category in categories}
+    return {
+        "ok": True,
+        "categories": categories,
+        "since": since,
+        "limit": request.limit,
+        "results": results,
+        **runtime,
+    }
+
+
 @app.post("/memory/ponder")
 def memory_ponder(request: PonderRequest) -> dict[str, Any]:
     runtime = _runtime_payload()
@@ -521,22 +576,27 @@ def _ingest_request(request: IngestRequest) -> dict[str, Any]:
         return {"ok": True, "kind": "memory", "memory_type": memory_type, "reference": reference, **runtime}
 
     # experience ingest
-    conn = store.connect()
-    conn.execute(
-        "INSERT INTO experiences (task_id, outcome, reward_score, confidence, experience_type, source_module, schema_version) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (
-            request.task_id,
-            content,
-            None,
-            1.0,
-            "ingest",
-            request.source or "sidecar",
-            store.SCHEMA_VERSION,
-        ),
-    )
-    conn.commit()
-    conn.close()
+    def _write_experience() -> None:
+        conn = store.connect()
+        try:
+            conn.execute(
+                "INSERT INTO experiences (task_id, outcome, reward_score, confidence, experience_type, source_module, schema_version) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    request.task_id,
+                    content,
+                    None,
+                    1.0,
+                    "ingest",
+                    request.source or "sidecar",
+                    store.SCHEMA_VERSION,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    store.submit_write(_write_experience, timeout=30.0)
     return {"ok": True, "kind": "experience", **runtime}
 
 

@@ -269,6 +269,15 @@ class ConversationHydrateRequest(BaseModel):
     memory_limit: int = Field(default=8, ge=1, le=50)
 
 
+class ConversationCheckpointRequest(BaseModel):
+    conversation_id: Optional[str] = None
+    session_id: Optional[str] = None
+    thread_id: Optional[str] = None
+    upto_turn_id: Optional[int] = None
+    turns_limit: int = Field(default=24, ge=1, le=200)
+    checkpoint_kind: str = Field(default="manual")
+
+
 class DistillRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=100)
 
@@ -386,25 +395,6 @@ def _get_row(reference: str) -> Optional[Dict[str, Any]]:
         return payload
     finally:
         conn.close()
-
-
-def _hydrate_summary_scaffold(turns: List[Dict[str, Any]]) -> Dict[str, Any]:
-    latest_user_turn = next((turn for turn in reversed(turns) if turn.get("role") == "user"), None)
-    latest_assistant_turn = next((turn for turn in reversed(turns) if turn.get("role") == "assistant"), None)
-    last_turn = turns[-1] if turns else None
-    return {
-        "turn_count": len(turns),
-        "latest_user_turn": latest_user_turn,
-        "latest_assistant_turn": latest_assistant_turn,
-        "latest_transcript_anchor": {
-            "path": last_turn.get("transcript_path") if last_turn else None,
-            "start_line": last_turn.get("transcript_offset") if last_turn else None,
-            "end_line": last_turn.get("transcript_end_offset") if last_turn else None,
-        },
-        "open_loops": [],
-        "pending_actions": [],
-        "summary_status": "scaffold_only",
-    }
 
 
 def _ingest_conversation_turn(request: ConversationTurnRequest) -> dict[str, Any]:
@@ -629,13 +619,37 @@ def conversation_hydrate(request: ConversationHydrateRequest) -> dict[str, Any]:
         link_targets.extend(memory_links.get_memory_links_for_session(request.session_id))
     if request.conversation_id:
         link_targets.extend(memory_links.get_memory_links_for_conversation(request.conversation_id))
+    latest_checkpoint = conversation_state.get_latest_checkpoint(
+        conversation_id=request.conversation_id,
+        session_id=request.session_id,
+        thread_id=request.thread_id,
+    )
+    unresolved_items = conversation_state.list_relevant_unresolved_state(
+        conversation_id=request.conversation_id,
+        session_id=request.session_id,
+        thread_id=request.thread_id,
+        limit=10,
+    )
+    summary = conversation_state.infer_hydration_payload(
+        turns,
+        conversation_id=request.conversation_id,
+        session_id=request.session_id,
+        thread_id=request.thread_id,
+        unresolved_items=unresolved_items,
+        latest_checkpoint=latest_checkpoint,
+    )
+    state_payload = conversation_state.refresh_state(
+        conversation_id=request.conversation_id,
+        session_id=request.session_id,
+        thread_id=request.thread_id,
+    )
     return {
         "ok": True,
         "conversation_id": request.conversation_id,
         "session_id": request.session_id,
         "thread_id": request.thread_id,
         "recent_turns": turns,
-        "summary": _hydrate_summary_scaffold(turns),
+        "summary": summary,
         "turn_counts": conversation_state.get_turn_counts(
             conversation_id=request.conversation_id,
             session_id=request.session_id,
@@ -643,8 +657,25 @@ def conversation_hydrate(request: ConversationHydrateRequest) -> dict[str, Any]:
         ),
         "linked_memories": linked_memories,
         "linked_references": link_targets,
+        "state": state_payload,
         **runtime,
     }
+
+
+@app.post("/conversation/checkpoint")
+def conversation_checkpoint(request: ConversationCheckpointRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    checkpoint = conversation_state.create_checkpoint(
+        conversation_id=request.conversation_id,
+        session_id=request.session_id,
+        thread_id=request.thread_id,
+        upto_turn_id=request.upto_turn_id,
+        turns_limit=request.turns_limit,
+        checkpoint_kind=request.checkpoint_kind,
+    )
+    if checkpoint is None:
+        return {"ok": False, "error": "no_turns_available", **runtime}
+    return {"ok": True, "checkpoint": checkpoint, **runtime}
 
 
 @app.post("/memory/ponder")

@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from brain.runtime.memory import api, distill, embedding_engine, store, vector_index
+from brain.runtime.memory import api, distill, embedding_engine, store, vector_index, unresolved_state
 from ocmemog.sidecar import app
 
 
@@ -138,9 +138,11 @@ class OcmemogRegressionTests(unittest.TestCase):
         self.assertEqual(hydrate["recent_turns"][0]["role"], "user")
         self.assertEqual(hydrate["recent_turns"][0]["message_id"], "msg-1")
         self.assertEqual(hydrate["summary"]["latest_user_turn"]["content"], "Need to ship Phase 1A next.")
+        self.assertEqual(hydrate["summary"]["latest_user_ask"]["content"], "Need to ship Phase 1A next.")
         self.assertEqual(hydrate["turn_counts"]["user"], 1)
         self.assertEqual(hydrate["turn_counts"]["assistant"], 0)
         self.assertEqual(hydrate["linked_memories"][0]["reference"], memory_response["reference"])
+        self.assertEqual(hydrate["state"]["latest_user_ask"], "Need to ship Phase 1A next.")
         targets = {item["target_reference"] for item in hydrate["linked_references"]}
         self.assertIn("thread:thread-1", targets)
         self.assertIn("session:sess-1", targets)
@@ -176,6 +178,67 @@ class OcmemogRegressionTests(unittest.TestCase):
         )
         self.assertEqual([turn["message_id"] for turn in hydrate["recent_turns"]], ["m1", "m2"])
         self.assertEqual(hydrate["summary"]["latest_assistant_turn"]["content"], "hi there")
+
+    def test_conversation_checkpoint_and_unresolved_state_enrich_hydration(self) -> None:
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="Can you ship checkpoints next?",
+                conversation_id="conv-check",
+                session_id="sess-check",
+                thread_id="thread-check",
+                message_id="u1",
+                timestamp="2026-03-15 10:00:00",
+            )
+        )
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="assistant",
+                content="I will add checkpoints and richer hydration output next.",
+                conversation_id="conv-check",
+                session_id="sess-check",
+                thread_id="thread-check",
+                message_id="a1",
+                timestamp="2026-03-15 10:00:10",
+            )
+        )
+        unresolved_state.add_unresolved_state(
+            "paused_task",
+            "thread:thread-check",
+            "Need to finish unresolved-state integration.",
+        )
+
+        checkpoint = app.conversation_checkpoint(
+            app.ConversationCheckpointRequest(
+                conversation_id="conv-check",
+                session_id="sess-check",
+                thread_id="thread-check",
+                checkpoint_kind="manual",
+            )
+        )
+        self.assertTrue(checkpoint["ok"])
+        self.assertEqual(checkpoint["checkpoint"]["checkpoint_kind"], "manual")
+        self.assertIn("user asked", checkpoint["checkpoint"]["summary"])
+
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(
+                conversation_id="conv-check",
+                session_id="sess-check",
+                thread_id="thread-check",
+                turns_limit=5,
+            )
+        )
+        self.assertEqual(hydrate["summary"]["latest_user_ask"]["content"], "Can you ship checkpoints next?")
+        self.assertEqual(
+            hydrate["summary"]["last_assistant_commitment"]["content"],
+            "I will add checkpoints and richer hydration output next.",
+        )
+        unresolved_summaries = [item["summary"] for item in hydrate["summary"]["unresolved_state"]]
+        self.assertIn("Need to finish unresolved-state integration.", unresolved_summaries)
+        open_loop_summaries = [item["summary"] for item in hydrate["summary"]["open_loops"]]
+        self.assertIn("I will add checkpoints and richer hydration output next.", open_loop_summaries)
+        self.assertEqual(hydrate["state"]["last_assistant_commitment"], "I will add checkpoints and richer hydration output next.")
+        self.assertEqual(hydrate["state"]["latest_checkpoint_id"], checkpoint["checkpoint"]["id"])
 
     def test_provider_embedding_takes_precedence_when_configured(self) -> None:
         with mock.patch.object(embedding_engine.config, "BRAIN_EMBED_MODEL_PROVIDER", "openai"), \

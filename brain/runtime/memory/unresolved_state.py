@@ -72,6 +72,20 @@ def resolve_unresolved_state(state_id: int) -> bool:
     return True
 
 
+def list_unresolved_state_for_references(references: List[str], limit: int = 20) -> List[Dict[str, object]]:
+    refs = [str(ref).strip() for ref in references if str(ref).strip()]
+    if not refs:
+        return []
+    placeholders = ",".join("?" for _ in refs)
+    conn = _connect()
+    rows = conn.execute(
+        f"SELECT state_id, state_type, reference, summary, created_at FROM unresolved_state WHERE resolved=0 AND reference IN ({placeholders}) ORDER BY created_at DESC LIMIT ?",
+        (*refs, limit),
+    ).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
 def count_unresolved_state() -> int:
     conn = _connect()
     row = conn.execute("SELECT COUNT(*) FROM unresolved_state WHERE resolved=0").fetchone()

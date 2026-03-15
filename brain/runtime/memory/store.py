@@ -197,6 +197,53 @@ CREATE INDEX IF NOT EXISTS idx_conversation_turns_conversation ON conversation_t
 CREATE INDEX IF NOT EXISTS idx_conversation_turns_session ON conversation_turns(session_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_conversation_turns_thread ON conversation_turns(thread_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_conversation_turns_message ON conversation_turns(message_id);
+
+CREATE TABLE IF NOT EXISTS conversation_checkpoints (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+  conversation_id TEXT,
+  session_id TEXT,
+  thread_id TEXT,
+  turn_start_id INTEGER,
+  turn_end_id INTEGER,
+  checkpoint_kind TEXT NOT NULL DEFAULT 'manual',
+  summary TEXT NOT NULL,
+  latest_user_ask TEXT,
+  last_assistant_commitment TEXT,
+  open_loops_json TEXT DEFAULT '[]',
+  pending_actions_json TEXT DEFAULT '[]',
+  metadata_json TEXT DEFAULT '{}',
+  schema_version TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_checkpoints_conversation ON conversation_checkpoints(conversation_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_conversation_checkpoints_session ON conversation_checkpoints(session_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_conversation_checkpoints_thread ON conversation_checkpoints(thread_id, id DESC);
+
+CREATE TABLE IF NOT EXISTS conversation_state (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scope_type TEXT NOT NULL,
+  scope_id TEXT NOT NULL,
+  conversation_id TEXT,
+  session_id TEXT,
+  thread_id TEXT,
+  latest_user_turn_id INTEGER,
+  latest_assistant_turn_id INTEGER,
+  latest_user_ask TEXT,
+  last_assistant_commitment TEXT,
+  open_loops_json TEXT DEFAULT '[]',
+  pending_actions_json TEXT DEFAULT '[]',
+  unresolved_state_json TEXT DEFAULT '[]',
+  latest_checkpoint_id INTEGER,
+  metadata_json TEXT DEFAULT '{}',
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  schema_version TEXT NOT NULL,
+  UNIQUE(scope_type, scope_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_state_conversation ON conversation_state(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_conversation_state_session ON conversation_state(session_id);
+CREATE INDEX IF NOT EXISTS idx_conversation_state_thread ON conversation_state(thread_id);
 """
 
 _WRITE_QUEUE: "queue.Queue[tuple]" = queue.Queue()
@@ -298,5 +345,39 @@ def init_db() -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_turns_session ON conversation_turns(session_id, id DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_turns_thread ON conversation_turns(thread_id, id DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_turns_message ON conversation_turns(message_id)")
+    _ensure_column(conn, "conversation_checkpoints", "conversation_id", "TEXT")
+    _ensure_column(conn, "conversation_checkpoints", "session_id", "TEXT")
+    _ensure_column(conn, "conversation_checkpoints", "thread_id", "TEXT")
+    _ensure_column(conn, "conversation_checkpoints", "turn_start_id", "INTEGER")
+    _ensure_column(conn, "conversation_checkpoints", "turn_end_id", "INTEGER")
+    _ensure_column(conn, "conversation_checkpoints", "checkpoint_kind", "TEXT NOT NULL DEFAULT 'manual'")
+    _ensure_column(conn, "conversation_checkpoints", "summary", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "conversation_checkpoints", "latest_user_ask", "TEXT")
+    _ensure_column(conn, "conversation_checkpoints", "last_assistant_commitment", "TEXT")
+    _ensure_column(conn, "conversation_checkpoints", "open_loops_json", "TEXT DEFAULT '[]'")
+    _ensure_column(conn, "conversation_checkpoints", "pending_actions_json", "TEXT DEFAULT '[]'")
+    _ensure_column(conn, "conversation_checkpoints", "metadata_json", "TEXT DEFAULT '{}'")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_checkpoints_conversation ON conversation_checkpoints(conversation_id, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_checkpoints_session ON conversation_checkpoints(session_id, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_checkpoints_thread ON conversation_checkpoints(thread_id, id DESC)")
+    _ensure_column(conn, "conversation_state", "scope_type", "TEXT")
+    _ensure_column(conn, "conversation_state", "scope_id", "TEXT")
+    _ensure_column(conn, "conversation_state", "conversation_id", "TEXT")
+    _ensure_column(conn, "conversation_state", "session_id", "TEXT")
+    _ensure_column(conn, "conversation_state", "thread_id", "TEXT")
+    _ensure_column(conn, "conversation_state", "latest_user_turn_id", "INTEGER")
+    _ensure_column(conn, "conversation_state", "latest_assistant_turn_id", "INTEGER")
+    _ensure_column(conn, "conversation_state", "latest_user_ask", "TEXT")
+    _ensure_column(conn, "conversation_state", "last_assistant_commitment", "TEXT")
+    _ensure_column(conn, "conversation_state", "open_loops_json", "TEXT DEFAULT '[]'")
+    _ensure_column(conn, "conversation_state", "pending_actions_json", "TEXT DEFAULT '[]'")
+    _ensure_column(conn, "conversation_state", "unresolved_state_json", "TEXT DEFAULT '[]'")
+    _ensure_column(conn, "conversation_state", "latest_checkpoint_id", "INTEGER")
+    _ensure_column(conn, "conversation_state", "metadata_json", "TEXT DEFAULT '{}'")
+    _ensure_column(conn, "conversation_state", "updated_at", "TEXT")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_conversation_state_scope ON conversation_state(scope_type, scope_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_state_conversation ON conversation_state(conversation_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_state_session ON conversation_state(session_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_state_thread ON conversation_state(thread_id)")
     conn.commit()
     conn.close()

@@ -1,11 +1,78 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+import os
+import re
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from brain.runtime.memory import store, memory_links
+from brain.runtime import state_store
+from brain.runtime.instrumentation import emit_event
+from brain.runtime.memory import store, memory_links, unresolved_state
 
 _ALLOWED_MEMORY_TABLES = {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons", "candidates", "promotions"}
+LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
+_COMMITMENT_RE = re.compile(
+    r"\b(i(?:'m| am)? going to|i will|i'll|let me|i can(?:\s+now)?|next,? i(?:'ll| will)|i should be able to)\b",
+    re.IGNORECASE,
+)
+_CHECKPOINT_EVERY = max(0, int(os.environ.get("OCMEMOG_CONVERSATION_CHECKPOINT_EVERY", "6") or "6"))
+_MAX_STATE_TURNS = max(6, int(os.environ.get("OCMEMOG_CONVERSATION_STATE_TURNS", "24") or "24"))
+
+
+def _scope_parts(
+    *,
+    conversation_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    thread_id: Optional[str] = None,
+) -> tuple[Optional[str], Optional[str]]:
+    if thread_id:
+        return "thread", thread_id
+    if session_id:
+        return "session", session_id
+    if conversation_id:
+        return "conversation", conversation_id
+    return None, None
+
+
+def _scope_target_refs(
+    *,
+    conversation_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    thread_id: Optional[str] = None,
+) -> List[str]:
+    refs: List[str] = []
+    if thread_id:
+        refs.append(f"thread:{thread_id}")
+    if session_id:
+        refs.append(f"session:{session_id}")
+    if conversation_id:
+        refs.append(f"conversation:{conversation_id}")
+    return refs
+
+
+def _scope_where(
+    *,
+    conversation_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    thread_id: Optional[str] = None,
+    upto_turn_id: Optional[int] = None,
+) -> tuple[str, List[Any]]:
+    filters = []
+    params: List[Any] = []
+    if thread_id:
+        filters.append("thread_id = ?")
+        params.append(thread_id)
+    elif session_id:
+        filters.append("session_id = ?")
+        params.append(session_id)
+    elif conversation_id:
+        filters.append("conversation_id = ?")
+        params.append(conversation_id)
+    if upto_turn_id is not None:
+        filters.append("id <= ?")
+        params.append(int(upto_turn_id))
+    where = f" WHERE {' AND '.join(filters)}" if filters else ""
+    return where, params
 
 
 def record_turn(
@@ -85,7 +152,26 @@ def record_turn(
         finally:
             conn.close()
 
-    return int(store.submit_write(_write, timeout=30.0))
+    turn_id = int(store.submit_write(_write, timeout=30.0))
+    refresh_state(
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+    )
+    if _CHECKPOINT_EVERY > 0:
+        counts = get_turn_counts(conversation_id=conversation_id, session_id=session_id, thread_id=thread_id)
+        if counts["total"] > 0 and counts["total"] % _CHECKPOINT_EVERY == 0:
+            latest = get_latest_checkpoint(conversation_id=conversation_id, session_id=session_id, thread_id=thread_id)
+            if not latest or int(latest.get("turn_end_id") or 0) < turn_id:
+                create_checkpoint(
+                    conversation_id=conversation_id,
+                    session_id=session_id,
+                    thread_id=thread_id,
+                    upto_turn_id=turn_id,
+                    checkpoint_kind="rolling",
+                )
+    emit_event(LOGFILE, "brain_conversation_turn_recorded", status="ok", role=turn_role, turn_id=turn_id)
+    return turn_id
 
 
 def _rows_to_turns(rows) -> List[Dict[str, Any]]:
@@ -122,24 +208,16 @@ def get_recent_turns(
     session_id: Optional[str] = None,
     thread_id: Optional[str] = None,
     limit: int = 20,
+    upto_turn_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    filters = []
-    params: List[Any] = []
-    if thread_id:
-        filters.append("thread_id = ?")
-        params.append(thread_id)
-    elif session_id:
-        filters.append("session_id = ?")
-        params.append(session_id)
-    elif conversation_id:
-        filters.append("conversation_id = ?")
-        params.append(conversation_id)
-
-    query = "SELECT * FROM conversation_turns"
-    if filters:
-        query += " WHERE " + " AND ".join(filters)
-    query += " ORDER BY id DESC LIMIT ?"
-    params.append(min(max(limit, 1), 100))
+    where, params = _scope_where(
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+        upto_turn_id=upto_turn_id,
+    )
+    query = f"SELECT * FROM conversation_turns{where} ORDER BY id DESC LIMIT ?"
+    params.append(min(max(limit, 1), 200))
 
     conn = store.connect()
     try:
@@ -155,19 +233,11 @@ def get_turn_counts(
     session_id: Optional[str] = None,
     thread_id: Optional[str] = None,
 ) -> Dict[str, int]:
-    filters = []
-    params: List[Any] = []
-    if thread_id:
-        filters.append("thread_id = ?")
-        params.append(thread_id)
-    elif session_id:
-        filters.append("session_id = ?")
-        params.append(session_id)
-    elif conversation_id:
-        filters.append("conversation_id = ?")
-        params.append(conversation_id)
-
-    where = f" WHERE {' AND '.join(filters)}" if filters else ""
+    where, params = _scope_where(
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+    )
     conn = store.connect()
     try:
         row = conn.execute(
@@ -197,13 +267,11 @@ def get_linked_memories(
     thread_id: Optional[str] = None,
     limit: int = 10,
 ) -> List[Dict[str, Any]]:
-    targets: List[str] = []
-    if thread_id:
-        targets.append(f"thread:{thread_id}")
-    if session_id:
-        targets.append(f"session:{session_id}")
-    if conversation_id:
-        targets.append(f"conversation:{conversation_id}")
+    targets = _scope_target_refs(
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+    )
     if not targets:
         return []
 
@@ -261,3 +329,519 @@ def get_linked_memories(
         return items
     finally:
         conn.close()
+
+
+def _latest_turn_by_role(turns: Sequence[Dict[str, Any]], role: str) -> Optional[Dict[str, Any]]:
+    return next((turn for turn in reversed(turns) if turn.get("role") == role), None)
+
+
+def _assistant_commitment(turns: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    for turn in reversed(turns):
+        if turn.get("role") != "assistant":
+            continue
+        content = str(turn.get("content") or "").strip()
+        if _COMMITMENT_RE.search(content):
+            return turn
+    return None
+
+
+def _turn_anchor(turn: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not turn:
+        return None
+    return {
+        "id": turn.get("id"),
+        "reference": turn.get("reference"),
+        "message_id": turn.get("message_id"),
+        "role": turn.get("role"),
+        "timestamp": turn.get("timestamp"),
+        "content": turn.get("content"),
+        "transcript_path": turn.get("transcript_path"),
+        "transcript_offset": turn.get("transcript_offset"),
+        "transcript_end_offset": turn.get("transcript_end_offset"),
+    }
+
+
+def _pending_from_turns(turns: Sequence[Dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    pending_actions: list[dict[str, Any]] = []
+    open_loops: list[dict[str, Any]] = []
+    last_user = _latest_turn_by_role(turns, "user")
+    last_assistant = _latest_turn_by_role(turns, "assistant")
+    commitment = _assistant_commitment(turns)
+
+    if last_user and (not last_assistant or int(last_user.get("id") or 0) > int(last_assistant.get("id") or 0)):
+        content = str(last_user.get("content") or "").strip()
+        if content:
+            open_loops.append(
+                {
+                    "kind": "awaiting_assistant_reply",
+                    "summary": content,
+                    "source_reference": last_user.get("reference"),
+                }
+            )
+            pending_actions.append(
+                {
+                    "kind": "respond_to_latest_user",
+                    "summary": content,
+                    "source_reference": last_user.get("reference"),
+                }
+            )
+
+    if commitment:
+        content = str(commitment.get("content") or "").strip()
+        if content:
+            pending_actions.append(
+                {
+                    "kind": "assistant_commitment",
+                    "summary": content,
+                    "source_reference": commitment.get("reference"),
+                }
+            )
+            open_loops.append(
+                {
+                    "kind": "assistant_commitment",
+                    "summary": content,
+                    "source_reference": commitment.get("reference"),
+                }
+            )
+
+    deduped_pending: list[dict[str, Any]] = []
+    seen = set()
+    for item in pending_actions:
+        key = (item.get("kind"), item.get("summary"), item.get("source_reference"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped_pending.append(item)
+
+    deduped_loops: list[dict[str, Any]] = []
+    seen = set()
+    for item in open_loops:
+        key = (item.get("kind"), item.get("summary"), item.get("source_reference"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped_loops.append(item)
+
+    return deduped_pending, deduped_loops
+
+
+def list_relevant_unresolved_state(
+    *,
+    conversation_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    thread_id: Optional[str] = None,
+    limit: int = 10,
+) -> List[Dict[str, Any]]:
+    target_refs = set(
+        _scope_target_refs(
+            conversation_id=conversation_id,
+            session_id=session_id,
+            thread_id=thread_id,
+        )
+    )
+    if not target_refs:
+        return []
+    return unresolved_state.list_unresolved_state_for_references(list(target_refs), limit=limit)
+
+
+def infer_hydration_payload(
+    turns: Sequence[Dict[str, Any]],
+    *,
+    conversation_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    thread_id: Optional[str] = None,
+    unresolved_items: Optional[Sequence[Dict[str, Any]]] = None,
+    latest_checkpoint: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    turns_list = list(turns)
+    latest_user_turn = _latest_turn_by_role(turns_list, "user")
+    latest_assistant_turn = _latest_turn_by_role(turns_list, "assistant")
+    latest_commitment_turn = _assistant_commitment(turns_list)
+    last_turn = turns_list[-1] if turns_list else None
+    pending_actions, open_loops = _pending_from_turns(turns_list)
+    unresolved_payload = list(unresolved_items or [])
+
+    for item in unresolved_payload:
+        summary = str(item.get("summary") or "").strip()
+        if not summary:
+            continue
+        open_loops.append(
+            {
+                "kind": item.get("state_type") or "unresolved_state",
+                "summary": summary,
+                "source_reference": item.get("reference"),
+                "state_id": item.get("state_id"),
+            }
+        )
+
+    deduped_open_loops: list[dict[str, Any]] = []
+    seen = set()
+    for item in open_loops:
+        key = (item.get("kind"), item.get("summary"), item.get("source_reference"), item.get("state_id"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped_open_loops.append(item)
+
+    summary_text_parts: list[str] = []
+    if latest_checkpoint and latest_checkpoint.get("summary"):
+        summary_text_parts.append(str(latest_checkpoint["summary"]).strip())
+    if latest_user_turn:
+        summary_text_parts.append(f"Latest user ask: {str(latest_user_turn.get('content') or '').strip()}")
+    if latest_commitment_turn:
+        summary_text_parts.append(f"Last assistant commitment: {str(latest_commitment_turn.get('content') or '').strip()}")
+    summary_text = " | ".join(part for part in summary_text_parts if part)
+
+    return {
+        "turn_count": len(turns_list),
+        "latest_user_turn": _turn_anchor(latest_user_turn),
+        "latest_assistant_turn": _turn_anchor(latest_assistant_turn),
+        "latest_user_ask": _turn_anchor(latest_user_turn),
+        "last_assistant_commitment": _turn_anchor(latest_commitment_turn),
+        "latest_transcript_anchor": {
+            "path": last_turn.get("transcript_path") if last_turn else None,
+            "start_line": last_turn.get("transcript_offset") if last_turn else None,
+            "end_line": last_turn.get("transcript_end_offset") if last_turn else None,
+        },
+        "open_loops": deduped_open_loops,
+        "pending_actions": pending_actions,
+        "unresolved_state": unresolved_payload,
+        "latest_checkpoint": latest_checkpoint,
+        "summary_text": summary_text,
+        "summary_status": "derived",
+        "scope": {
+            "conversation_id": conversation_id,
+            "session_id": session_id,
+            "thread_id": thread_id,
+        },
+    }
+
+
+def _upsert_state(
+    *,
+    conversation_id: Optional[str],
+    session_id: Optional[str],
+    thread_id: Optional[str],
+    state_payload: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    scope_type, scope_id = _scope_parts(
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+    )
+    if not scope_type or not scope_id:
+        return None
+
+    def _write() -> None:
+        conn = store.connect()
+        try:
+            conn.execute(
+                """
+                INSERT INTO conversation_state (
+                    scope_type, scope_id, conversation_id, session_id, thread_id,
+                    latest_user_turn_id, latest_assistant_turn_id,
+                    latest_user_ask, last_assistant_commitment,
+                    open_loops_json, pending_actions_json, unresolved_state_json,
+                    latest_checkpoint_id, metadata_json, schema_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(scope_type, scope_id) DO UPDATE SET
+                    conversation_id=excluded.conversation_id,
+                    session_id=excluded.session_id,
+                    thread_id=excluded.thread_id,
+                    latest_user_turn_id=excluded.latest_user_turn_id,
+                    latest_assistant_turn_id=excluded.latest_assistant_turn_id,
+                    latest_user_ask=excluded.latest_user_ask,
+                    last_assistant_commitment=excluded.last_assistant_commitment,
+                    open_loops_json=excluded.open_loops_json,
+                    pending_actions_json=excluded.pending_actions_json,
+                    unresolved_state_json=excluded.unresolved_state_json,
+                    latest_checkpoint_id=excluded.latest_checkpoint_id,
+                    metadata_json=excluded.metadata_json,
+                    updated_at=datetime('now'),
+                    schema_version=excluded.schema_version
+                """,
+                (
+                    scope_type,
+                    scope_id,
+                    conversation_id,
+                    session_id,
+                    thread_id,
+                    (state_payload.get("latest_user_turn") or {}).get("id"),
+                    (state_payload.get("latest_assistant_turn") or {}).get("id"),
+                    (state_payload.get("latest_user_ask") or {}).get("content"),
+                    (state_payload.get("last_assistant_commitment") or {}).get("content"),
+                    json.dumps(state_payload.get("open_loops") or [], ensure_ascii=False),
+                    json.dumps(state_payload.get("pending_actions") or [], ensure_ascii=False),
+                    json.dumps(state_payload.get("unresolved_state") or [], ensure_ascii=False),
+                    (state_payload.get("latest_checkpoint") or {}).get("id"),
+                    json.dumps({"summary_text": state_payload.get("summary_text")}, ensure_ascii=False),
+                    store.SCHEMA_VERSION,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    store.submit_write(_write, timeout=30.0)
+    emit_event(LOGFILE, "brain_conversation_state_upserted", status="ok", scope_type=scope_type)
+    return get_state(conversation_id=conversation_id, session_id=session_id, thread_id=thread_id)
+
+
+def get_state(
+    *,
+    conversation_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    thread_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    scope_type, scope_id = _scope_parts(
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+    )
+    if not scope_type or not scope_id:
+        return None
+
+    conn = store.connect()
+    try:
+        row = conn.execute(
+            "SELECT * FROM conversation_state WHERE scope_type = ? AND scope_id = ?",
+            (scope_type, scope_id),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+
+    def _load(value: Any) -> Any:
+        try:
+            return json.loads(value or "[]")
+        except Exception:
+            return []
+
+    try:
+        meta = json.loads(row["metadata_json"] or "{}")
+    except Exception:
+        meta = {}
+
+    return {
+        "id": int(row["id"]),
+        "scope_type": row["scope_type"],
+        "scope_id": row["scope_id"],
+        "conversation_id": row["conversation_id"],
+        "session_id": row["session_id"],
+        "thread_id": row["thread_id"],
+        "latest_user_turn_id": row["latest_user_turn_id"],
+        "latest_assistant_turn_id": row["latest_assistant_turn_id"],
+        "latest_user_ask": row["latest_user_ask"],
+        "last_assistant_commitment": row["last_assistant_commitment"],
+        "open_loops": _load(row["open_loops_json"]),
+        "pending_actions": _load(row["pending_actions_json"]),
+        "unresolved_state": _load(row["unresolved_state_json"]),
+        "latest_checkpoint_id": row["latest_checkpoint_id"],
+        "metadata": meta,
+        "updated_at": row["updated_at"],
+    }
+
+
+def create_checkpoint(
+    *,
+    conversation_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    thread_id: Optional[str] = None,
+    upto_turn_id: Optional[int] = None,
+    turns_limit: int = 24,
+    checkpoint_kind: str = "manual",
+) -> Optional[Dict[str, Any]]:
+    turns = get_recent_turns(
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+        limit=turns_limit,
+        upto_turn_id=upto_turn_id,
+    )
+    if not turns:
+        return None
+    unresolved_items = list_relevant_unresolved_state(
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+        limit=10,
+    )
+    latest_existing_checkpoint = get_latest_checkpoint(
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+    )
+    derived = infer_hydration_payload(
+        turns,
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+        unresolved_items=unresolved_items,
+        latest_checkpoint=latest_existing_checkpoint,
+    )
+    summary_parts = [
+        f"{len(turns)} recent turns captured",
+    ]
+    latest_user = derived.get("latest_user_ask") or {}
+    if latest_user.get("content"):
+        summary_parts.append(f"user asked: {latest_user['content']}")
+    commitment = derived.get("last_assistant_commitment") or {}
+    if commitment.get("content"):
+        summary_parts.append(f"assistant committed: {commitment['content']}")
+    if derived.get("open_loops"):
+        summary_parts.append(f"open loops: {len(derived['open_loops'])}")
+    summary_text = " | ".join(summary_parts)
+    turn_start_id = int(turns[0]["id"])
+    turn_end_id = int(turns[-1]["id"])
+
+    def _write() -> int:
+        conn = store.connect()
+        try:
+            cur = conn.execute(
+                """
+                INSERT INTO conversation_checkpoints (
+                    conversation_id, session_id, thread_id,
+                    turn_start_id, turn_end_id, checkpoint_kind, summary,
+                    latest_user_ask, last_assistant_commitment,
+                    open_loops_json, pending_actions_json, metadata_json, schema_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    conversation_id,
+                    session_id,
+                    thread_id,
+                    turn_start_id,
+                    turn_end_id,
+                    checkpoint_kind,
+                    summary_text,
+                    latest_user.get("content"),
+                    commitment.get("content"),
+                    json.dumps(derived.get("open_loops") or [], ensure_ascii=False),
+                    json.dumps(derived.get("pending_actions") or [], ensure_ascii=False),
+                    json.dumps(
+                        {
+                            "turn_count": len(turns),
+                            "latest_turn_reference": turns[-1].get("reference"),
+                            "latest_turn_timestamp": turns[-1].get("timestamp"),
+                            "unresolved_count": len(unresolved_items),
+                        },
+                        ensure_ascii=False,
+                    ),
+                    store.SCHEMA_VERSION,
+                ),
+            )
+            conn.commit()
+            return int(cur.lastrowid)
+        finally:
+            conn.close()
+
+    checkpoint_id = int(store.submit_write(_write, timeout=30.0))
+    emit_event(LOGFILE, "brain_conversation_checkpoint_created", status="ok", checkpoint_id=checkpoint_id, checkpoint_kind=checkpoint_kind)
+    payload = get_checkpoint_by_id(checkpoint_id)
+    refresh_state(conversation_id=conversation_id, session_id=session_id, thread_id=thread_id)
+    return payload
+
+
+def _row_to_checkpoint(row) -> Optional[Dict[str, Any]]:
+    if not row:
+        return None
+    try:
+        loops = json.loads(row["open_loops_json"] or "[]")
+    except Exception:
+        loops = []
+    try:
+        pending = json.loads(row["pending_actions_json"] or "[]")
+    except Exception:
+        pending = []
+    try:
+        meta = json.loads(row["metadata_json"] or "{}")
+    except Exception:
+        meta = {}
+    return {
+        "id": int(row["id"]),
+        "reference": f"conversation_checkpoints:{row['id']}",
+        "timestamp": row["timestamp"],
+        "conversation_id": row["conversation_id"],
+        "session_id": row["session_id"],
+        "thread_id": row["thread_id"],
+        "turn_start_id": row["turn_start_id"],
+        "turn_end_id": row["turn_end_id"],
+        "checkpoint_kind": row["checkpoint_kind"],
+        "summary": row["summary"],
+        "latest_user_ask": row["latest_user_ask"],
+        "last_assistant_commitment": row["last_assistant_commitment"],
+        "open_loops": loops,
+        "pending_actions": pending,
+        "metadata": meta,
+    }
+
+
+def get_checkpoint_by_id(checkpoint_id: int) -> Optional[Dict[str, Any]]:
+    conn = store.connect()
+    try:
+        row = conn.execute("SELECT * FROM conversation_checkpoints WHERE id = ?", (int(checkpoint_id),)).fetchone()
+    finally:
+        conn.close()
+    return _row_to_checkpoint(row)
+
+
+def get_latest_checkpoint(
+    *,
+    conversation_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    thread_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    where, params = _scope_where(
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+    )
+    conn = store.connect()
+    try:
+        row = conn.execute(
+            f"SELECT * FROM conversation_checkpoints{where} ORDER BY id DESC LIMIT 1",
+            tuple(params),
+        ).fetchone()
+    finally:
+        conn.close()
+    return _row_to_checkpoint(row)
+
+
+def refresh_state(
+    *,
+    conversation_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    thread_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    turns = get_recent_turns(
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+        limit=_MAX_STATE_TURNS,
+    )
+    unresolved_items = list_relevant_unresolved_state(
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+        limit=10,
+    )
+    latest_checkpoint = get_latest_checkpoint(
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+    )
+    payload = infer_hydration_payload(
+        turns,
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+        unresolved_items=unresolved_items,
+        latest_checkpoint=latest_checkpoint,
+    )
+    return _upsert_state(
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+        state_payload=payload,
+    )

@@ -201,17 +201,23 @@ def search_memory(query: str, limit: int = 5) -> List[Dict[str, Any]]:
             "SELECT id, source, content, confidence, metadata_json FROM memory_index WHERE content LIKE ? ORDER BY id DESC LIMIT ?",
             (f"%{query}%", limit),
         ).fetchall()
-        results = [
-            {
-                "entry_id": f"memory_index:{row['id']}",
-                "source_type": "memory_index",
-                "source_id": str(row["source"]),
-                "score": float(row["confidence"] or 0.0),
-                "content": str(row["content"] or "")[:240],
-                "links": memory_links.get_memory_links(f"memory_index:{row['id']}"),
-            }
-            for row in rows
-        ]
+        fallback_results: List[Dict[str, Any]] = []
+        for row in rows:
+            source_ref = str(row["source"] or "")
+            source_type, _, source_id = source_ref.partition(":")
+            canonical_type = source_type if source_type in EMBEDDING_TABLES else "knowledge"
+            canonical_ref = f"{canonical_type}:{source_id}" if source_id else source_ref
+            fallback_results.append(
+                {
+                    "entry_id": canonical_ref,
+                    "source_type": canonical_type,
+                    "source_id": source_id or str(row["id"]),
+                    "score": float(row["confidence"] or 0.0),
+                    "content": str(row["content"] or "")[:240],
+                    "links": memory_links.get_memory_links(canonical_ref),
+                }
+            )
+        results = fallback_results
 
     conn.close()
     emit_event(LOGFILE, "brain_memory_vector_search_complete", status="ok", result_count=len(results))

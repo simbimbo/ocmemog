@@ -41,30 +41,36 @@ def _candidate_score(summary: str, source: str) -> float:
     return round(max(0.1, min(1.0, score)), 3)
 
 
+def _row_value(row: Any, key: str, fallback_index: int | None = None) -> Any:
+    if isinstance(row, dict):
+        return row.get(key)
+    try:
+        return row[key]
+    except Exception:
+        if fallback_index is None:
+            return None
+        try:
+            return row[fallback_index]
+        except Exception:
+            return None
+
+
+
 def distill_experiences(limit: int = 10) -> List[Dict[str, Any]]:
     emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_start", status="ok")
     conn = store.connect()
-    try:
-        rows = conn.execute(
-            "SELECT id, content FROM experiences ORDER BY id DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-    except Exception:
-        rows = conn.execute(
-            "SELECT id, outcome FROM experiences ORDER BY id DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+    rows = conn.execute(
+        "SELECT id, outcome FROM experiences ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
     conn.close()
 
     distilled: List[Dict[str, Any]] = []
     seen = set()
 
     for row in rows:
-        source_id = row["id"]
-        content = row.get("content") if isinstance(row, dict) else None
-        if not content:
-            content = row.get("outcome") if isinstance(row, dict) else row[1]
-        content = content or ""
+        source_id = _row_value(row, "id", 0)
+        content = _row_value(row, "outcome", 1) or ""
         content, _ = redaction.redact_text(content)
 
         summary = ""

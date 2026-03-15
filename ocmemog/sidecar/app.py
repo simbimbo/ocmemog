@@ -24,6 +24,7 @@ app = FastAPI(title="ocmemog sidecar", version="0.0.1")
 API_TOKEN = os.environ.get("OCMEMOG_API_TOKEN")
 
 QUEUE_LOCK = threading.Lock()
+QUEUE_PROCESS_LOCK = threading.Lock()
 QUEUE_STATS = {
     "last_run": None,
     "processed": 0,
@@ -63,9 +64,58 @@ def _queue_path() -> Path:
 def _queue_depth() -> int:
     path = _queue_path()
     try:
-        return sum(1 for _ in path.open("r", encoding="utf-8", errors="ignore"))
+        with path.open("r", encoding="utf-8", errors="ignore") as handle:
+            return sum(1 for line in handle if line.strip())
     except Exception:
         return 0
+
+
+def _write_queue_lines(lines: List[str]) -> None:
+    path = _queue_path()
+    temp = path.with_suffix(".jsonl.tmp")
+    with temp.open("w", encoding="utf-8") as handle:
+        for line in lines:
+            if line.strip():
+                handle.write(line.rstrip("\n") + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    temp.replace(path)
+
+
+def _read_queue_lines() -> List[str]:
+    path = _queue_path()
+    try:
+        with path.open("r", encoding="utf-8", errors="ignore") as handle:
+            return [line.rstrip("\n") for line in handle if line.strip()]
+    except Exception:
+        return []
+
+
+def _peek_queue_batch(limit: Optional[int] = None) -> tuple[List[tuple[int, Dict[str, Any]]], int]:
+    lines = _read_queue_lines()
+    if not lines:
+        return [], 0
+    batch: List[tuple[int, Dict[str, Any]]] = []
+    consumed_lines = 0
+    max_items = limit if limit is not None and limit > 0 else len(lines)
+    for line in lines:
+        if len(batch) >= max_items:
+            break
+        consumed_lines += 1
+        try:
+            batch.append((consumed_lines, json.loads(line)))
+        except Exception:
+            QUEUE_STATS["errors"] += 1
+            QUEUE_STATS["last_error"] = "invalid_queue_payload"
+    return batch, consumed_lines
+
+
+def _ack_queue_batch(consumed_lines: int) -> None:
+    if consumed_lines <= 0:
+        return
+    with QUEUE_LOCK:
+        lines = _read_queue_lines()
+        _write_queue_lines(lines[consumed_lines:])
 
 
 def _enqueue_payload(payload: Dict[str, Any]) -> int:
@@ -74,7 +124,61 @@ def _enqueue_payload(payload: Dict[str, Any]) -> int:
     with QUEUE_LOCK:
         with path.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
-    return _queue_depth()
+            handle.flush()
+            os.fsync(handle.fileno())
+        return _queue_depth()
+
+
+
+def _process_queue(limit: Optional[int] = None) -> Dict[str, Any]:
+    processed = 0
+    errors = 0
+    last_error = None
+    batch_limit = limit if limit is not None and limit > 0 else None
+
+    with QUEUE_PROCESS_LOCK:
+        while True:
+            remaining_budget = None
+            if batch_limit is not None:
+                remaining_budget = batch_limit - processed
+                if remaining_budget <= 0:
+                    break
+            batch, consumed_lines = _peek_queue_batch(remaining_budget)
+            if consumed_lines <= 0:
+                break
+
+            batch_processed = 0
+            acknowledged = 0
+            for line_no, payload in batch:
+                try:
+                    req = IngestRequest(**payload)
+                    _ingest_request(req)
+                    processed += 1
+                    batch_processed += 1
+                    acknowledged = line_no
+                except Exception as exc:
+                    errors += 1
+                    last_error = str(exc)
+                    break
+
+            if not errors:
+                acknowledged = consumed_lines
+            _ack_queue_batch(acknowledged)
+
+            if errors:
+                break
+            if not batch:
+                break
+
+    QUEUE_STATS["last_run"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    QUEUE_STATS["last_batch"] = processed
+    QUEUE_STATS["processed"] += processed
+    if errors:
+        QUEUE_STATS["errors"] += errors
+    if last_error:
+        QUEUE_STATS["last_error"] = last_error
+    return {"processed": processed, "errors": errors, "last_error": last_error}
+
 
 
 def _ingest_worker() -> None:
@@ -83,97 +187,15 @@ def _ingest_worker() -> None:
         return
     poll_seconds = float(os.environ.get("OCMEMOG_INGEST_ASYNC_POLL_SECONDS", "5"))
     batch_max = int(os.environ.get("OCMEMOG_INGEST_ASYNC_BATCH_MAX", "25"))
-    path = _queue_path()
 
     while True:
-        batch: List[Dict[str, Any]] = []
-        remaining: List[str] = []
-        with QUEUE_LOCK:
-            try:
-                with path.open("r", encoding="utf-8", errors="ignore") as handle:
-                    for line in handle:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        if len(batch) < batch_max:
-                            try:
-                                batch.append(json.loads(line))
-                            except Exception:
-                                continue
-                        else:
-                            remaining.append(line)
-                with path.open("w", encoding="utf-8") as handle:
-                    for line in remaining:
-                        handle.write(line + "\n")
-            except Exception:
-                batch = []
-
-        if batch:
-            QUEUE_STATS["last_run"] = time.strftime("%Y-%m-%d %H:%M:%S")
-            QUEUE_STATS["last_batch"] = len(batch)
-            for payload in batch:
-                try:
-                    req = IngestRequest(**payload)
-                    _ingest_request(req)
-                    QUEUE_STATS["processed"] += 1
-                except Exception as exc:
-                    QUEUE_STATS["errors"] += 1
-                    QUEUE_STATS["last_error"] = str(exc)
+        _process_queue(batch_max)
         time.sleep(poll_seconds)
 
 
+
 def _drain_queue(limit: Optional[int] = None) -> Dict[str, Any]:
-    path = _queue_path()
-    processed = 0
-    errors = 0
-    last_error = None
-
-    while True:
-        batch: List[Dict[str, Any]] = []
-        remaining: List[str] = []
-        with QUEUE_LOCK:
-            try:
-                with path.open("r", encoding="utf-8", errors="ignore") as handle:
-                    for line in handle:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        if limit is not None and processed + len(batch) >= limit:
-                            remaining.append(line)
-                            continue
-                        try:
-                            batch.append(json.loads(line))
-                        except Exception:
-                            continue
-                with path.open("w", encoding="utf-8") as handle:
-                    for line in remaining:
-                        handle.write(line + "\n")
-            except Exception as exc:
-                last_error = str(exc)
-                break
-
-        if not batch:
-            break
-
-        for payload in batch:
-            try:
-                req = IngestRequest(**payload)
-                _ingest_request(req)
-                processed += 1
-            except Exception as exc:
-                errors += 1
-                last_error = str(exc)
-
-        if limit is not None and processed >= limit:
-            break
-
-    QUEUE_STATS["last_run"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    QUEUE_STATS["last_batch"] = processed
-    if errors:
-        QUEUE_STATS["errors"] += errors
-        QUEUE_STATS["last_error"] = last_error
-    QUEUE_STATS["processed"] += processed
-    return {"processed": processed, "errors": errors, "last_error": last_error}
+    return _process_queue(limit)
 
 
 @app.on_event("startup")
@@ -218,6 +240,7 @@ class IngestRequest(BaseModel):
     message_id: Optional[str] = None
     transcript_path: Optional[str] = None
     transcript_offset: Optional[int] = None
+    transcript_end_offset: Optional[int] = None
     timestamp: Optional[str] = None
 
 
@@ -340,21 +363,33 @@ def _get_row(reference: str) -> Optional[Dict[str, Any]]:
         conn.close()
 
 
-def _parse_transcript_target(target: str) -> tuple[Path, Optional[int]] | None:
+def _parse_transcript_target(target: str) -> tuple[Path, Optional[int], Optional[int]] | None:
     if not target.startswith("transcript:"):
         return None
     raw = target[len("transcript:"):]
+    line_start: Optional[int] = None
+    line_end: Optional[int] = None
     if "#L" in raw:
-        path_str, line_str = raw.split("#L", 1)
-        try:
-            line_no = int(line_str)
-        except Exception:
-            line_no = None
+        path_str, anchor = raw.split("#L", 1)
+        if "-L" in anchor:
+            start_str, end_str = anchor.split("-L", 1)
+            try:
+                line_start = int(start_str)
+            except Exception:
+                line_start = None
+            try:
+                line_end = int(end_str)
+            except Exception:
+                line_end = None
+        else:
+            try:
+                line_start = int(anchor)
+            except Exception:
+                line_start = None
     else:
         path_str = raw
-        line_no = None
     path = Path(path_str).expanduser()
-    return (path, line_no)
+    return (path, line_start, line_end)
 
 
 def _allowed_transcript_roots() -> list[Path]:
@@ -366,7 +401,7 @@ def _allowed_transcript_roots() -> list[Path]:
     return roots
 
 
-def _read_transcript_snippet(path: Path, line_no: Optional[int], radius: int) -> Dict[str, Any]:
+def _read_transcript_snippet(path: Path, line_start: Optional[int], line_end: Optional[int], radius: int) -> Dict[str, Any]:
     path = path.expanduser().resolve()
     allowed = _allowed_transcript_roots()
     if not any(path.is_relative_to(root) for root in allowed):
@@ -374,15 +409,24 @@ def _read_transcript_snippet(path: Path, line_no: Optional[int], radius: int) ->
     if not path.exists() or not path.is_file():
         return {"ok": False, "error": "missing_transcript", "path": str(path)}
 
-    start = 0 if line_no is None or line_no <= 0 else max(0, line_no - radius)
-    end = start + radius * 2 if line_no else radius
+    anchor_start = line_start if line_start and line_start > 0 else None
+    anchor_end = line_end if line_end and line_end > 0 else anchor_start
+    if anchor_start is not None and anchor_end is not None and anchor_end < anchor_start:
+        anchor_end = anchor_start
+
+    if anchor_start is None:
+        start_line = 1
+        end_line = max(1, radius)
+    else:
+        start_line = max(1, anchor_start - radius)
+        end_line = max(anchor_end or anchor_start, anchor_start) + radius
 
     snippet_lines = []
     with path.open("r", encoding="utf-8", errors="ignore") as handle:
         for idx, line in enumerate(handle, start=1):
-            if idx < start + 1:
+            if idx < start_line:
                 continue
-            if idx > end:
+            if idx > end_line:
                 break
             snippet_lines.append(line.rstrip("\n"))
 
@@ -392,8 +436,10 @@ def _read_transcript_snippet(path: Path, line_no: Optional[int], radius: int) ->
     return {
         "ok": True,
         "path": str(path),
-        "start_line": start + 1,
-        "end_line": start + len(snippet_lines),
+        "start_line": start_line,
+        "end_line": start_line + len(snippet_lines) - 1,
+        "anchor_start_line": anchor_start,
+        "anchor_end_line": anchor_end,
         "snippet": "\n".join(snippet_lines),
     }
 
@@ -458,8 +504,8 @@ def memory_context(request: ContextRequest) -> dict[str, Any]:
         target = link.get("target_reference", "")
         parsed = _parse_transcript_target(target)
         if parsed:
-            path, line_no = parsed
-            transcript = _read_transcript_snippet(path, line_no, request.radius)
+            path, line_start, line_end = parsed
+            transcript = _read_transcript_snippet(path, line_start, line_end, request.radius)
             break
     return {
         "ok": True,
@@ -555,6 +601,7 @@ def _ingest_request(request: IngestRequest) -> dict[str, Any]:
             "message_id": request.message_id,
             "transcript_path": request.transcript_path,
             "transcript_offset": request.transcript_offset,
+            "transcript_end_offset": request.transcript_end_offset,
         }
         memory_id = api.store_memory(
             memory_type,
@@ -571,7 +618,12 @@ def _ingest_request(request: IngestRequest) -> dict[str, Any]:
         if request.message_id:
             memory_links.add_memory_link(reference, "message", f"message:{request.message_id}")
         if request.transcript_path:
-            suffix = f"#L{request.transcript_offset}" if request.transcript_offset else ""
+            if request.transcript_offset and request.transcript_end_offset and request.transcript_end_offset >= request.transcript_offset:
+                suffix = f"#L{request.transcript_offset}-L{request.transcript_end_offset}"
+            elif request.transcript_offset:
+                suffix = f"#L{request.transcript_offset}"
+            else:
+                suffix = ""
             memory_links.add_memory_link(reference, "transcript", f"transcript:{request.transcript_path}{suffix}")
         return {"ok": True, "kind": "memory", "memory_type": memory_type, "reference": reference, **runtime}
 

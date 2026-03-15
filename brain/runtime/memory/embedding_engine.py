@@ -51,19 +51,7 @@ def generate_embedding(text: str) -> List[float] | None:
         return None
     local_model = getattr(config, "BRAIN_EMBED_MODEL_LOCAL", "simple")
     provider_model = getattr(config, "BRAIN_EMBED_MODEL_PROVIDER", "")
-    if local_model:
-        if local_model in {"simple", "hash"}:
-            embedding = _simple_embedding(text)
-            emit_event(LOGFILE, "brain_embedding_complete", status="ok", provider="local_simple")
-            emit_event(LOGFILE, "brain_embedding_generated", status="ok", provider="local_simple", dimensions=len(embedding))
-            return embedding
-        model = _load_sentence_transformer(local_model)
-        if model is not None:
-            embedding = model.encode([text])[0]
-            emit_event(LOGFILE, "brain_embedding_complete", status="ok", provider="local_model")
-            vector = [float(x) for x in embedding]
-            emit_event(LOGFILE, "brain_embedding_generated", status="ok", provider="local_model", dimensions=len(vector))
-            return vector
+
     if provider_model:
         try:
             embedding, provider_meta = _provider_embedding(text, provider_model)
@@ -88,5 +76,19 @@ def generate_embedding(text: str) -> List[float] | None:
                 model=provider_meta.get("model", ""),
             )
             return embedding
+
+    if local_model:
+        if local_model in {"simple", "hash"}:
+            embedding = _simple_embedding(text)
+            emit_event(LOGFILE, "brain_embedding_complete", status="ok", provider="local_simple")
+            emit_event(LOGFILE, "brain_embedding_generated", status="ok", provider="local_simple", dimensions=len(embedding))
+            return embedding
+        model = _load_sentence_transformer(local_model)
+        if model is not None:
+            embedding = model.encode([text])[0]
+            emit_event(LOGFILE, "brain_embedding_complete", status="ok", provider="local_model")
+            vector = [float(x) for x in embedding]
+            emit_event(LOGFILE, "brain_embedding_generated", status="ok", provider="local_model", dimensions=len(vector))
+            return vector
     emit_event(LOGFILE, "brain_embedding_failed", status="error", reason="no_embedding")
     return None

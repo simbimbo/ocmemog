@@ -85,6 +85,12 @@ def store_memory(
             conn.close()
 
     last_row_id = store.submit_write(_write, timeout=30.0)
+    try:
+        from brain.runtime.memory import vector_index
+
+        vector_index.insert_memory(last_row_id, content, 1.0, source_type=table)
+    except Exception as exc:
+        emit_event(store.state_store.reports_dir() / "brain_memory.log.jsonl", "store_memory_index_failed", status="error", error=str(exc), memory_type=table)
     _emit("store_memory")
     return last_row_id
 

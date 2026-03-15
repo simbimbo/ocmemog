@@ -75,13 +75,22 @@ def _extract_user_text(text: str) -> str:
     return candidate or text
 
 
-def _append_transcript(transcripts_dir: Path, timestamp: str, role: str, text: str) -> Path:
+def _count_lines(path: Path) -> int:
+    if not path.exists() or not path.is_file():
+        return 0
+    with path.open("r", encoding="utf-8", errors="ignore") as handle:
+        return sum(1 for _ in handle)
+
+
+
+def _append_transcript(transcripts_dir: Path, timestamp: str, role: str, text: str) -> tuple[Path, int]:
     date = timestamp.split("T")[0] if "T" in timestamp else time.strftime("%Y-%m-%d")
     path = transcripts_dir / f"{date}.log"
     transcripts_dir.mkdir(parents=True, exist_ok=True)
+    line_no = _count_lines(path) + 1
     with path.open("a", encoding="utf-8") as handle:
         handle.write(f"{timestamp} [{role}] {text}\n")
-    return path
+    return path, line_no
 
 
 def watch_forever() -> None:
@@ -122,6 +131,7 @@ def watch_forever() -> None:
 
     current_file: Optional[Path] = None
     position = 0
+    current_line_number = 0
     session_file: Optional[Path] = None
     session_pos = 0
 
@@ -131,10 +141,22 @@ def watch_forever() -> None:
     session_last_path: Optional[Path] = None
     transcript_last_timestamp: Optional[str] = None
     session_last_timestamp: Optional[str] = None
+    transcript_start_line: Optional[int] = None
+    transcript_end_line: Optional[int] = None
+    session_start_line: Optional[int] = None
+    session_end_line: Optional[int] = None
     last_transcript_flush = time.time()
     last_session_flush = time.time()
 
-    def _flush_buffer(buffer: list[str], *, source_label: str, transcript_path: Optional[Path], timestamp: Optional[str]) -> None:
+    def _flush_buffer(
+        buffer: list[str],
+        *,
+        source_label: str,
+        transcript_path: Optional[Path],
+        timestamp: Optional[str],
+        start_line: Optional[int],
+        end_line: Optional[int],
+    ) -> None:
         if not buffer:
             return
         payload = {
@@ -145,6 +167,10 @@ def watch_forever() -> None:
         }
         if transcript_path is not None:
             payload["transcript_path"] = str(transcript_path)
+        if start_line is not None:
+            payload["transcript_offset"] = start_line
+        if end_line is not None:
+            payload["transcript_end_offset"] = end_line
         if timestamp:
             payload["timestamp"] = timestamp.replace("T", " ")[:19]
         _post_ingest(endpoint, payload)
@@ -186,21 +212,30 @@ def watch_forever() -> None:
             if current_file is None or latest != current_file:
                 current_file = latest
                 position = 0
+                current_line_number = 0
                 if start_at_end:
                     try:
                         position = current_file.stat().st_size
                     except Exception:
                         position = 0
+                    try:
+                        current_line_number = _count_lines(current_file)
+                    except Exception:
+                        current_line_number = 0
 
             try:
                 with current_file.open("r", encoding="utf-8", errors="ignore") as handle:
                     handle.seek(position)
                     for line in handle:
                         text = line.rstrip("\n")
+                        current_line_number += 1
                         if not text.strip():
                             continue
                         transcript_buffer.append(text)
                         transcript_last_path = current_file
+                        if transcript_start_line is None:
+                            transcript_start_line = current_line_number
+                        transcript_end_line = current_line_number
                         if text and " " in text:
                             transcript_last_timestamp = text.split(" ", 1)[0]
                         if len(transcript_buffer) >= batch_max:
@@ -209,7 +244,11 @@ def watch_forever() -> None:
                                 source_label=source,
                                 transcript_path=transcript_last_path,
                                 timestamp=transcript_last_timestamp,
+                                start_line=transcript_start_line,
+                                end_line=transcript_end_line,
                             )
+                            transcript_start_line = None
+                            transcript_end_line = None
                             last_transcript_flush = time.time()
                     position = handle.tell()
             except Exception:
@@ -254,17 +293,24 @@ def watch_forever() -> None:
                         timestamp = entry.get("timestamp") or time.strftime("%Y-%m-%dT%H:%M:%S")
                         if role == "user":
                             _maybe_reinforce(text, timestamp)
-                        transcript_path = _append_transcript(transcript_target, timestamp, role, text)
+                        transcript_path, transcript_line_no = _append_transcript(transcript_target, timestamp, role, text)
                         session_buffer.append(f"{timestamp} [{role}] {text}")
                         session_last_path = transcript_path
                         session_last_timestamp = timestamp
+                        if session_start_line is None:
+                            session_start_line = transcript_line_no
+                        session_end_line = transcript_line_no
                         if len(session_buffer) >= batch_max:
                             _flush_buffer(
                                 session_buffer,
                                 source_label="session",
                                 transcript_path=session_last_path,
                                 timestamp=session_last_timestamp,
+                                start_line=session_start_line,
+                                end_line=session_end_line,
                             )
+                            session_start_line = None
+                            session_end_line = None
                             last_session_flush = time.time()
                     session_pos = handle.tell()
             except Exception:
@@ -277,7 +323,11 @@ def watch_forever() -> None:
                 source_label=source,
                 transcript_path=transcript_last_path,
                 timestamp=transcript_last_timestamp,
+                start_line=transcript_start_line,
+                end_line=transcript_end_line,
             )
+            transcript_start_line = None
+            transcript_end_line = None
             last_transcript_flush = now
         if session_buffer and (now - last_session_flush) >= batch_seconds:
             _flush_buffer(
@@ -285,7 +335,11 @@ def watch_forever() -> None:
                 source_label="session",
                 transcript_path=session_last_path,
                 timestamp=session_last_timestamp,
+                start_line=session_start_line,
+                end_line=session_end_line,
             )
+            session_start_line = None
+            session_end_line = None
             last_session_flush = now
 
         time.sleep(poll_seconds)

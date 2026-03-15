@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 from typing import Any, Dict, List, Iterable
 
 from brain.runtime import state_store
@@ -19,6 +20,8 @@ EMBEDDING_TABLES: tuple[str, ...] = (
     "reflections",
     "tasks",
 )
+_REBUILD_LOCK = threading.Lock()
+_WRITE_CHUNK_SIZE = 64
 
 
 def _ensure_vector_table(conn) -> None:
@@ -57,112 +60,155 @@ def _cosine_similarity(a: List[float], b: List[float]) -> float:
 def insert_memory(memory_id: int, content: str, confidence: float, *, source_type: str = "knowledge") -> None:
     source_type = source_type if source_type in EMBEDDING_TABLES else "knowledge"
     redacted_content, changed = redaction.redact_text(content)
-    conn = store.connect()
-    _ensure_vector_table(conn)
-
-    conn.execute(
-        "INSERT INTO memory_index (source, confidence, metadata_json, content, schema_version) VALUES (?, ?, ?, ?, ?)",
-        (
-            f"{source_type}:{memory_id}",
-            confidence,
-            json.dumps({"redacted": changed, "source_type": source_type}),
-            redacted_content,
-            store.SCHEMA_VERSION,
-        ),
-    )
-
     embedding = embedding_engine.generate_embedding(redacted_content)
-    if embedding:
-        emit_event(LOGFILE, "brain_memory_embedding_generated", status="ok", source_id=str(memory_id))
-        conn.execute(
-            """
-            INSERT INTO vector_embeddings (id, source_type, source_id, embedding)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET embedding=excluded.embedding
-            """,
-            (f"{source_type}:{memory_id}", source_type, str(memory_id), json.dumps(embedding)),
-        )
+    metadata_json = json.dumps({"redacted": changed, "source_type": source_type})
 
-    conn.commit()
-    conn.close()
+    def _write() -> None:
+        conn = store.connect()
+        try:
+            _ensure_vector_table(conn)
+            conn.execute(
+                "INSERT INTO memory_index (source, confidence, metadata_json, content, schema_version) VALUES (?, ?, ?, ?, ?)",
+                (
+                    f"{source_type}:{memory_id}",
+                    confidence,
+                    metadata_json,
+                    redacted_content,
+                    store.SCHEMA_VERSION,
+                ),
+            )
+            if embedding:
+                emit_event(LOGFILE, "brain_memory_embedding_generated", status="ok", source_id=str(memory_id))
+                conn.execute(
+                    """
+                    INSERT INTO vector_embeddings (id, source_type, source_id, embedding)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET embedding=excluded.embedding
+                    """,
+                    (f"{source_type}:{memory_id}", source_type, str(memory_id), json.dumps(embedding)),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    store.submit_write(_write, timeout=30.0)
 
 
-def _index_table(conn, table: str, limit: int) -> int:
-    rows = conn.execute(
-        f"SELECT id, content, confidence FROM {table} ORDER BY id DESC LIMIT ?",
-        (limit,),
-    ).fetchall()
-    count = 0
+def _load_table_rows(table: str, *, limit: int | None = None, descending: bool = False) -> List[Dict[str, Any]]:
+    conn = store.connect()
+    try:
+        order = "DESC" if descending else "ASC"
+        if limit is None:
+            rows = conn.execute(
+                f"SELECT id, content, confidence, metadata_json FROM {table} ORDER BY id {order}",
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                f"SELECT id, content, confidence, metadata_json FROM {table} ORDER BY id {order} LIMIT ?",
+                (limit,),
+            ).fetchall()
+    finally:
+        conn.close()
+    return [dict(row) for row in rows]
+
+
+def _prepare_embedding_rows(rows: Iterable[Dict[str, Any]], *, table: str) -> List[Dict[str, Any]]:
+    prepared: List[Dict[str, Any]] = []
     for row in rows:
-        content = str(row["content"] or "")
+        content = str(row.get("content") or "")
         redacted_content, changed = redaction.redact_text(content)
         embedding = embedding_engine.generate_embedding(redacted_content)
         if not embedding:
             continue
-        conn.execute(
-            f"UPDATE {table} SET content=?, metadata_json=? WHERE id=?",
-            (redacted_content, json.dumps({"redacted": changed}), row["id"]),
+        try:
+            metadata = json.loads(row.get("metadata_json") or "{}")
+        except Exception:
+            metadata = {}
+        metadata["redacted"] = changed
+        prepared.append(
+            {
+                "id": int(row["id"]),
+                "content": redacted_content,
+                "confidence": float(row.get("confidence") or 0.0),
+                "metadata_json": json.dumps(metadata),
+                "embedding": json.dumps(embedding),
+                "source_type": table,
+            }
         )
-        conn.execute(
-            """
-            INSERT INTO vector_embeddings (id, source_type, source_id, embedding)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET embedding=excluded.embedding
-            """,
-            (f"{table}:{row['id']}", table, str(row["id"]), json.dumps(embedding)),
-        )
-        count += 1
-    return count
+    return prepared
+
+
+def _write_embedding_chunk(table: str, rows: List[Dict[str, Any]]) -> int:
+    if not rows:
+        return 0
+
+    def _write() -> int:
+        conn = store.connect()
+        try:
+            _ensure_vector_table(conn)
+            for row in rows:
+                conn.execute(
+                    f"UPDATE {table} SET content=?, metadata_json=? WHERE id=?",
+                    (row["content"], row["metadata_json"], row["id"]),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO vector_embeddings (id, source_type, source_id, embedding)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET embedding=excluded.embedding
+                    """,
+                    (f"{table}:{row['id']}", table, str(row["id"]), row["embedding"]),
+                )
+            conn.commit()
+            return len(rows)
+        finally:
+            conn.close()
+
+    return int(store.submit_write(_write, timeout=60.0))
 
 
 def index_memory(limit: int = 100, *, tables: Iterable[str] | None = None) -> int:
     emit_event(LOGFILE, "brain_memory_vector_index_start", status="ok")
-    conn = store.connect()
-    _ensure_vector_table(conn)
     count = 0
     for table in (tables or EMBEDDING_TABLES):
         if table not in EMBEDDING_TABLES:
             continue
-        count += _index_table(conn, table, limit)
-    conn.commit()
-    conn.close()
+        prepared = _prepare_embedding_rows(_load_table_rows(table, limit=limit, descending=True), table=table)
+        for offset in range(0, len(prepared), _WRITE_CHUNK_SIZE):
+            count += _write_embedding_chunk(table, prepared[offset: offset + _WRITE_CHUNK_SIZE])
     emit_event(LOGFILE, "brain_memory_vector_index_complete", status="ok", indexed=count)
     return count
 
 
 def rebuild_vector_index(*, tables: Iterable[str] | None = None) -> int:
     emit_event(LOGFILE, "brain_memory_vector_rebuild_start", status="ok")
-    conn = store.connect()
-    _ensure_vector_table(conn)
-    conn.execute("DELETE FROM vector_embeddings")
+    if not _REBUILD_LOCK.acquire(blocking=False):
+        emit_event(LOGFILE, "brain_memory_vector_rebuild_complete", status="skipped", reason="already_running")
+        return 0
     count = 0
-    for table in (tables or EMBEDDING_TABLES):
-        if table not in EMBEDDING_TABLES:
-            continue
-        rows = conn.execute(
-            f"SELECT id, content, confidence FROM {table} ORDER BY id ASC",
-        ).fetchall()
-        for row in rows:
-            content = str(row["content"] or "")
-            redacted_content, changed = redaction.redact_text(content)
-            embedding = embedding_engine.generate_embedding(redacted_content)
-            if not embedding:
-                continue
-            conn.execute(
-                f"UPDATE {table} SET content=?, metadata_json=? WHERE id=?",
-                (redacted_content, json.dumps({"redacted": changed}), row["id"]),
-            )
-            conn.execute(
-                """
-                INSERT INTO vector_embeddings (id, source_type, source_id, embedding)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET embedding=excluded.embedding
-                """,
-                (f"{table}:{row['id']}", table, str(row["id"]), json.dumps(embedding)),
-            )
-            count += 1
-    conn.commit()
-    conn.close()
+    try:
+        requested_tables = [table for table in (tables or EMBEDDING_TABLES) if table in EMBEDDING_TABLES]
+
+        def _clear() -> None:
+            conn = store.connect()
+            try:
+                _ensure_vector_table(conn)
+                if requested_tables:
+                    conn.executemany(
+                        "DELETE FROM vector_embeddings WHERE source_type = ?",
+                        [(table,) for table in requested_tables],
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+
+        store.submit_write(_clear, timeout=60.0)
+        for table in requested_tables:
+            prepared = _prepare_embedding_rows(_load_table_rows(table), table=table)
+            for offset in range(0, len(prepared), _WRITE_CHUNK_SIZE):
+                count += _write_embedding_chunk(table, prepared[offset: offset + _WRITE_CHUNK_SIZE])
+    finally:
+        _REBUILD_LOCK.release()
     emit_event(LOGFILE, "brain_memory_vector_rebuild_complete", status="ok", indexed=count)
     return count
 

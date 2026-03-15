@@ -14,6 +14,8 @@ def run_integrity_check() -> Dict[str, Any]:
     emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_integrity_start", status="ok")
     conn = store.connect()
     issues: List[str] = []
+    repairable: List[str] = []
+    sqlite_ok = True
 
     # required tables
     required = {
@@ -96,7 +98,18 @@ def run_integrity_check() -> Dict[str, Any]:
 
     if orphan_vectors:
         issues.append(f"vector_orphan:{orphan_vectors}")
+        repairable.append("vector_orphan")
         emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_vector_integrity_issue", status="warn")
+
+    try:
+        quick_check = conn.execute("PRAGMA quick_check(1)").fetchone()
+        quick_value = str((quick_check or ["ok"])[0] or "ok")
+        if quick_value.lower() != "ok":
+            sqlite_ok = False
+            issues.append(f"sqlite_quick_check:{quick_value}")
+            emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_integrity_issue", status="warn")
+    except Exception:
+        sqlite_ok = False
 
     warning_type = ""
     warning_summary = ""
@@ -114,7 +127,44 @@ def run_integrity_check() -> Dict[str, Any]:
     emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_integrity_complete", status="ok")
     return {
         "issues": issues,
-        "ok": len(issues) == 0,
+        "ok": len(issues) == 0 and sqlite_ok,
         "warning_type": warning_type,
         "warning_summary": warning_summary,
+        "repairable_issues": repairable,
+        "sqlite_ok": sqlite_ok,
     }
+
+
+def repair_integrity() -> Dict[str, Any]:
+    repaired: List[str] = []
+
+    def _write() -> Dict[str, Any]:
+        conn = store.connect()
+        removed_orphans = 0
+        try:
+            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+            if "vector_embeddings" in tables:
+                for table in EMBED_TABLES:
+                    if table not in tables:
+                        continue
+                    removed_orphans += conn.execute(
+                        f"""
+                        DELETE FROM vector_embeddings
+                        WHERE source_type = ?
+                          AND NOT EXISTS (
+                            SELECT 1 FROM {table} source
+                            WHERE source.id = CAST(vector_embeddings.source_id AS INTEGER)
+                          )
+                        """,
+                        (table,),
+                    ).rowcount
+            conn.commit()
+            return {"removed_orphan_vectors": int(removed_orphans)}
+        finally:
+            conn.close()
+
+    result = store.submit_write(_write, timeout=30.0)
+    if int(result.get("removed_orphan_vectors") or 0) > 0:
+        repaired.append(f"vector_orphan:{int(result['removed_orphan_vectors'])}")
+        emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_integrity_repair", status="ok", repaired="vector_orphan", count=int(result["removed_orphan_vectors"]))
+    return {"ok": True, "repaired": repaired, **result}

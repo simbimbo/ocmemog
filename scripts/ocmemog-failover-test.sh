@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DURATION=${1:-30}
 CONCURRENCY=${2:-10}
 OUT=${3:-/tmp/ocmemog-failover.json}
 
-/Users/simbimbo/ocmemog/scripts/ocmemog-load-test.py \
+"${ROOT_DIR}/scripts/ocmemog-load-test.py" \
   --mode mixed --duration "${DURATION}" --concurrency "${CONCURRENCY}" > "${OUT}" &
 PID=$!
 

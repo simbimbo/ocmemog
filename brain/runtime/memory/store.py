@@ -254,6 +254,15 @@ _WRITE_LOCK = threading.Lock()
 _WRITE_WORKER_STARTED = False
 
 
+def is_lock_error(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return isinstance(exc, sqlite3.OperationalError) and (
+        "database is locked" in message
+        or "database table is locked" in message
+        or "busy" in message
+    )
+
+
 def _write_worker() -> None:
     while True:
         fn, event, container = _WRITE_QUEUE.get()

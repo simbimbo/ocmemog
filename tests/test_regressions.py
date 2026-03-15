@@ -5,6 +5,7 @@ import os
 import tempfile
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from unittest import mock
 
@@ -590,6 +591,102 @@ class OcmemogRegressionTests(unittest.TestCase):
         finally:
             conn.close()
         self.assertGreaterEqual(int(link_count), 1)
+
+    def test_hydrate_tolerates_state_refresh_timeout(self) -> None:
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="Keep the response path alive under queue pressure.",
+                session_id="sess-degraded",
+                thread_id="thread-degraded",
+                message_id="d-u1",
+                timestamp="2026-03-15 15:10:00",
+            )
+        )
+        with mock.patch(
+            "brain.runtime.memory.conversation_state._upsert_state",
+            side_effect=TimeoutError("write queue timeout"),
+        ):
+            hydrate = app.conversation_hydrate(
+                app.ConversationHydrateRequest(session_id="sess-degraded", thread_id="thread-degraded", turns_limit=6)
+            )
+
+        self.assertTrue(hydrate["ok"])
+        self.assertEqual(hydrate["state"]["latest_user_ask"], "Keep the response path alive under queue pressure.")
+        self.assertTrue(any("state refresh was delayed" in item for item in hydrate["warnings"]))
+
+    def test_vector_rebuild_does_not_break_mixed_conversation_flow(self) -> None:
+        with mock.patch("brain.runtime.memory.embedding_engine.generate_embedding", side_effect=lambda text: [0.1, 0.2, float(len(text) % 7)]):
+            for idx in range(18):
+                api.store_memory("knowledge", f"vector rebuild seed {idx}", source="test")
+
+            for idx in range(4):
+                app.conversation_ingest_turn(
+                    app.ConversationTurnRequest(
+                        role="user" if idx % 2 == 0 else "assistant",
+                        content=f"mixed flow turn {idx}",
+                        conversation_id="conv-mixed",
+                        session_id="sess-mixed",
+                        thread_id="thread-mixed",
+                        message_id=f"mixed-{idx}",
+                        timestamp=f"2026-03-15 15:20:0{idx}",
+                    )
+                )
+
+            checkpoint = app.conversation_checkpoint(
+                app.ConversationCheckpointRequest(
+                    conversation_id="conv-mixed",
+                    session_id="sess-mixed",
+                    thread_id="thread-mixed",
+                    checkpoint_kind="manual",
+                )
+            )
+            self.assertTrue(checkpoint["ok"])
+
+            errors: list[str] = []
+
+            def rebuild_task() -> None:
+                vector_index.rebuild_vector_index()
+
+            def hydrate_task() -> None:
+                result = app.conversation_hydrate(
+                    app.ConversationHydrateRequest(
+                        conversation_id="conv-mixed",
+                        session_id="sess-mixed",
+                        thread_id="thread-mixed",
+                        turns_limit=12,
+                    )
+                )
+                if not result["ok"]:
+                    raise AssertionError("hydrate returned not ok")
+
+            def expand_task() -> None:
+                result = app.conversation_checkpoint_expand(
+                    app.ConversationCheckpointExpandRequest(
+                        checkpoint_id=checkpoint["checkpoint"]["id"],
+                        turns_limit=24,
+                    )
+                )
+                if not result["ok"]:
+                    raise AssertionError("checkpoint_expand returned not ok")
+
+            def ponder_task() -> None:
+                with mock.patch("brain.runtime.memory.pondering_engine._infer_with_timeout", return_value={"status": "timeout", "output": ""}), \
+                     mock.patch.object(pondering_engine.config, "OCMEMOG_PONDER_ENABLED", "true"), \
+                     mock.patch.object(pondering_engine.config, "OCMEMOG_LESSON_MINING_ENABLED", "false"):
+                    result = app.memory_ponder(app.PonderRequest(max_items=4))
+                if not result["ok"]:
+                    raise AssertionError("ponder returned not ok")
+
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                futures = [pool.submit(fn) for fn in (rebuild_task, hydrate_task, expand_task, ponder_task)]
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as exc:
+                        errors.append(str(exc))
+
+        self.assertEqual(errors, [])
 
     def test_restart_rehydrates_checkpoint_state_after_schema_reset(self) -> None:
         app.conversation_ingest_turn(

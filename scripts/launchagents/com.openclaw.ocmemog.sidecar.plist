@@ -6,12 +6,22 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>/Users/simbimbo/ocmemog/scripts/ocmemog-sidecar.sh</string>
+    <string>__ROOT_DIR__/scripts/ocmemog-sidecar.sh</string>
   </array>
   <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key><false/>
+  </dict>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>PYTHONUNBUFFERED</key><string>1</string>
+  </dict>
+  <key>ProcessType</key><string>Background</string>
+  <key>ThrottleInterval</key><integer>10</integer>
   <key>StandardOutPath</key><string>/tmp/ocmemog-sidecar.out.log</string>
   <key>StandardErrorPath</key><string>/tmp/ocmemog-sidecar.err.log</string>
-  <key>WorkingDirectory</key><string>/Users/simbimbo/ocmemog</string>
+  <key>WorkingDirectory</key><string>__ROOT_DIR__</string>
 </dict>
 </plist>

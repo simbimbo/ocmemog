@@ -661,7 +661,14 @@ def conversation_hydrate(request: ConversationHydrateRequest) -> dict[str, Any]:
         conversation_id=request.conversation_id,
         session_id=request.session_id,
         thread_id=request.thread_id,
+        tolerate_write_failure=True,
     )
+    state_meta = (state_payload or {}).get("metadata") if isinstance((state_payload or {}).get("metadata"), dict) else {}
+    state_status = str(state_meta.get("state_status") or "")
+    if state_status == "stale_persisted":
+        runtime["warnings"] = [*runtime["warnings"], "hydrate returned persisted state while state refresh was delayed"]
+    elif state_status == "derived_not_persisted":
+        runtime["warnings"] = [*runtime["warnings"], "hydrate returned derived state while state refresh was delayed"]
     return {
         "ok": True,
         "conversation_id": request.conversation_id,
@@ -748,23 +755,6 @@ def conversation_turn_expand(request: ConversationTurnExpandRequest) -> dict[str
 def memory_ponder(request: PonderRequest) -> dict[str, Any]:
     runtime = _runtime_payload()
     results = pondering_engine.run_ponder_cycle(max_items=request.max_items)
-    insights = results.get("insights", []) or []
-    for item in insights:
-        if not isinstance(item, dict):
-            continue
-        summary = item.get("summary")
-        recommendation = item.get("recommendation")
-        if summary:
-            api.store_memory(
-                "reflections",
-                str(summary),
-                source="ponder",
-                metadata={
-                    "kind": "ponder",
-                    "recommendation": recommendation,
-                    "reference": item.get("reference"),
-                },
-            )
     return {"ok": True, "results": results, **runtime}
 
 

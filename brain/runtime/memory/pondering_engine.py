@@ -518,6 +518,19 @@ def run_ponder_cycle(max_items: int = 5) -> Dict[str, object]:
         10.0,
         {"issues": []},
     )
+    if "vector_orphan" in set(maintenance.get("repairable_issues") or []):
+        maintenance["repair"] = _run_with_timeout(
+            "integrity_repair",
+            integrity.repair_integrity,
+            10.0,
+            {"ok": False, "repaired": []},
+        )
+        maintenance = _run_with_timeout(
+            "integrity_post_repair",
+            integrity.run_integrity_check,
+            10.0,
+            maintenance,
+        )
     if any(item.startswith("vector_missing") or item.startswith("vector_orphan") for item in maintenance.get("issues", [])):
         rebuild_count = _run_with_timeout(
             "vector_rebuild",

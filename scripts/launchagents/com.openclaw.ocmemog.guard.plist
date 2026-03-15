@@ -6,12 +6,17 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>/Users/simbimbo/ocmemog/scripts/ocmemog-guard.sh</string>
+    <string>__ROOT_DIR__/scripts/ocmemog-guard.sh</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>StartInterval</key><integer>900</integer>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>ProcessType</key><string>Background</string>
   <key>StandardOutPath</key><string>/tmp/ocmemog-guard.out.log</string>
   <key>StandardErrorPath</key><string>/tmp/ocmemog-guard.err.log</string>
-  <key>WorkingDirectory</key><string>/Users/simbimbo/ocmemog</string>
+  <key>WorkingDirectory</key><string>__ROOT_DIR__</string>
 </dict>
 </plist>

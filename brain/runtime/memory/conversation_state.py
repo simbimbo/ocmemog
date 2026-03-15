@@ -33,6 +33,42 @@ _SHORT_REPLY_NORMALIZED = {
 _NEGATIVE_SHORT_REPLY_NORMALIZED = {"no", "nope", "not now", "dont", "do not"}
 
 
+def _state_from_payload(
+    state_payload: Dict[str, Any],
+    *,
+    conversation_id: Optional[str],
+    session_id: Optional[str],
+    thread_id: Optional[str],
+) -> Dict[str, Any]:
+    latest_user_turn = state_payload.get("latest_user_turn") or {}
+    latest_assistant_turn = state_payload.get("latest_assistant_turn") or {}
+    latest_user_ask = state_payload.get("latest_user_intent") or state_payload.get("latest_user_ask") or {}
+    latest_checkpoint = state_payload.get("latest_checkpoint") or {}
+    return {
+        "id": None,
+        "scope_type": _scope_parts(conversation_id=conversation_id, session_id=session_id, thread_id=thread_id)[0],
+        "scope_id": _scope_parts(conversation_id=conversation_id, session_id=session_id, thread_id=thread_id)[1],
+        "conversation_id": conversation_id,
+        "session_id": session_id,
+        "thread_id": thread_id,
+        "latest_user_turn_id": latest_user_turn.get("id"),
+        "latest_assistant_turn_id": latest_assistant_turn.get("id"),
+        "latest_user_ask": latest_user_ask.get("effective_content") or latest_user_ask.get("content"),
+        "last_assistant_commitment": (state_payload.get("last_assistant_commitment") or {}).get("content"),
+        "open_loops": state_payload.get("open_loops") or [],
+        "pending_actions": state_payload.get("pending_actions") or [],
+        "unresolved_state": state_payload.get("unresolved_state") or [],
+        "latest_checkpoint_id": latest_checkpoint.get("id"),
+        "metadata": {
+            "summary_text": state_payload.get("summary_text"),
+            "active_branch": state_payload.get("active_branch"),
+            "latest_user_intent": state_payload.get("latest_user_intent"),
+            "state_status": "derived_not_persisted",
+        },
+        "updated_at": None,
+    }
+
+
 
 def _scope_parts(
     *,
@@ -514,23 +550,32 @@ def record_turn(
             conn.close()
 
     turn_id = int(store.submit_write(_write, timeout=30.0))
-    refresh_state(
-        conversation_id=conversation_id,
-        session_id=session_id,
-        thread_id=thread_id,
-    )
-    if _CHECKPOINT_EVERY > 0:
-        counts = get_turn_counts(conversation_id=conversation_id, session_id=session_id, thread_id=thread_id)
-        if counts["total"] > 0 and counts["total"] % _CHECKPOINT_EVERY == 0:
-            latest = get_latest_checkpoint(conversation_id=conversation_id, session_id=session_id, thread_id=thread_id)
-            if not latest or int(latest.get("turn_end_id") or 0) < turn_id:
-                create_checkpoint(
-                    conversation_id=conversation_id,
-                    session_id=session_id,
-                    thread_id=thread_id,
-                    upto_turn_id=turn_id,
-                    checkpoint_kind="rolling",
-                )
+    try:
+        refresh_state(
+            conversation_id=conversation_id,
+            session_id=session_id,
+            thread_id=thread_id,
+        )
+        if _CHECKPOINT_EVERY > 0:
+            counts = get_turn_counts(conversation_id=conversation_id, session_id=session_id, thread_id=thread_id)
+            if counts["total"] > 0 and counts["total"] % _CHECKPOINT_EVERY == 0:
+                latest = get_latest_checkpoint(conversation_id=conversation_id, session_id=session_id, thread_id=thread_id)
+                if not latest or int(latest.get("turn_end_id") or 0) < turn_id:
+                    create_checkpoint(
+                        conversation_id=conversation_id,
+                        session_id=session_id,
+                        thread_id=thread_id,
+                        upto_turn_id=turn_id,
+                        checkpoint_kind="rolling",
+                    )
+    except Exception as exc:
+        emit_event(
+            LOGFILE,
+            "brain_conversation_turn_post_write_maintenance_failed",
+            status="warn",
+            error=str(exc),
+            turn_id=turn_id,
+        )
     emit_event(LOGFILE, "brain_conversation_turn_recorded", status="ok", role=turn_role, turn_id=turn_id)
     return turn_id
 
@@ -1210,7 +1255,16 @@ def create_checkpoint(
     checkpoint_id = int(store.submit_write(_write, timeout=30.0))
     emit_event(LOGFILE, "brain_conversation_checkpoint_created", status="ok", checkpoint_id=checkpoint_id, checkpoint_kind=checkpoint_kind)
     payload = get_checkpoint_by_id(checkpoint_id)
-    refresh_state(conversation_id=conversation_id, session_id=session_id, thread_id=thread_id)
+    try:
+        refresh_state(conversation_id=conversation_id, session_id=session_id, thread_id=thread_id)
+    except Exception as exc:
+        emit_event(
+            LOGFILE,
+            "brain_conversation_checkpoint_post_write_maintenance_failed",
+            status="warn",
+            error=str(exc),
+            checkpoint_id=checkpoint_id,
+        )
     return payload
 
 
@@ -1400,6 +1454,7 @@ def refresh_state(
     conversation_id: Optional[str] = None,
     session_id: Optional[str] = None,
     thread_id: Optional[str] = None,
+    tolerate_write_failure: bool = False,
 ) -> Optional[Dict[str, Any]]:
     turns = get_recent_turns(
         conversation_id=conversation_id,
@@ -1426,9 +1481,37 @@ def refresh_state(
         unresolved_items=unresolved_items,
         latest_checkpoint=latest_checkpoint,
     )
-    return _upsert_state(
-        conversation_id=conversation_id,
-        session_id=session_id,
-        thread_id=thread_id,
-        state_payload=payload,
-    )
+    try:
+        return _upsert_state(
+            conversation_id=conversation_id,
+            session_id=session_id,
+            thread_id=thread_id,
+            state_payload=payload,
+        )
+    except Exception as exc:
+        if not tolerate_write_failure:
+            raise
+        emit_event(
+            LOGFILE,
+            "brain_conversation_state_refresh_degraded",
+            status="warn",
+            error=str(exc),
+            conversation_id=conversation_id,
+            session_id=session_id,
+            thread_id=thread_id,
+        )
+        existing = get_state(
+            conversation_id=conversation_id,
+            session_id=session_id,
+            thread_id=thread_id,
+        )
+        if existing:
+            metadata = existing.get("metadata") if isinstance(existing.get("metadata"), dict) else {}
+            existing["metadata"] = {**metadata, "state_status": "stale_persisted"}
+            return existing
+        return _state_from_payload(
+            payload,
+            conversation_id=conversation_id,
+            session_id=session_id,
+            thread_id=thread_id,
+        )

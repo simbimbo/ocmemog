@@ -4,9 +4,14 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST="${OCMEMOG_HOST:-127.0.0.1}"
 PORT="${OCMEMOG_PORT:-17890}"
+PYTHON_BIN="${OCMEMOG_PYTHON_BIN:-}"
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+cd "${ROOT_DIR}"
 
 export OCMEMOG_STATE_DIR="${OCMEMOG_STATE_DIR:-${ROOT_DIR}/.ocmemog-state}"
 export PYTHONPATH="${ROOT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
+mkdir -p "${OCMEMOG_STATE_DIR}" "${OCMEMOG_STATE_DIR}/logs"
 
 # defaults for local ollama-backed inference/embeddings
 export OCMEMOG_USE_OLLAMA="${OCMEMOG_USE_OLLAMA:-true}"
@@ -30,4 +35,12 @@ export OCMEMOG_INGEST_MEMORY_TYPE="${OCMEMOG_INGEST_MEMORY_TYPE:-reflections}"
 export OCMEMOG_PROMOTION_THRESHOLD="${OCMEMOG_PROMOTION_THRESHOLD:-0.8}"
 export OCMEMOG_DEMOTION_THRESHOLD="${OCMEMOG_DEMOTION_THRESHOLD:-0.4}"
 
-exec python3 -m uvicorn ocmemog.sidecar.app:app --host "${HOST}" --port "${PORT}"
+if [[ -z "${PYTHON_BIN}" ]]; then
+  if [[ -x "${ROOT_DIR}/.venv/bin/python" ]]; then
+    PYTHON_BIN="${ROOT_DIR}/.venv/bin/python"
+  else
+    PYTHON_BIN="$(command -v python3)"
+  fi
+fi
+
+exec "${PYTHON_BIN}" -m uvicorn ocmemog.sidecar.app:app --host "${HOST}" --port "${PORT}"

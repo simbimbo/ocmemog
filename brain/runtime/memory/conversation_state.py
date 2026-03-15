@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from brain.runtime import state_store
 from brain.runtime.instrumentation import emit_event
-from brain.runtime.memory import store, memory_links, unresolved_state
+from brain.runtime.memory import store, memory_links, unresolved_state, memory_salience
 
 _ALLOWED_MEMORY_TABLES = {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons", "candidates", "promotions"}
 LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
@@ -324,6 +324,32 @@ def _active_branch_payload(turns: Sequence[Dict[str, Any]]) -> Optional[Dict[str
         "turns": [_turn_anchor(turn) for turn in branch_turns[-8:]],
         "reply_chain": _reply_chain_for_turn(latest_turn, turns_list, limit=8),
     }
+
+
+def _ranked_turn_expansion(turns: Sequence[Dict[str, Any]], active_branch: Optional[Dict[str, Any]], *, limit: int = 12) -> List[Dict[str, Any]]:
+    branch_id = str((active_branch or {}).get("branch_id") or "") or None
+    reply_chain = active_branch.get("reply_chain") if isinstance(active_branch, dict) else []
+    reply_chain_turn_ids = [int(item.get("id") or 0) for item in reply_chain if int(item.get("id") or 0) > 0]
+    return memory_salience.rank_turns_by_salience(
+        turns,
+        active_branch_id=branch_id,
+        reply_chain_turn_ids=reply_chain_turn_ids,
+        limit=min(max(limit, 1), 50),
+    )
+
+
+def _ranked_checkpoint_expansion(
+    checkpoints: Sequence[Dict[str, Any]],
+    active_branch: Optional[Dict[str, Any]],
+    *,
+    limit: int = 12,
+) -> List[Dict[str, Any]]:
+    branch_id = str((active_branch or {}).get("branch_id") or "") or None
+    return memory_salience.rank_checkpoints_by_salience(
+        checkpoints,
+        active_branch_id=branch_id,
+        limit=min(max(limit, 1), 50),
+    )
 
 
 def _checkpoint_scope_filter(checkpoint: Dict[str, Any]) -> Dict[str, Optional[str]]:
@@ -1294,12 +1320,56 @@ def expand_checkpoint(checkpoint_id: int, *, radius_turns: int = 0, turns_limit:
     end_id = int(checkpoint.get("turn_end_id") or 0) + max(0, radius_turns)
     scope = _checkpoint_scope_filter(checkpoint)
     turns = _get_turns_between_ids(start_id, end_id, limit=turns_limit, **scope)
+    lineage = get_checkpoint_lineage(checkpoint_id)
+    children = get_checkpoint_children(checkpoint_id, limit=20)
+    active_branch = _active_branch_payload(turns)
+    checkpoint_candidates: List[Dict[str, Any]] = []
+    seen_checkpoint_ids: set[int] = set()
+    for candidate in [*lineage, checkpoint, *children]:
+        candidate_id = int(candidate.get("id") or 0)
+        if not candidate_id or candidate_id in seen_checkpoint_ids:
+            continue
+        seen_checkpoint_ids.add(candidate_id)
+        checkpoint_candidates.append(candidate)
     return {
         "checkpoint": checkpoint,
-        "lineage": get_checkpoint_lineage(checkpoint_id),
-        "children": get_checkpoint_children(checkpoint_id, limit=20),
+        "lineage": lineage,
+        "children": children,
         "supporting_turns": turns,
-        "active_branch": _active_branch_payload(turns),
+        "active_branch": active_branch,
+        "salience_ranked_turns": _ranked_turn_expansion(turns, active_branch, limit=min(turns_limit, 12)),
+        "salience_ranked_checkpoints": _ranked_checkpoint_expansion(checkpoint_candidates, active_branch, limit=12),
+    }
+
+
+def expand_turn(turn_id: int, *, radius_turns: int = 4, turns_limit: int = 80) -> Optional[Dict[str, Any]]:
+    turn = _get_turn_by_id(turn_id)
+    if not turn:
+        return None
+    scope = {
+        "conversation_id": turn.get("conversation_id"),
+        "session_id": turn.get("session_id"),
+        "thread_id": turn.get("thread_id"),
+    }
+    center_turn_id = int(turn.get("id") or 0)
+    start_id = max(1, center_turn_id - max(0, radius_turns))
+    end_id = center_turn_id + max(0, radius_turns)
+    turns = _get_turns_between_ids(start_id, end_id, limit=turns_limit, **scope)
+    active_branch = _active_branch_payload(turns)
+    checkpoint_candidates: List[Dict[str, Any]] = []
+    for checkpoint in list_checkpoints(limit=20, **scope):
+        start = int(checkpoint.get("turn_start_id") or 0)
+        end = int(checkpoint.get("turn_end_id") or 0)
+        if start <= center_turn_id <= end:
+            checkpoint_candidates.append(checkpoint)
+    return {
+        "turn": turn,
+        "reply_chain": _reply_chain_for_turn(turn, turns, limit=8),
+        "supporting_turns": turns,
+        "active_branch": active_branch,
+        "related_checkpoints": checkpoint_candidates,
+        "salience_ranked_turns": _ranked_turn_expansion(turns, active_branch, limit=min(turns_limit, 12)),
+        "salience_ranked_checkpoints": _ranked_checkpoint_expansion(checkpoint_candidates, active_branch, limit=12),
     }
 
 

@@ -291,6 +291,12 @@ class ConversationCheckpointExpandRequest(BaseModel):
     turns_limit: int = Field(default=100, ge=1, le=300)
 
 
+class ConversationTurnExpandRequest(BaseModel):
+    turn_id: int = Field(ge=1)
+    radius_turns: int = Field(default=4, ge=0, le=25)
+    turns_limit: int = Field(default=80, ge=1, le=300)
+
+
 class DistillRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=100)
 
@@ -722,6 +728,19 @@ def conversation_checkpoint_expand(request: ConversationCheckpointExpandRequest)
     )
     if expanded is None:
         return {"ok": False, "error": "checkpoint_not_found", "checkpoint_id": request.checkpoint_id, **runtime}
+    return {"ok": True, **expanded, **runtime}
+
+
+@app.post("/conversation/turn_expand")
+def conversation_turn_expand(request: ConversationTurnExpandRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    expanded = conversation_state.expand_turn(
+        request.turn_id,
+        radius_turns=request.radius_turns,
+        turns_limit=request.turns_limit,
+    )
+    if expanded is None:
+        return {"ok": False, "error": "turn_not_found", "turn_id": request.turn_id, **runtime}
     return {"ok": True, **expanded, **runtime}
 
 

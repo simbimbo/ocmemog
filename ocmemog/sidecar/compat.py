@@ -67,6 +67,7 @@ def flatten_results(results: dict[str, list[dict[str, Any]]]) -> list[dict[str, 
                     "content": entry.get("content", ""),
                     "score": float(entry.get("score", 0.0) or 0.0),
                     "links": entry.get("links", []),
+                    "provenance": entry.get("provenance_preview") or {},
                 }
             )
     flattened.sort(key=lambda item: item["score"], reverse=True)

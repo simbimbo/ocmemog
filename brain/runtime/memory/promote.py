@@ -5,7 +5,7 @@ from typing import Dict, Any
 
 from brain.runtime.instrumentation import emit_event
 from brain.runtime import state_store
-from brain.runtime.memory import store
+from brain.runtime.memory import provenance, store
 from brain.runtime import config
 
 
@@ -32,6 +32,11 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
     decision = "promote" if _should_promote(confidence) else "reject"
     candidate_id = str(candidate.get("candidate_id") or "")
 
+    candidate_metadata = provenance.normalize_metadata(candidate.get("metadata", {}), source="promote")
+    candidate_metadata["candidate_id"] = candidate_id
+    candidate_metadata["derived_from_candidate_id"] = candidate_id
+    candidate_metadata["derived_via"] = "promotion"
+
     conn = store.connect()
     promotion_id = None
     destination = _destination_table(str(candidate.get("distilled_summary", "")))
@@ -54,7 +59,7 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
                     confidence,
                     "promoted",
                     "confidence_threshold",
-                    json.dumps(candidate.get("metadata", {})),
+                    json.dumps(candidate_metadata, ensure_ascii=False),
                     candidate.get("distilled_summary", ""),
                     store.SCHEMA_VERSION,
                 ),
@@ -64,7 +69,7 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
                 (
                     str(candidate.get("source_event_id")),
                     confidence,
-                    json.dumps(candidate.get("metadata", {})),
+                    json.dumps(candidate_metadata, ensure_ascii=False),
                     candidate.get("distilled_summary", ""),
                     store.SCHEMA_VERSION,
                 ),
@@ -102,7 +107,7 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
                 confidence,
                 "rejected",
                 "below_threshold",
-                json.dumps(candidate.get("metadata", {})),
+                json.dumps(candidate_metadata, ensure_ascii=False),
                 candidate.get("distilled_summary", ""),
                 store.SCHEMA_VERSION,
             ),
@@ -115,12 +120,20 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
     if decision == "promote" and promotion_id is not None:
         from brain.runtime.memory import reinforcement, vector_index
 
+        promoted_reference = f"{destination}:{memory_id}" if memory_id else ""
+        promotion_updates = {
+            **candidate_metadata,
+            "promotion_id": promotion_id,
+            "derived_from_promotion_id": promotion_id,
+        }
+        if promoted_reference:
+            provenance.update_memory_metadata(promoted_reference, promotion_updates)
         reinforcement.log_experience(
             task_id=str(candidate.get("candidate_id") or candidate.get("source_event_id") or ""),
             outcome="promoted",
             confidence=confidence,
             reward_score=confidence,
-            memory_reference=f"promotion:{promotion_id}",
+            memory_reference=promoted_reference or f"promotions:{promotion_id}",
             experience_type="promotion",
             source_module="memory_promote",
         )

@@ -16,9 +16,13 @@ def _ensure_table(conn) -> None:
             source_reference TEXT NOT NULL,
             link_type TEXT NOT NULL,
             target_reference TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(source_reference, link_type, target_reference)
         )
         """
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_links_unique ON memory_links(source_reference, link_type, target_reference)"
     )
 
 
@@ -26,7 +30,7 @@ def add_memory_link(source_reference: str, link_type: str, target_reference: str
     conn = store.connect()
     _ensure_table(conn)
     conn.execute(
-        "INSERT INTO memory_links (source_reference, link_type, target_reference) VALUES (?, ?, ?)",
+        "INSERT OR IGNORE INTO memory_links (source_reference, link_type, target_reference) VALUES (?, ?, ?)",
         (source_reference, link_type, target_reference),
     )
     conn.commit()

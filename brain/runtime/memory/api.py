@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import List, Dict, Any
 
-from brain.runtime.memory import store
+from brain.runtime.memory import provenance, store
 from brain.runtime.instrumentation import emit_event
 from brain.runtime.security import redaction
 
@@ -66,18 +66,20 @@ def store_memory(
     allowed = {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons"}
     if table not in allowed:
         table = "knowledge"
+    normalized_metadata = provenance.normalize_metadata(metadata, source=source)
+
     def _write() -> int:
         conn = store.connect()
         try:
             if timestamp:
                 cur = conn.execute(
                     f"INSERT INTO {table} (source, confidence, metadata_json, content, schema_version, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-                    (source, 1.0, json.dumps(metadata or {}), content, store.SCHEMA_VERSION, timestamp),
+                    (source, 1.0, json.dumps(normalized_metadata, ensure_ascii=False), content, store.SCHEMA_VERSION, timestamp),
                 )
             else:
                 cur = conn.execute(
                     f"INSERT INTO {table} (source, confidence, metadata_json, content, schema_version) VALUES (?, ?, ?, ?, ?)",
-                    (source, 1.0, json.dumps(metadata or {}), content, store.SCHEMA_VERSION),
+                    (source, 1.0, json.dumps(normalized_metadata, ensure_ascii=False), content, store.SCHEMA_VERSION),
                 )
             conn.commit()
             return int(cur.lastrowid)
@@ -85,6 +87,8 @@ def store_memory(
             conn.close()
 
     last_row_id = store.submit_write(_write, timeout=30.0)
+    reference = f"{table}:{last_row_id}"
+    provenance.apply_links(reference, normalized_metadata)
     try:
         from brain.runtime.memory import vector_index
 

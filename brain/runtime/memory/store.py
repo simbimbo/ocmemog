@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS experiences (
   memory_reference TEXT,
   experience_type TEXT,
   source_module TEXT,
+  metadata_json TEXT DEFAULT '{}',
   schema_version TEXT NOT NULL
 );
 
@@ -333,6 +334,7 @@ def init_db() -> None:
     conn.executescript(SCHEMA_SQL)
     _ensure_column(conn, "experiences", "experience_type", "TEXT")
     _ensure_column(conn, "experiences", "source_module", "TEXT")
+    _ensure_column(conn, "experiences", "metadata_json", "TEXT DEFAULT '{}' ")
     _ensure_column(conn, "candidates", "status", "TEXT NOT NULL DEFAULT 'pending'")
     _ensure_column(conn, "candidates", "verification_status", "TEXT NOT NULL DEFAULT 'unverified'")
     _ensure_column(conn, "candidates", "created_at", "TEXT")

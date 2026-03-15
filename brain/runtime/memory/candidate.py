@@ -6,7 +6,7 @@ from typing import Dict, Any
 
 from brain.runtime.instrumentation import emit_event
 from brain.runtime import state_store
-from brain.runtime.memory import store
+from brain.runtime.memory import provenance, store
 from brain.runtime.security import redaction
 
 
@@ -25,6 +25,8 @@ def create_candidate(
     for point in verification_points:
         clean, _ = redaction.redact_text(str(point))
         verification_lines.append(clean)
+
+    normalized_metadata = provenance.normalize_metadata(metadata, source="candidate")
 
     conn = store.connect()
     row = conn.execute(
@@ -53,7 +55,7 @@ def create_candidate(
             confidence_score,
             "pending",
             verification_status,
-            json.dumps(metadata or {}),
+            json.dumps(normalized_metadata, ensure_ascii=False),
             store.SCHEMA_VERSION,
         ),
     )

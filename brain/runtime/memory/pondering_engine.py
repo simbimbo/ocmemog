@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from brain.runtime import config, inference, state_store
 from brain.runtime.instrumentation import emit_event
-from brain.runtime.memory import api, integrity, memory_consolidation, memory_links, store, unresolved_state, vector_index
+from brain.runtime.memory import api, integrity, memory_consolidation, memory_links, provenance, store, unresolved_state, vector_index
 
 LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
 _WRITABLE_MEMORY_TABLES = {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons"}
@@ -371,7 +371,17 @@ def _store_reflection(summary: str, *, source_reference: str, recommendation: st
     if recommendation.strip():
         content = f"{content}\nRecommendation: {recommendation.strip()}"
     content = content.strip()
-    reflection_metadata = {**(metadata or {}), "source_reference": source_reference, "kind": "ponder_reflection"}
+    inherited_refs = provenance.collect_source_references(source_reference, depth=2) if source_reference else []
+    source_refs = [ref for ref in inherited_refs if ref]
+    if source_reference and source_reference not in source_refs:
+        source_refs.insert(0, source_reference)
+    reflection_metadata = {
+        **(metadata or {}),
+        "source_reference": source_reference,
+        "source_references": source_refs,
+        "kind": "ponder_reflection",
+        "derived_via": "ponder",
+    }
     existing_id = _memory_exists("reflections", content, reflection_metadata)
     if existing_id:
         return f"reflections:{existing_id}"
@@ -385,7 +395,14 @@ def _store_lesson_once(lesson: str, *, source_reference: str) -> Optional[str]:
     normalized = lesson.strip()
     if not normalized:
         return None
-    metadata = {"reference": source_reference, "source_reference": source_reference, "kind": "ponder_lesson"}
+    inherited_refs = provenance.collect_source_references(source_reference, depth=2) if source_reference else []
+    metadata = {
+        "reference": source_reference,
+        "source_reference": source_reference,
+        "source_references": inherited_refs or ([source_reference] if source_reference else []),
+        "kind": "ponder_lesson",
+        "derived_via": "ponder",
+    }
     existing_id = _memory_exists("lessons", normalized, metadata)
     if existing_id:
         return f"lessons:{existing_id}"

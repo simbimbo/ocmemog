@@ -4,7 +4,7 @@ from typing import Dict, List, Any, Iterable, Tuple
 
 from brain.runtime.instrumentation import emit_event
 from brain.runtime import state_store
-from brain.runtime.memory import store, memory_links, vector_index
+from brain.runtime.memory import memory_links, provenance, store, vector_index
 
 
 def _match_score(text: str, query: str) -> float:
@@ -43,7 +43,19 @@ def retrieve(prompt: str, limit: int = 5, categories: Iterable[str] | None = Non
     reinf_rows = conn.execute(
         "SELECT memory_reference, reward_score, confidence FROM experiences",
     ).fetchall()
-    reinforcement = {row[0]: {"reward_score": row[1] or 0.0, "confidence": row[2] or 0.0} for row in reinf_rows}
+    reinforcement: Dict[str, Dict[str, float]] = {}
+    for row in reinf_rows:
+        reference = str(row[0] or "")
+        if not reference:
+            continue
+        current = reinforcement.setdefault(reference, {"reward_score": 0.0, "confidence": 0.0, "count": 0.0})
+        current["reward_score"] += float(row[1] or 0.0)
+        current["confidence"] += float(row[2] or 0.0)
+        current["count"] += 1.0
+    for current in reinforcement.values():
+        count = max(1.0, float(current.get("count") or 1.0))
+        current["reward_score"] = float(current.get("reward_score") or 0.0) / count
+        current["confidence"] = float(current.get("confidence") or 0.0) / count
 
     def score_record(content: str, memory_ref: str, promo_conf: float) -> float:
         keyword = _match_score(content, prompt)
@@ -55,7 +67,7 @@ def retrieve(prompt: str, limit: int = 5, categories: Iterable[str] | None = Non
     for table, key in [(bucket, bucket) for bucket in selected_categories]:
         try:
             rows = conn.execute(
-                f"SELECT id, content, confidence FROM {table} ORDER BY id DESC LIMIT ?",
+                f"SELECT id, content, confidence, metadata_json FROM {table} ORDER BY id DESC LIMIT ?",
                 (limit * 10,),
             ).fetchall()
         except Exception:
@@ -66,11 +78,13 @@ def retrieve(prompt: str, limit: int = 5, categories: Iterable[str] | None = Non
                 continue
             mem_ref = f"{table}:{row[0]}"
             promo_conf = row["confidence"] if isinstance(row, dict) else row[2]
+            metadata = provenance.fetch_reference(mem_ref)
             results[key].append({
                 "content": content,
                 "score": score_record(content, mem_ref, promo_conf),
                 "memory_reference": mem_ref,
                 "links": memory_links.get_memory_links(mem_ref),
+                "provenance_preview": (metadata or {}).get("provenance_preview") or provenance.preview_from_metadata((metadata or {}).get("metadata")),
             })
 
         results[key] = sorted(results[key], key=lambda x: x["score"], reverse=True)[:limit]
@@ -83,7 +97,7 @@ def retrieve(prompt: str, limit: int = 5, categories: Iterable[str] | None = Non
                 continue
             try:
                 row = conn.execute(
-                    f"SELECT id, content, confidence FROM {source_type} WHERE id=?",
+                    f"SELECT id, content, confidence, metadata_json FROM {source_type} WHERE id=?",
                     (int(item.get("source_id") or 0),),
                 ).fetchone()
             except Exception:
@@ -93,11 +107,13 @@ def retrieve(prompt: str, limit: int = 5, categories: Iterable[str] | None = Non
             content = row["content"] if isinstance(row, dict) else row[1]
             mem_ref = f"{source_type}:{row[0]}"
             promo_conf = row["confidence"] if isinstance(row, dict) else row[2]
+            metadata = provenance.fetch_reference(mem_ref)
             results[source_type].append({
                 "content": content,
                 "score": score_record(content, mem_ref, promo_conf),
                 "memory_reference": mem_ref,
                 "links": memory_links.get_memory_links(mem_ref),
+                "provenance_preview": (metadata or {}).get("provenance_preview") or provenance.preview_from_metadata((metadata or {}).get("metadata")),
             })
         for bucket in selected_categories:
             results[bucket] = sorted(results[bucket], key=lambda x: x["score"], reverse=True)[:limit]

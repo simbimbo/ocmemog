@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from datetime import datetime, timedelta
 
 from brain.runtime import state_store
-from brain.runtime.memory import retrieval, store, api, distill, health, memory_links, pondering_engine, reinforcement, conversation_state
+from brain.runtime.memory import api, conversation_state, distill, health, memory_links, pondering_engine, provenance, reinforcement, retrieval, store
 from ocmemog.sidecar.compat import flatten_results, probe_runtime
 from ocmemog.sidecar.transcript_watcher import watch_forever
 
@@ -240,6 +240,10 @@ class IngestRequest(BaseModel):
     thread_id: Optional[str] = None
     message_id: Optional[str] = None
     role: Optional[str] = None
+    source_reference: Optional[str] = None
+    source_references: Optional[List[str]] = None
+    source_label: Optional[str] = None
+    source_labels: Optional[List[str]] = None
     transcript_path: Optional[str] = None
     transcript_offset: Optional[int] = None
     transcript_end_offset: Optional[int] = None
@@ -385,35 +389,7 @@ def _fallback_search(query: str, limit: int, categories: List[str]) -> List[Dict
 
 
 def _get_row(reference: str) -> Optional[Dict[str, Any]]:
-    table, sep, raw_id = reference.partition(":")
-    if not sep or not table or not raw_id.isdigit():
-        return None
-
-    allowed_tables = {
-        "knowledge",
-        "reflections",
-        "directives",
-        "tasks",
-        "runbooks",
-        "lessons",
-        "candidates",
-        "promotions",
-    }
-    if table not in allowed_tables:
-        return None
-
-    conn = store.connect()
-    try:
-        row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (int(raw_id),)).fetchone()
-        if not row:
-            return None
-        payload = dict(row)
-        payload["reference"] = reference
-        payload["table"] = table
-        payload["id"] = int(raw_id)
-        return payload
-    finally:
-        conn.close()
+    return provenance.hydrate_reference(reference, depth=2)
 
 
 def _ingest_conversation_turn(request: ConversationTurnRequest) -> dict[str, Any]:
@@ -589,6 +565,7 @@ def memory_context(request: ContextRequest) -> dict[str, Any]:
         "reference": request.reference,
         "links": links,
         "transcript": transcript,
+        "provenance": provenance.hydrate_reference(request.reference, depth=2),
         **runtime,
     }
 
@@ -778,7 +755,8 @@ def memory_ponder_latest(limit: int = 5) -> dict[str, Any]:
             "timestamp": row["timestamp"],
             "summary": row["content"],
             "recommendation": meta.get("recommendation"),
-            "source_reference": meta.get("reference"),
+            "source_reference": meta.get("source_reference") or ((meta.get("provenance") or {}).get("source_reference") if isinstance(meta.get("provenance"), dict) else None),
+            "provenance": provenance.preview_from_metadata(meta),
         })
     return {"ok": True, "items": items, **runtime}
 
@@ -801,9 +779,14 @@ def _ingest_request(request: IngestRequest) -> dict[str, Any]:
             "thread_id": request.thread_id,
             "message_id": request.message_id,
             "role": request.role,
+            "source_reference": request.source_reference,
+            "source_references": request.source_references,
+            "source_label": request.source_label,
+            "source_labels": request.source_labels,
             "transcript_path": request.transcript_path,
             "transcript_offset": request.transcript_offset,
             "transcript_end_offset": request.transcript_end_offset,
+            "derived_via": "ingest",
         }
         memory_id = api.store_memory(
             memory_type,
@@ -848,15 +831,46 @@ def _ingest_request(request: IngestRequest) -> dict[str, Any]:
             )
         else:
             turn_response = None
+        if turn_response and turn_response.get("reference"):
+            provenance.update_memory_metadata(
+                reference,
+                {
+                    "source_references": [
+                        *([request.source_reference] if request.source_reference else []),
+                        *(request.source_references or []),
+                        str(turn_response.get("reference") or ""),
+                    ]
+                },
+            )
         return {"ok": True, "kind": "memory", "memory_type": memory_type, "reference": reference, "turn": turn_response, **runtime}
 
     # experience ingest
+    experience_metadata = provenance.normalize_metadata(
+        {
+            "conversation_id": request.conversation_id,
+            "session_id": request.session_id,
+            "thread_id": request.thread_id,
+            "message_id": request.message_id,
+            "role": request.role,
+            "source_reference": request.source_reference,
+            "source_references": request.source_references,
+            "source_label": request.source_label,
+            "source_labels": request.source_labels,
+            "transcript_path": request.transcript_path,
+            "transcript_offset": request.transcript_offset,
+            "transcript_end_offset": request.transcript_end_offset,
+            "task_id": request.task_id,
+            "derived_via": "ingest",
+        },
+        source=request.source or "sidecar",
+    )
+
     def _write_experience() -> None:
         conn = store.connect()
         try:
             conn.execute(
-                "INSERT INTO experiences (task_id, outcome, reward_score, confidence, experience_type, source_module, schema_version) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO experiences (task_id, outcome, reward_score, confidence, experience_type, source_module, metadata_json, schema_version) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     request.task_id,
                     content,
@@ -864,6 +878,7 @@ def _ingest_request(request: IngestRequest) -> dict[str, Any]:
                     1.0,
                     "ingest",
                     request.source or "sidecar",
+                    json.dumps(experience_metadata, ensure_ascii=False),
                     store.SCHEMA_VERSION,
                 ),
             )

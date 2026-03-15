@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from unittest import mock
 
-from brain.runtime.memory import api, distill, embedding_engine, pondering_engine, store, vector_index, unresolved_state
+from brain.runtime.memory import api, distill, embedding_engine, pondering_engine, promote, store, vector_index, unresolved_state
 from ocmemog.sidecar import app
 
 
@@ -836,6 +836,111 @@ class OcmemogRegressionTests(unittest.TestCase):
         self.assertEqual(turn_expand["salience_ranked_turns"][0]["turn"]["message_id"], "s-u6")
         self.assertIn("s-a7", [item["message_id"] for item in turn_expand["reply_chain"]])
         self.assertIn(checkpoint["checkpoint"]["id"], [item["id"] for item in turn_expand["related_checkpoints"]])
+
+    def test_memory_get_hydrates_ingested_memory_provenance(self) -> None:
+        transcript = Path(self.tempdir.name) / "prov.log"
+        transcript.write_text("first\nsecond\nthird\n", encoding="utf-8")
+
+        response = app.memory_ingest(
+            app.IngestRequest(
+                content="Durable summary of the shipping plan.",
+                kind="memory",
+                memory_type="knowledge",
+                source="unit-test",
+                conversation_id="conv-prov",
+                session_id="sess-prov",
+                thread_id="thread-prov",
+                message_id="msg-prov",
+                role="assistant",
+                source_label="daily-summary",
+                transcript_path=str(transcript),
+                transcript_offset=2,
+                transcript_end_offset=3,
+            )
+        )
+        self.assertTrue(response["ok"])
+
+        fetched = app.memory_get(app.GetRequest(reference=response["reference"]))
+        self.assertTrue(fetched["ok"])
+        memory = fetched["memory"]
+        preview = memory["provenance_preview"]
+        self.assertIn("conversation_turns:", memory["metadata"]["provenance"]["source_references"][0])
+        self.assertEqual(preview["source_labels"], ["daily-summary"])
+        self.assertEqual(preview["conversation"]["thread_id"], "thread-prov")
+        outbound_targets = {item["target_reference"] for item in memory["provenance"]["outbound"]}
+        self.assertIn("thread:thread-prov", outbound_targets)
+        self.assertTrue(any(target.startswith("transcript:") for target in outbound_targets))
+
+    def test_distill_and_promote_keep_structured_provenance(self) -> None:
+        transcript = Path(self.tempdir.name) / "experience.log"
+        transcript.write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
+
+        ingest = app.memory_ingest(
+            app.IngestRequest(
+                content="Capture the queue migration status and anchor it to the transcript.",
+                kind="experience",
+                task_id="task-prov",
+                source="unit-test",
+                source_reference="conversation_checkpoints:9",
+                source_labels=["queue", "migration"],
+                conversation_id="conv-exp",
+                session_id="sess-exp",
+                thread_id="thread-exp",
+                message_id="msg-exp",
+                transcript_path=str(transcript),
+                transcript_offset=1,
+                transcript_end_offset=2,
+            )
+        )
+        self.assertTrue(ingest["ok"])
+
+        distilled = distill.distill_experiences(limit=5)
+        self.assertEqual(len(distilled), 1)
+        candidate = distill.candidate.get_candidate(distilled[0]["candidate_id"])
+        self.assertIsNotNone(candidate)
+        candidate_payload = dict(candidate or {})
+        candidate_payload["metadata"] = json.loads(candidate_payload.get("metadata_json") or "{}")
+
+        promoted = promote.promote_candidate(candidate_payload)
+        self.assertEqual(promoted["decision"], "promote")
+
+        fetched = app.memory_get(app.GetRequest(reference=f"{promoted['destination']}:1"))
+        self.assertTrue(fetched["ok"])
+        memory = fetched["memory"]
+        preview = memory["provenance_preview"]
+        self.assertIn("experiences:1", preview["source_references"])
+        self.assertIn("conversation_checkpoints:9", preview["source_references"])
+        self.assertEqual(preview["source_labels"], ["queue", "migration", "unit-test"])
+        outbound_targets = {item["target_reference"] for item in memory["provenance"]["outbound"]}
+        self.assertIn("experiences:1", outbound_targets)
+        self.assertIn("conversation_checkpoints:9", outbound_targets)
+        self.assertIn("label:queue", outbound_targets)
+        self.assertTrue(any(target.startswith("transcript:") for target in outbound_targets))
+
+    def test_ponder_reflection_inherits_upstream_source_references(self) -> None:
+        memory_response = app.memory_ingest(
+            app.IngestRequest(
+                content="Need to keep restart checkpoints tied to transcript anchors.",
+                kind="memory",
+                memory_type="knowledge",
+                source="unit-test",
+                source_reference="conversation_turns:42",
+                source_labels=["restart"],
+            )
+        )
+        self.assertTrue(memory_response["ok"])
+
+        with mock.patch("brain.runtime.memory.pondering_engine._infer_with_timeout", return_value={"status": "ok", "output": "Insight: Preserve lineage\nRecommendation: Keep source anchors"}), \
+             mock.patch.object(pondering_engine.config, "OCMEMOG_PONDER_ENABLED", "true"), \
+             mock.patch.object(pondering_engine.config, "OCMEMOG_LESSON_MINING_ENABLED", "false"):
+            result = pondering_engine.run_ponder_cycle(max_items=4)
+
+        reflection_ref = next(item["reflection_reference"] for item in result["insights"] if item.get("reflection_reference", "").startswith("reflections:"))
+        fetched = app.memory_get(app.GetRequest(reference=reflection_ref))
+        self.assertTrue(fetched["ok"])
+        preview = fetched["memory"]["provenance_preview"]
+        self.assertIn(memory_response["reference"], preview["source_references"])
+        self.assertIn("conversation_turns:42", preview["source_references"])
 
 
 if __name__ == "__main__":

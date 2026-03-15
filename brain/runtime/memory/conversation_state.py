@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from brain.runtime import state_store
 from brain.runtime.instrumentation import emit_event
-from brain.runtime.memory import store, memory_links, unresolved_state, memory_salience
+from brain.runtime.memory import memory_links, memory_salience, provenance, store, unresolved_state
 
 _ALLOWED_MEMORY_TABLES = {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons", "candidates", "promotions"}
 LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
@@ -719,6 +719,7 @@ def get_linked_memories(
                 meta = json.loads(memory_row["metadata_json"] or "{}")
             except Exception:
                 meta = {}
+            hydrated = provenance.hydrate_reference(source_reference, depth=1) or {}
             items.append(
                 {
                     "reference": source_reference,
@@ -729,6 +730,8 @@ def get_linked_memories(
                         {"link_type": linked_row["link_type"], "target_reference": linked_row["target_reference"]}
                         for linked_row in linked_rows
                     ],
+                    "provenance_preview": hydrated.get("provenance_preview") or provenance.preview_from_metadata(meta),
+                    "provenance": hydrated.get("provenance") or {},
                 }
             )
             seen.add(source_reference)

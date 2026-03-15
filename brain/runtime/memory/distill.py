@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Dict, Any, List
 
 from brain.runtime.instrumentation import emit_event
 from brain.runtime import state_store
-from brain.runtime.memory import store, candidate
+from brain.runtime.memory import candidate, provenance, store
 from brain.runtime.security import redaction
 from brain.runtime import inference
 from brain.runtime import model_roles
@@ -60,7 +61,7 @@ def distill_experiences(limit: int = 10) -> List[Dict[str, Any]]:
     emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_start", status="ok")
     conn = store.connect()
     rows = conn.execute(
-        "SELECT id, outcome FROM experiences ORDER BY id DESC LIMIT ?",
+        "SELECT id, task_id, outcome, source_module, metadata_json FROM experiences ORDER BY id DESC LIMIT ?",
         (limit,),
     ).fetchall()
     conn.close()
@@ -70,7 +71,14 @@ def distill_experiences(limit: int = 10) -> List[Dict[str, Any]]:
 
     for row in rows:
         source_id = _row_value(row, "id", 0)
-        content = _row_value(row, "outcome", 1) or ""
+        task_id = _row_value(row, "task_id", 1)
+        content = _row_value(row, "outcome", 2) or ""
+        source_module = _row_value(row, "source_module", 3)
+        raw_metadata = _row_value(row, "metadata_json", 4) or "{}"
+        try:
+            experience_metadata = json.loads(raw_metadata) if isinstance(raw_metadata, str) else dict(raw_metadata or {})
+        except Exception:
+            experience_metadata = {}
         content, _ = redaction.redact_text(content)
 
         summary = ""
@@ -103,12 +111,25 @@ def distill_experiences(limit: int = 10) -> List[Dict[str, Any]]:
             emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_rejected", status="ok")
             continue
 
+        candidate_metadata = provenance.normalize_metadata(
+            {
+                **experience_metadata,
+                "compression_ratio": round(ratio, 3),
+                "task_id": task_id,
+                "source_event_id": source_id,
+                "experience_reference": f"experiences:{source_id}",
+                "derived_via": "distill",
+                "kind": "distilled_candidate",
+                "source_labels": [*(experience_metadata.get("source_labels") or []), *( [source_module] if source_module else [])],
+            },
+            source=source_module,
+        )
         candidate_result = candidate.create_candidate(
             source_event_id=source_id,
             distilled_summary=summary,
             verification_points=verification,
             confidence_score=score,
-            metadata={"compression_ratio": round(ratio, 3)},
+            metadata=candidate_metadata,
         )
 
         distilled.append({
@@ -119,6 +140,7 @@ def distill_experiences(limit: int = 10) -> List[Dict[str, Any]]:
             "compression_ratio": round(ratio, 3),
             "candidate_id": candidate_result.get("candidate_id"),
             "duplicate": candidate_result.get("duplicate"),
+            "provenance": provenance.preview_from_metadata(candidate_metadata),
         })
         emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_success", status="ok")
 
@@ -146,12 +168,21 @@ def distill_artifact(artifact: Dict[str, Any]) -> List[Dict[str, Any]]:
         emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_rejected", status="ok")
         return []
 
+    candidate_metadata = provenance.normalize_metadata(
+        {
+            "compression_ratio": round(ratio, 3),
+            "artifact_id": artifact.get("artifact_id"),
+            "derived_via": "artifact_distill",
+            "kind": "distilled_candidate",
+            "source_labels": ["artifact"],
+        }
+    )
     candidate_result = candidate.create_candidate(
         source_event_id=0,
         distilled_summary=summary,
         verification_points=verification,
         confidence_score=score,
-        metadata={"compression_ratio": round(ratio, 3), "artifact_id": artifact.get("artifact_id")},
+        metadata=candidate_metadata,
     )
 
     emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_success", status="ok")
@@ -163,4 +194,5 @@ def distill_artifact(artifact: Dict[str, Any]) -> List[Dict[str, Any]]:
         "compression_ratio": round(ratio, 3),
         "candidate_id": candidate_result.get("candidate_id"),
         "duplicate": candidate_result.get("duplicate"),
+        "provenance": provenance.preview_from_metadata(candidate_metadata),
     }]

@@ -684,7 +684,7 @@ def dashboard() -> HTMLResponse:
           const lastTs = items.length ? (items[0].timestamp || 'n/a') : 'n/a';
           const warnings = (data.warnings || []).join('; ');
           const mode = data.mode || 'n/a';
-          ponderMetaEl.textContent = `Last update: ${lastTs} • Mode: ${mode}${warnings ? ' • ' + warnings : ''}`;
+          ponderMetaEl.textContent = `Last update: ${{lastTs}} • Mode: ${{mode}}${{warnings ? ' • ' + warnings : ''}}`;
           ponderEl.innerHTML = items.map((item) =>
             `<div class=\"card\"><strong>${{item.summary}}</strong><br/><em>${{item.recommendation || ''}}</em><br/><small>${{item.timestamp || ''}} • ${{item.reference || ''}}</small></div>`
           ).join('');

@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from datetime import datetime, timedelta
 
 from brain.runtime import state_store
-from brain.runtime.memory import retrieval, store, api, distill, health, memory_links, pondering_engine, reinforcement
+from brain.runtime.memory import retrieval, store, api, distill, health, memory_links, pondering_engine, reinforcement, conversation_state
 from ocmemog.sidecar.compat import flatten_results, probe_runtime
 from ocmemog.sidecar.transcript_watcher import watch_forever
 
@@ -235,13 +235,38 @@ class IngestRequest(BaseModel):
     memory_type: Optional[str] = Field(default=None, description="knowledge|reflections|directives|tasks|runbooks|lessons")
     source: Optional[str] = None
     task_id: Optional[str] = None
+    conversation_id: Optional[str] = None
     session_id: Optional[str] = None
     thread_id: Optional[str] = None
     message_id: Optional[str] = None
+    role: Optional[str] = None
     transcript_path: Optional[str] = None
     transcript_offset: Optional[int] = None
     transcript_end_offset: Optional[int] = None
     timestamp: Optional[str] = None
+
+
+class ConversationTurnRequest(BaseModel):
+    role: str
+    content: str
+    conversation_id: Optional[str] = None
+    session_id: Optional[str] = None
+    thread_id: Optional[str] = None
+    message_id: Optional[str] = None
+    source: Optional[str] = None
+    transcript_path: Optional[str] = None
+    transcript_offset: Optional[int] = None
+    transcript_end_offset: Optional[int] = None
+    timestamp: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class ConversationHydrateRequest(BaseModel):
+    conversation_id: Optional[str] = None
+    session_id: Optional[str] = None
+    thread_id: Optional[str] = None
+    turns_limit: int = Field(default=12, ge=1, le=100)
+    memory_limit: int = Field(default=8, ge=1, le=50)
 
 
 class DistillRequest(BaseModel):
@@ -361,6 +386,49 @@ def _get_row(reference: str) -> Optional[Dict[str, Any]]:
         return payload
     finally:
         conn.close()
+
+
+def _hydrate_summary_scaffold(turns: List[Dict[str, Any]]) -> Dict[str, Any]:
+    latest_user_turn = next((turn for turn in reversed(turns) if turn.get("role") == "user"), None)
+    latest_assistant_turn = next((turn for turn in reversed(turns) if turn.get("role") == "assistant"), None)
+    last_turn = turns[-1] if turns else None
+    return {
+        "turn_count": len(turns),
+        "latest_user_turn": latest_user_turn,
+        "latest_assistant_turn": latest_assistant_turn,
+        "latest_transcript_anchor": {
+            "path": last_turn.get("transcript_path") if last_turn else None,
+            "start_line": last_turn.get("transcript_offset") if last_turn else None,
+            "end_line": last_turn.get("transcript_end_offset") if last_turn else None,
+        },
+        "open_loops": [],
+        "pending_actions": [],
+        "summary_status": "scaffold_only",
+    }
+
+
+def _ingest_conversation_turn(request: ConversationTurnRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    turn_id = conversation_state.record_turn(
+        role=request.role,
+        content=request.content,
+        conversation_id=request.conversation_id,
+        session_id=request.session_id,
+        thread_id=request.thread_id,
+        message_id=request.message_id,
+        transcript_path=request.transcript_path,
+        transcript_offset=request.transcript_offset,
+        transcript_end_offset=request.transcript_end_offset,
+        source=request.source,
+        timestamp=request.timestamp,
+        metadata=request.metadata,
+    )
+    return {
+        "ok": True,
+        "turn_id": turn_id,
+        "reference": f"conversation_turns:{turn_id}",
+        **runtime,
+    }
 
 
 def _parse_transcript_target(target: str) -> tuple[Path, Optional[int], Optional[int]] | None:
@@ -534,6 +602,51 @@ def memory_recent(request: RecentRequest) -> dict[str, Any]:
     }
 
 
+@app.post("/conversation/ingest_turn")
+def conversation_ingest_turn(request: ConversationTurnRequest) -> dict[str, Any]:
+    return _ingest_conversation_turn(request)
+
+
+@app.post("/conversation/hydrate")
+def conversation_hydrate(request: ConversationHydrateRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    turns = conversation_state.get_recent_turns(
+        conversation_id=request.conversation_id,
+        session_id=request.session_id,
+        thread_id=request.thread_id,
+        limit=request.turns_limit,
+    )
+    linked_memories = conversation_state.get_linked_memories(
+        conversation_id=request.conversation_id,
+        session_id=request.session_id,
+        thread_id=request.thread_id,
+        limit=request.memory_limit,
+    )
+    link_targets: List[Dict[str, Any]] = []
+    if request.thread_id:
+        link_targets.extend(memory_links.get_memory_links_for_thread(request.thread_id))
+    if request.session_id:
+        link_targets.extend(memory_links.get_memory_links_for_session(request.session_id))
+    if request.conversation_id:
+        link_targets.extend(memory_links.get_memory_links_for_conversation(request.conversation_id))
+    return {
+        "ok": True,
+        "conversation_id": request.conversation_id,
+        "session_id": request.session_id,
+        "thread_id": request.thread_id,
+        "recent_turns": turns,
+        "summary": _hydrate_summary_scaffold(turns),
+        "turn_counts": conversation_state.get_turn_counts(
+            conversation_id=request.conversation_id,
+            session_id=request.session_id,
+            thread_id=request.thread_id,
+        ),
+        "linked_memories": linked_memories,
+        "linked_references": link_targets,
+        **runtime,
+    }
+
+
 @app.post("/memory/ponder")
 def memory_ponder(request: PonderRequest) -> dict[str, Any]:
     runtime = _runtime_payload()
@@ -596,9 +709,11 @@ def _ingest_request(request: IngestRequest) -> dict[str, Any]:
         if memory_type not in allowed:
             memory_type = "knowledge"
         metadata = {
+            "conversation_id": request.conversation_id,
             "session_id": request.session_id,
             "thread_id": request.thread_id,
             "message_id": request.message_id,
+            "role": request.role,
             "transcript_path": request.transcript_path,
             "transcript_offset": request.transcript_offset,
             "transcript_end_offset": request.transcript_end_offset,
@@ -611,6 +726,8 @@ def _ingest_request(request: IngestRequest) -> dict[str, Any]:
             timestamp=request.timestamp,
         )
         reference = f"{memory_type}:{memory_id}"
+        if request.conversation_id:
+            memory_links.add_memory_link(reference, "conversation", f"conversation:{request.conversation_id}")
         if request.session_id:
             memory_links.add_memory_link(reference, "session", f"session:{request.session_id}")
         if request.thread_id:
@@ -625,7 +742,26 @@ def _ingest_request(request: IngestRequest) -> dict[str, Any]:
             else:
                 suffix = ""
             memory_links.add_memory_link(reference, "transcript", f"transcript:{request.transcript_path}{suffix}")
-        return {"ok": True, "kind": "memory", "memory_type": memory_type, "reference": reference, **runtime}
+        if request.role:
+            turn_response = _ingest_conversation_turn(
+                ConversationTurnRequest(
+                    role=request.role,
+                    content=content,
+                    conversation_id=request.conversation_id,
+                    session_id=request.session_id,
+                    thread_id=request.thread_id,
+                    message_id=request.message_id,
+                    source=request.source,
+                    transcript_path=request.transcript_path,
+                    transcript_offset=request.transcript_offset,
+                    transcript_end_offset=request.transcript_end_offset,
+                    timestamp=request.timestamp,
+                    metadata={"memory_reference": reference},
+                )
+            )
+        else:
+            turn_response = None
+        return {"ok": True, "kind": "memory", "memory_type": memory_type, "reference": reference, "turn": turn_response, **runtime}
 
     # experience ingest
     def _write_experience() -> None:

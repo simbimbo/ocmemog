@@ -45,6 +45,36 @@ def get_memory_links(source_reference: str) -> List[Dict[str, str]]:
     return [{"link_type": row[0], "target_reference": row[1]} for row in rows]
 
 
+def get_memory_links_for_target(target_reference: str) -> List[Dict[str, str]]:
+    conn = store.connect()
+    _ensure_table(conn)
+    rows = conn.execute(
+        "SELECT source_reference, link_type, target_reference FROM memory_links WHERE target_reference=? ORDER BY created_at DESC",
+        (target_reference,),
+    ).fetchall()
+    conn.close()
+    return [
+        {
+            "source_reference": row[0],
+            "link_type": row[1],
+            "target_reference": row[2],
+        }
+        for row in rows
+    ]
+
+
+def get_memory_links_for_thread(thread_id: str) -> List[Dict[str, str]]:
+    return get_memory_links_for_target(f"thread:{thread_id}")
+
+
+def get_memory_links_for_session(session_id: str) -> List[Dict[str, str]]:
+    return get_memory_links_for_target(f"session:{session_id}")
+
+
+def get_memory_links_for_conversation(conversation_id: str) -> List[Dict[str, str]]:
+    return get_memory_links_for_target(f"conversation:{conversation_id}")
+
+
 def count_memory_links() -> int:
     conn = store.connect()
     _ensure_table(conn)

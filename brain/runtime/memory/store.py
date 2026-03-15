@@ -175,6 +175,28 @@ CREATE TABLE IF NOT EXISTS artifacts (
   metadata TEXT,
   created_at TIMESTAMP DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS conversation_turns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+  conversation_id TEXT,
+  session_id TEXT,
+  thread_id TEXT,
+  message_id TEXT,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  transcript_path TEXT,
+  transcript_offset INTEGER,
+  transcript_end_offset INTEGER,
+  source TEXT,
+  metadata_json TEXT DEFAULT '{}',
+  schema_version TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_turns_conversation ON conversation_turns(conversation_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_conversation_turns_session ON conversation_turns(session_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_conversation_turns_thread ON conversation_turns(thread_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_conversation_turns_message ON conversation_turns(message_id);
 """
 
 _WRITE_QUEUE: "queue.Queue[tuple]" = queue.Queue()
@@ -226,12 +248,8 @@ _SCHEMA_READY = False
 def connect(*, ensure_schema: bool = True) -> sqlite3.Connection:
     global _SCHEMA_READY
     if ensure_schema and not _SCHEMA_READY:
-        path = db_path()
-        if path.exists():
-            _SCHEMA_READY = True
-        else:
-            init_db()
-            _SCHEMA_READY = True
+        init_db()
+        _SCHEMA_READY = True
     path = db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), timeout=30)
@@ -265,5 +283,20 @@ def init_db() -> None:
     _ensure_column(conn, "promotions", "candidate_id", "TEXT")
     _ensure_column(conn, "promotions", "status", "TEXT NOT NULL DEFAULT 'promoted'")
     _ensure_column(conn, "promotions", "decision_reason", "TEXT")
+    _ensure_column(conn, "conversation_turns", "conversation_id", "TEXT")
+    _ensure_column(conn, "conversation_turns", "session_id", "TEXT")
+    _ensure_column(conn, "conversation_turns", "thread_id", "TEXT")
+    _ensure_column(conn, "conversation_turns", "message_id", "TEXT")
+    _ensure_column(conn, "conversation_turns", "role", "TEXT NOT NULL DEFAULT 'unknown'")
+    _ensure_column(conn, "conversation_turns", "content", "TEXT")
+    _ensure_column(conn, "conversation_turns", "transcript_path", "TEXT")
+    _ensure_column(conn, "conversation_turns", "transcript_offset", "INTEGER")
+    _ensure_column(conn, "conversation_turns", "transcript_end_offset", "INTEGER")
+    _ensure_column(conn, "conversation_turns", "source", "TEXT")
+    _ensure_column(conn, "conversation_turns", "metadata_json", "TEXT DEFAULT '{}'")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_turns_conversation ON conversation_turns(conversation_id, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_turns_session ON conversation_turns(session_id, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_turns_thread ON conversation_turns(thread_id, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_turns_message ON conversation_turns(message_id)")
     conn.commit()
     conn.close()

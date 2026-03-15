@@ -100,6 +100,83 @@ class OcmemogRegressionTests(unittest.TestCase):
             "line 2\nline 3\nline 4\nline 5",
         )
 
+    def test_memory_ingest_with_conversation_metadata_creates_turn_and_hydrates(self) -> None:
+        transcript = Path(self.tempdir.name) / "conversation.log"
+        transcript.write_text("", encoding="utf-8")
+
+        memory_response = app._ingest_request(
+            app.IngestRequest(
+                content="Need to ship Phase 1A next.",
+                kind="memory",
+                memory_type="tasks",
+                conversation_id="conv-1",
+                session_id="sess-1",
+                thread_id="thread-1",
+                message_id="msg-1",
+                role="user",
+                transcript_path=str(transcript),
+                transcript_offset=10,
+                transcript_end_offset=10,
+                timestamp="2026-03-15 09:30:00",
+            )
+        )
+        self.assertTrue(memory_response["ok"])
+        self.assertTrue(memory_response["turn"]["ok"])
+
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(
+                conversation_id="conv-1",
+                session_id="sess-1",
+                thread_id="thread-1",
+                turns_limit=5,
+                memory_limit=5,
+            )
+        )
+
+        self.assertTrue(hydrate["ok"])
+        self.assertEqual(len(hydrate["recent_turns"]), 1)
+        self.assertEqual(hydrate["recent_turns"][0]["role"], "user")
+        self.assertEqual(hydrate["recent_turns"][0]["message_id"], "msg-1")
+        self.assertEqual(hydrate["summary"]["latest_user_turn"]["content"], "Need to ship Phase 1A next.")
+        self.assertEqual(hydrate["turn_counts"]["user"], 1)
+        self.assertEqual(hydrate["turn_counts"]["assistant"], 0)
+        self.assertEqual(hydrate["linked_memories"][0]["reference"], memory_response["reference"])
+        targets = {item["target_reference"] for item in hydrate["linked_references"]}
+        self.assertIn("thread:thread-1", targets)
+        self.assertIn("session:sess-1", targets)
+        self.assertIn("conversation:conv-1", targets)
+
+    def test_conversation_turn_endpoint_records_recent_turns(self) -> None:
+        first = app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="hello",
+                session_id="sess-turns",
+                thread_id="thread-turns",
+                message_id="m1",
+                timestamp="2026-03-15 09:00:00",
+            )
+        )
+        second = app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="assistant",
+                content="hi there",
+                session_id="sess-turns",
+                thread_id="thread-turns",
+                message_id="m2",
+                timestamp="2026-03-15 09:00:01",
+            )
+        )
+
+        self.assertTrue(first["ok"])
+        self.assertTrue(second["ok"])
+
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(session_id="sess-turns", thread_id="thread-turns", turns_limit=5)
+        )
+        self.assertEqual([turn["message_id"] for turn in hydrate["recent_turns"]], ["m1", "m2"])
+        self.assertEqual(hydrate["summary"]["latest_assistant_turn"]["content"], "hi there")
+
     def test_provider_embedding_takes_precedence_when_configured(self) -> None:
         with mock.patch.object(embedding_engine.config, "BRAIN_EMBED_MODEL_PROVIDER", "openai"), \
              mock.patch.object(embedding_engine.config, "BRAIN_EMBED_MODEL_LOCAL", "simple"), \

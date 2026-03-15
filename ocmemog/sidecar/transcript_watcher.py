@@ -63,6 +63,10 @@ def _post_json(endpoint: str, payload: dict) -> None:
         return
 
 
+def _post_turn(endpoint: str, payload: dict) -> None:
+    _post_json(endpoint, payload)
+
+
 def _extract_user_text(text: str) -> str:
     # Prefer the final user line: "[Sat ...] message"
     candidate = ""
@@ -73,6 +77,41 @@ def _extract_user_text(text: str) -> str:
             if tail:
                 candidate = tail
     return candidate or text
+
+
+def _extract_conversation_info(text: str) -> dict:
+    marker = "Conversation info (untrusted metadata):"
+    if marker not in text:
+        return {}
+    tail = text.split(marker, 1)[1]
+    start = tail.find("```")
+    if start < 0:
+        return {}
+    tail = tail[start + 3 :]
+    if tail.startswith("json"):
+        tail = tail[4:]
+    end = tail.find("```")
+    if end < 0:
+        return {}
+    raw = tail[:end].strip()
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _parse_transcript_line(text: str) -> tuple[Optional[str], str]:
+    stripped = text.strip()
+    if not stripped:
+        return None, ""
+    if "[" in stripped and "]" in stripped:
+        prefix, suffix = stripped.split("[", 1)
+        role_part, remainder = suffix.split("]", 1)
+        role = role_part.strip().lower()
+        if role in {"user", "assistant", "system", "tool"}:
+            return role, remainder.strip()
+    return None, stripped
 
 
 def _count_lines(path: Path) -> int:
@@ -101,6 +140,7 @@ def watch_forever() -> None:
     session_glob = os.environ.get("OCMEMOG_SESSION_GLOB", DEFAULT_SESSION_GLOB)
 
     endpoint = os.environ.get("OCMEMOG_INGEST_ENDPOINT", DEFAULT_ENDPOINT)
+    turn_endpoint = os.environ.get("OCMEMOG_TURN_INGEST_ENDPOINT", endpoint.replace("/memory/ingest_async", "/conversation/ingest_turn").replace("/memory/ingest", "/conversation/ingest_turn"))
     poll_seconds = float(os.environ.get("OCMEMOG_TRANSCRIPT_POLL_SECONDS", "30"))
     batch_seconds = float(os.environ.get("OCMEMOG_INGEST_BATCH_SECONDS", "30"))
     batch_max = int(os.environ.get("OCMEMOG_INGEST_BATCH_MAX", "25"))
@@ -236,8 +276,24 @@ def watch_forever() -> None:
                         if transcript_start_line is None:
                             transcript_start_line = current_line_number
                         transcript_end_line = current_line_number
+                        timestamp_value = None
                         if text and " " in text:
-                            transcript_last_timestamp = text.split(" ", 1)[0]
+                            timestamp_value = text.split(" ", 1)[0]
+                            transcript_last_timestamp = timestamp_value
+                        role, turn_text = _parse_transcript_line(text)
+                        if role and turn_text:
+                            _post_turn(
+                                turn_endpoint,
+                                {
+                                    "role": role,
+                                    "content": turn_text,
+                                    "source": source,
+                                    "transcript_path": str(current_file),
+                                    "transcript_offset": current_line_number,
+                                    "transcript_end_offset": current_line_number,
+                                    "timestamp": timestamp_value.replace("T", " ")[:19] if timestamp_value else None,
+                                },
+                            )
                         if len(transcript_buffer) >= batch_max:
                             _flush_buffer(
                                 transcript_buffer,
@@ -285,6 +341,7 @@ def watch_forever() -> None:
                         else:
                             text = content or ""
                         text = str(text).strip()
+                        conversation_info = _extract_conversation_info(text)
                         if role == "user":
                             text = _extract_user_text(text)
                         text = text.replace("\n", " ").strip()
@@ -294,6 +351,29 @@ def watch_forever() -> None:
                         if role == "user":
                             _maybe_reinforce(text, timestamp)
                         transcript_path, transcript_line_no = _append_transcript(transcript_target, timestamp, role, text)
+                        session_id = session_file.stem if session_file is not None else None
+                        message_id = entry.get("id") or conversation_info.get("message_id")
+                        conversation_id = conversation_info.get("conversation_id") or session_id
+                        thread_id = conversation_info.get("thread_id") or session_id
+                        _post_turn(
+                            turn_endpoint,
+                            {
+                                "role": role,
+                                "content": text,
+                                "conversation_id": conversation_id,
+                                "session_id": session_id,
+                                "thread_id": thread_id,
+                                "message_id": message_id,
+                                "source": "session",
+                                "transcript_path": str(transcript_path),
+                                "transcript_offset": transcript_line_no,
+                                "transcript_end_offset": transcript_line_no,
+                                "timestamp": timestamp.replace("T", " ")[:19],
+                                "metadata": {
+                                    "parent_message_id": entry.get("parentId"),
+                                },
+                            },
+                        )
                         session_buffer.append(f"{timestamp} [{role}] {text}")
                         session_last_path = transcript_path
                         session_last_timestamp = timestamp

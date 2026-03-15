@@ -47,6 +47,27 @@ type RecentResponse = {
   error?: string;
 };
 
+type ConversationHydrateResponse = {
+  ok: boolean;
+  recent_turns?: Array<Record<string, unknown>>;
+  linked_memories?: Array<{ reference?: string; content?: string }>;
+  summary?: Record<string, unknown>;
+  state?: Record<string, unknown>;
+  error?: string;
+};
+
+type ConversationCheckpointResponse = {
+  ok: boolean;
+  checkpoint?: Record<string, unknown>;
+  error?: string;
+};
+
+type ConversationScope = {
+  conversation_id?: string;
+  session_id?: string;
+  thread_id?: string;
+};
+
 function readConfig(raw: unknown): PluginConfig {
   const cfg = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   return {
@@ -97,6 +118,309 @@ function formatWarnings(payload: { mode?: string; warnings?: string[]; missingDe
   return lines.length ? `\n\n${lines.join("\n")}` : "";
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function firstString(...values: unknown[]): string {
+  for (const value of values) {
+    const text = asString(value);
+    if (text) {
+      return text;
+    }
+  }
+  return "";
+}
+
+function extractMessageText(message: unknown): string {
+  const msg = asRecord(message);
+  if (!msg) {
+    return "";
+  }
+  if (typeof msg.content === "string") {
+    return msg.content.trim();
+  }
+  if (Array.isArray(msg.content)) {
+    const text = msg.content
+      .map((item) => {
+        if (typeof item === "string") {
+          return item;
+        }
+        const record = asRecord(item);
+        if (!record) {
+          return "";
+        }
+        return firstString(record.text, record.content, record.input_text, record.output_text);
+      })
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+    if (text) {
+      return text;
+    }
+  }
+  return firstString(msg.text, msg.message, msg.output);
+}
+
+function extractRole(message: unknown): string {
+  const msg = asRecord(message);
+  if (!msg) {
+    return "";
+  }
+  return firstString(msg.role, msg.type).toLowerCase();
+}
+
+function extractMessageId(message: unknown): string {
+  const msg = asRecord(message);
+  if (!msg) {
+    return "";
+  }
+  return firstString(msg.id, msg.messageId, msg.message_id);
+}
+
+function extractTimestamp(message: unknown): string | undefined {
+  const msg = asRecord(message);
+  if (!msg) {
+    return undefined;
+  }
+  const raw = msg.timestamp ?? msg.ts ?? msg.createdAt ?? msg.created_at;
+  if (typeof raw === "string") {
+    return raw;
+  }
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return new Date(raw).toISOString();
+  }
+  return undefined;
+}
+
+function pickScopeFromValue(value: unknown): Partial<ConversationScope> {
+  const record = asRecord(value);
+  if (!record) {
+    return {};
+  }
+  return {
+    conversation_id: firstString(record.conversation_id, record.conversationId),
+    session_id: firstString(record.session_id, record.sessionId),
+    thread_id: firstString(record.thread_id, record.threadId),
+  };
+}
+
+function extractConversationScope(message: unknown, sessionFallback?: string): ConversationScope {
+  const msg = asRecord(message) ?? {};
+  const metadata = asRecord(msg.metadata);
+  const direct = pickScopeFromValue(msg);
+  const metaScope = pickScopeFromValue(metadata);
+  return {
+    conversation_id: direct.conversation_id || metaScope.conversation_id || undefined,
+    session_id: direct.session_id || metaScope.session_id || sessionFallback || undefined,
+    thread_id: direct.thread_id || metaScope.thread_id || undefined,
+  };
+}
+
+function mergeScope(base: ConversationScope, next: Partial<ConversationScope>): ConversationScope {
+  return {
+    conversation_id: base.conversation_id || next.conversation_id,
+    session_id: base.session_id || next.session_id,
+    thread_id: base.thread_id || next.thread_id,
+  };
+}
+
+function resolveHydrationScope(messages: unknown[], ctx: { sessionKey?: string; sessionId?: string }): ConversationScope {
+  let scope: ConversationScope = {
+    session_id: firstString(ctx.sessionKey, ctx.sessionId) || undefined,
+  };
+  for (const message of [...messages].reverse()) {
+    scope = mergeScope(scope, extractConversationScope(message, scope.session_id));
+    if (scope.conversation_id && scope.session_id && scope.thread_id) {
+      break;
+    }
+  }
+  return scope;
+}
+
+function summarizeList(items: unknown, limit = 3): string[] {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+  return items
+    .map((item) => {
+      const record = asRecord(item);
+      return record ? firstString(record.summary, record.content, record.reference) : "";
+    })
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function buildHydrationContext(payload: ConversationHydrateResponse): string {
+  if (!payload.ok) {
+    return "";
+  }
+  const summary = asRecord(payload.summary);
+  const state = asRecord(payload.state);
+  const lines: string[] = [];
+
+  const checkpoint = asRecord(summary?.latest_checkpoint);
+  const checkpointSummary = firstString(checkpoint?.summary);
+  if (checkpointSummary) {
+    lines.push(`Checkpoint: ${checkpointSummary}`);
+  }
+
+  const latestUserAsk = asRecord(summary?.latest_user_ask);
+  const latestUserAskText = firstString(latestUserAsk?.effective_content, latestUserAsk?.content, state?.latest_user_ask);
+  if (latestUserAskText) {
+    lines.push(`Latest user ask: ${latestUserAskText}`);
+  }
+
+  const commitment = asRecord(summary?.last_assistant_commitment);
+  const commitmentText = firstString(commitment?.content, state?.last_assistant_commitment);
+  if (commitmentText) {
+    lines.push(`Last assistant commitment: ${commitmentText}`);
+  }
+
+  const openLoops = summarizeList(summary?.open_loops, 3);
+  if (openLoops.length) {
+    lines.push(`Open loops: ${openLoops.join(" | ")}`);
+  }
+
+  const pendingActions = summarizeList(summary?.pending_actions, 3);
+  if (pendingActions.length) {
+    lines.push(`Pending actions: ${pendingActions.join(" | ")}`);
+  }
+
+  const linkedMemories = Array.isArray(payload.linked_memories)
+    ? payload.linked_memories
+        .map((item) => `${firstString(item.reference)} ${firstString(item.content).slice(0, 120)}`.trim())
+        .filter(Boolean)
+        .slice(0, 2)
+    : [];
+  if (linkedMemories.length) {
+    lines.push(`Linked memories: ${linkedMemories.join(" | ")}`);
+  }
+
+  const recentTurns = Array.isArray(payload.recent_turns)
+    ? payload.recent_turns
+        .slice(-3)
+        .map((turn) => {
+          const record = asRecord(turn);
+          if (!record) {
+            return "";
+          }
+          const role = firstString(record.role) || "turn";
+          const content = firstString(record.effective_content, record.content);
+          return content ? `${role}: ${content.slice(0, 160)}` : "";
+        })
+        .filter(Boolean)
+    : [];
+  if (recentTurns.length) {
+    lines.push(`Recent turns: ${recentTurns.join(" | ")}`);
+  }
+
+  if (!lines.length) {
+    return "";
+  }
+  return `Memory continuity (auto-hydrated by ocmemog):\n- ${lines.join("\n- ")}`;
+}
+
+function buildTurnMetadata(message: unknown, ctx: { agentId?: string; sessionKey?: string }) {
+  const msg = asRecord(message) ?? {};
+  const metadata = asRecord(msg.metadata) ?? {};
+  return {
+    ...metadata,
+    role: extractRole(message) || undefined,
+    agent_id: ctx.agentId,
+    session_key: ctx.sessionKey,
+    reply_to_message_id: firstString(metadata.reply_to_message_id, metadata.replyToMessageId, msg.reply_to_message_id, msg.replyToMessageId) || undefined,
+  };
+}
+
+function registerAutomaticContinuityHooks(api: OpenClawPluginApi, config: PluginConfig) {
+  api.on("before_message_write", async (event, ctx) => {
+    try {
+      const role = extractRole(event.message);
+      if (role !== "user" && role !== "assistant") {
+        return;
+      }
+      const content = extractMessageText(event.message);
+      if (!content) {
+        return;
+      }
+      const scope = extractConversationScope(event.message, ctx.sessionKey);
+      if (!scope.session_id && !scope.thread_id && !scope.conversation_id) {
+        return;
+      }
+      await postJson<{ ok: boolean }>(config, "/conversation/ingest_turn", {
+        ...scope,
+        role,
+        content,
+        message_id: extractMessageId(event.message) || undefined,
+        timestamp: extractTimestamp(event.message),
+        source: "openclaw.before_message_write",
+        metadata: buildTurnMetadata(event.message, ctx),
+      });
+    } catch (error) {
+      api.logger.warn(`ocmemog continuity ingest failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+
+  api.on("before_prompt_build", async (event, ctx) => {
+    try {
+      const scope = resolveHydrationScope(event.messages ?? [], ctx);
+      if (!scope.session_id && !scope.thread_id && !scope.conversation_id) {
+        return;
+      }
+      const payload = await postJson<ConversationHydrateResponse>(config, "/conversation/hydrate", {
+        ...scope,
+        turns_limit: 12,
+        memory_limit: 6,
+      });
+      const prependContext = buildHydrationContext(payload);
+      if (!prependContext) {
+        return;
+      }
+      return { prependContext };
+    } catch (error) {
+      api.logger.warn(`ocmemog answer hydration failed: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+  });
+
+  api.on("after_compaction", async (_event, ctx) => {
+    try {
+      const sessionId = firstString(ctx.sessionKey, ctx.sessionId);
+      if (!sessionId) {
+        return;
+      }
+      await postJson<ConversationCheckpointResponse>(config, "/conversation/checkpoint", {
+        session_id: sessionId,
+        checkpoint_kind: "compaction",
+        turns_limit: 32,
+      });
+    } catch (error) {
+      api.logger.warn(`ocmemog compaction checkpoint failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+
+  api.on("session_end", async (_event, ctx) => {
+    try {
+      const sessionId = firstString(ctx.sessionKey, ctx.sessionId);
+      if (!sessionId) {
+        return;
+      }
+      await postJson<ConversationCheckpointResponse>(config, "/conversation/checkpoint", {
+        session_id: sessionId,
+        checkpoint_kind: "session_end",
+        turns_limit: 48,
+      });
+    } catch (error) {
+      api.logger.warn(`ocmemog session-end checkpoint failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+}
+
 const ocmemogPlugin = {
   id: "memory-ocmemog",
   name: "Memory (OCMemog)",
@@ -104,6 +428,8 @@ const ocmemogPlugin = {
   kind: "memory",
   register(api: OpenClawPluginApi) {
     const config = readConfig(api.pluginConfig);
+
+    registerAutomaticContinuityHooks(api, config);
 
     api.registerTool(
       {

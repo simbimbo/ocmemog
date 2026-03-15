@@ -391,6 +391,48 @@ def record_turn(
     def _write() -> int:
         conn = store.connect()
         try:
+            if message_id:
+                row = conn.execute(
+                    """
+                    SELECT id, metadata_json, transcript_path, transcript_offset, transcript_end_offset
+                    FROM conversation_turns
+                    WHERE role = ? AND message_id = ?
+                      AND COALESCE(conversation_id, '') = COALESCE(?, '')
+                      AND COALESCE(session_id, '') = COALESCE(?, '')
+                      AND COALESCE(thread_id, '') = COALESCE(?, '')
+                    ORDER BY id DESC LIMIT 1
+                    """,
+                    (turn_role, message_id, conversation_id, session_id, thread_id),
+                ).fetchone()
+                if row is not None:
+                    try:
+                        existing_meta = json.loads(row["metadata_json"] or "{}")
+                    except Exception:
+                        existing_meta = {}
+                    merged_meta = {**existing_meta, **enriched_metadata}
+                    conn.execute(
+                        """
+                        UPDATE conversation_turns
+                        SET content = ?,
+                            transcript_path = COALESCE(?, transcript_path),
+                            transcript_offset = COALESCE(?, transcript_offset),
+                            transcript_end_offset = COALESCE(?, transcript_end_offset),
+                            source = COALESCE(?, source),
+                            metadata_json = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            turn_content,
+                            transcript_path,
+                            transcript_offset,
+                            transcript_end_offset,
+                            source,
+                            json.dumps(merged_meta, ensure_ascii=False),
+                            int(row["id"]),
+                        ),
+                    )
+                    conn.commit()
+                    return int(row["id"])
             if timestamp:
                 cur = conn.execute(
                     """
@@ -638,6 +680,41 @@ def _assistant_commitment(turns: Sequence[Dict[str, Any]]) -> Optional[Dict[str,
     return None
 
 
+def _assistant_question(turns: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    for turn in reversed(turns):
+        if turn.get("role") != "assistant":
+            continue
+        content = str(turn.get("content") or "").strip()
+        if not content:
+            continue
+        if "?" in content or any(token in content.lower() for token in ("let me know", "which do you want", "should i", "want me to")):
+            return turn
+    return None
+
+
+def _looks_complete(text: str) -> bool:
+    normalized = (text or "").lower()
+    return any(token in normalized for token in ("done", "completed", "finished", "shipped", "implemented", "added", "fixed", "sent"))
+
+
+def _has_later_assistant_turn(turns: Sequence[Dict[str, Any]], turn_id: int) -> bool:
+    return any(turn.get("role") == "assistant" and int(turn.get("id") or 0) > turn_id for turn in turns)
+
+
+def _latest_unresolved_commitment(turns: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    for turn in reversed(turns):
+        if turn.get("role") != "assistant":
+            continue
+        content = str(turn.get("content") or "").strip()
+        if not content or not _COMMITMENT_RE.search(content):
+            continue
+        turn_id = int(turn.get("id") or 0)
+        if not _has_later_assistant_turn(turns, turn_id):
+            return turn
+        break
+    return None
+
+
 def _turn_anchor(turn: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if not turn:
         return None
@@ -667,7 +744,8 @@ def _pending_from_turns(turns: Sequence[Dict[str, Any]]) -> tuple[list[dict[str,
     open_loops: list[dict[str, Any]] = []
     last_user = _latest_turn_by_role(turns, "user")
     last_assistant = _latest_turn_by_role(turns, "assistant")
-    commitment = _assistant_commitment(turns)
+    commitment = _latest_unresolved_commitment(turns)
+    assistant_question = _assistant_question(turns)
 
     if last_user and (not last_assistant or int(last_user.get("id") or 0) > int(last_assistant.get("id") or 0)):
         content = _effective_turn_content(last_user) or str(last_user.get("content") or "").strip()
@@ -689,10 +767,37 @@ def _pending_from_turns(turns: Sequence[Dict[str, Any]]) -> tuple[list[dict[str,
                     "related_reference": resolution.get("resolved_reference"),
                 }
             )
+            if resolution:
+                pending_actions.append(
+                    {
+                        "kind": "fulfill_confirmed_branch",
+                        "summary": content,
+                        "source_reference": last_user.get("reference"),
+                        "related_reference": resolution.get("resolved_reference"),
+                    }
+                )
+
+    if assistant_question and (not last_user or int(assistant_question.get("id") or 0) > int(last_user.get("id") or 0)):
+        content = str(assistant_question.get("content") or "").strip()
+        if content:
+            open_loops.append(
+                {
+                    "kind": "awaiting_user_reply",
+                    "summary": content,
+                    "source_reference": assistant_question.get("reference"),
+                }
+            )
+            pending_actions.append(
+                {
+                    "kind": "await_user_clarification",
+                    "summary": content,
+                    "source_reference": assistant_question.get("reference"),
+                }
+            )
 
     if commitment:
         content = str(commitment.get("content") or "").strip()
-        if content:
+        if content and not _looks_complete(content):
             pending_actions.append(
                 {
                     "kind": "assistant_commitment",

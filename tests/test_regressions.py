@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from brain.runtime.memory import api, distill, embedding_engine, store, vector_index, unresolved_state
+from brain.runtime.memory import api, distill, embedding_engine, pondering_engine, store, vector_index, unresolved_state
 from ocmemog.sidecar import app
 
 
@@ -426,6 +427,169 @@ class OcmemogRegressionTests(unittest.TestCase):
         results = distill.distill_experiences(limit=5)
         self.assertEqual(len(results), 1)
         self.assertIn("candidate_id", results[0])
+
+    def test_conversation_turn_dedupes_replayed_message_ids(self) -> None:
+        first = app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="assistant",
+                content="I will keep this durable.",
+                session_id="sess-dedupe",
+                thread_id="thread-dedupe",
+                message_id="dup-1",
+                timestamp="2026-03-15 13:00:00",
+                metadata={"attempt": 1},
+            )
+        )
+        second = app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="assistant",
+                content="I will keep this durable.",
+                session_id="sess-dedupe",
+                thread_id="thread-dedupe",
+                message_id="dup-1",
+                timestamp="2026-03-15 13:00:00",
+                metadata={"attempt": 2, "reply_to_message_id": "user-1"},
+            )
+        )
+
+        self.assertTrue(first["ok"])
+        self.assertTrue(second["ok"])
+        self.assertEqual(first["turn_id"], second["turn_id"])
+
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(session_id="sess-dedupe", thread_id="thread-dedupe", turns_limit=10)
+        )
+        self.assertEqual(len(hydrate["recent_turns"]), 1)
+        self.assertEqual(hydrate["recent_turns"][0]["message_id"], "dup-1")
+        self.assertEqual(hydrate["recent_turns"][0]["metadata"]["attempt"], 2)
+        self.assertEqual(hydrate["recent_turns"][0]["metadata"]["reply_to_message_id"], "user-1")
+
+    def test_hydration_flags_latest_assistant_question_as_waiting_on_user(self) -> None:
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="Can you wire automatic hydration?",
+                session_id="sess-question",
+                thread_id="thread-question",
+                message_id="q-u1",
+                timestamp="2026-03-15 14:00:00",
+            )
+        )
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="assistant",
+                content="Yes — should I checkpoint on compaction too?",
+                session_id="sess-question",
+                thread_id="thread-question",
+                message_id="q-a1",
+                timestamp="2026-03-15 14:00:01",
+            )
+        )
+
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(session_id="sess-question", thread_id="thread-question", turns_limit=10)
+        )
+        open_loop_kinds = [item["kind"] for item in hydrate["summary"]["open_loops"]]
+        pending_kinds = [item["kind"] for item in hydrate["summary"]["pending_actions"]]
+        self.assertIn("awaiting_user_reply", open_loop_kinds)
+        self.assertIn("await_user_clarification", pending_kinds)
+        self.assertNotIn("assistant_commitment", open_loop_kinds)
+
+    def test_newer_assistant_turn_resolves_older_commitment_loop(self) -> None:
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="Please add automatic hydration.",
+                session_id="sess-commit",
+                thread_id="thread-commit",
+                message_id="c-u1",
+                timestamp="2026-03-15 14:10:00",
+            )
+        )
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="assistant",
+                content="I will add automatic hydration next.",
+                session_id="sess-commit",
+                thread_id="thread-commit",
+                message_id="c-a1",
+                timestamp="2026-03-15 14:10:01",
+            )
+        )
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="assistant",
+                content="Done — hydration now runs before prompt build.",
+                session_id="sess-commit",
+                thread_id="thread-commit",
+                message_id="c-a2",
+                timestamp="2026-03-15 14:10:02",
+            )
+        )
+
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(session_id="sess-commit", thread_id="thread-commit", turns_limit=10)
+        )
+        open_loop_summaries = [item["summary"] for item in hydrate["summary"]["open_loops"]]
+        self.assertNotIn("I will add automatic hydration next.", open_loop_summaries)
+
+    def test_ponder_timeout_wrapper_returns_without_waiting_for_hung_work(self) -> None:
+        started = time.monotonic()
+        result = pondering_engine._run_with_timeout(
+            "timeout_test",
+            lambda: (time.sleep(0.25), "late result")[1],
+            0.05,
+            {"fallback": True},
+        )
+        elapsed = time.monotonic() - started
+
+        self.assertLess(elapsed, 0.30)
+        self.assertEqual(result, {"fallback": True})
+
+    def test_ponder_cycle_writes_reflections_from_continuity_candidates(self) -> None:
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="Remember to keep continuity hydrated across restarts.",
+                session_id="sess-ponder",
+                thread_id="thread-ponder",
+                message_id="p-u1",
+                timestamp="2026-03-15 15:00:00",
+            )
+        )
+        checkpoint = app.conversation_checkpoint(
+            app.ConversationCheckpointRequest(
+                session_id="sess-ponder",
+                thread_id="thread-ponder",
+                checkpoint_kind="manual",
+            )
+        )
+        self.assertTrue(checkpoint["ok"])
+        api.store_memory("knowledge", "Continuity hydration should survive restarts.", source="test")
+
+        with mock.patch("brain.runtime.memory.pondering_engine._infer_with_timeout", return_value={"status": "timeout", "output": ""}), \
+             mock.patch.object(pondering_engine.config, "OCMEMOG_PONDER_ENABLED", "true"), \
+             mock.patch.object(pondering_engine.config, "OCMEMOG_LESSON_MINING_ENABLED", "false"):
+            result = pondering_engine.run_ponder_cycle(max_items=6)
+
+        self.assertTrue(any(item["type"] in {"checkpoint", "memory", "continuity_state"} for item in result["insights"]))
+        checkpoint_refs = [item.get("reference") for item in result["candidates"]]
+        self.assertIn(f"conversation_checkpoints:{checkpoint['checkpoint']['id']}", checkpoint_refs)
+
+        conn = store.connect()
+        try:
+            reflections = conn.execute("SELECT id, content, metadata_json FROM reflections ORDER BY id DESC").fetchall()
+        finally:
+            conn.close()
+        self.assertGreaterEqual(len(reflections), 1)
+        self.assertTrue(any("source_reference" in json.loads(row["metadata_json"] or "{}") for row in reflections))
+
+        conn = store.connect()
+        try:
+            link_count = conn.execute("SELECT COUNT(*) FROM memory_links").fetchone()[0]
+        finally:
+            conn.close()
+        self.assertGreaterEqual(int(link_count), 1)
 
 
 if __name__ == "__main__":

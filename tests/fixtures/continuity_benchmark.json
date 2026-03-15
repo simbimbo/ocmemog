@@ -1,0 +1,56 @@
+{
+  "continuity_bar": 1.0,
+  "scenarios": [
+    {
+      "name": "restart_recovery_branch_resolution",
+      "scope": {
+        "conversation_id": "fixture-conv-restart",
+        "session_id": "fixture-sess-restart",
+        "thread_id": "fixture-thread-restart"
+      },
+      "turns": [
+        {"role": "user", "content": "Please resume the migration after restart.", "message_id": "fr-u1"},
+        {"role": "assistant", "content": "I will resume the migration and verify the checksum next.", "message_id": "fr-a1"},
+        {"role": "user", "content": "yes", "message_id": "fr-u2", "metadata": {"reply_to_message_id": "fr-a1"}}
+      ],
+      "checkpoint_after": ["fr-u2"],
+      "expect": {
+        "latest_user_contains": "User confirmed assistant proposal/question",
+        "active_branch_reply_chain_contains": ["fr-a1", "fr-u2"],
+        "top_ranked_turn_message_id": "fr-u2"
+      }
+    },
+    {
+      "name": "long_thread_ambiguity_salience",
+      "scope": {
+        "conversation_id": "fixture-conv-stress",
+        "session_id": "fixture-sess-stress",
+        "thread_id": "fixture-thread-stress"
+      },
+      "turns": [
+        {"role": "user", "content": "We need to finish recovery before noon.", "message_id": "fs-u1"},
+        {"role": "assistant", "content": "I can finish recovery first and benchmark continuity after.", "message_id": "fs-a1"},
+        {"role": "assistant", "content": "Alternatively I can tune dashboards later.", "message_id": "fs-a2"},
+        {"role": "user", "content": "What about the replay edge cases?", "message_id": "fs-u2"},
+        {"role": "assistant", "content": "I will cover replay edge cases in the restart suite.", "message_id": "fs-a3"},
+        {"role": "user", "content": "also check ambiguous replies in long threads", "message_id": "fs-u3"},
+        {"role": "assistant", "content": "Yes — should I anchor ambiguous replies to the exact proposal thread?", "message_id": "fs-a4"},
+        {"role": "user", "content": "sure", "message_id": "fs-u4", "metadata": {"reply_to_message_id": "fs-a4"}},
+        {"role": "assistant", "content": "Great, I will anchor them and keep unrelated branches out of hydration.", "message_id": "fs-a5"},
+        {"role": "assistant", "content": "Unrelated branch: we could rewrite the UI labels later.", "message_id": "fs-a6"},
+        {"role": "user", "content": "ok", "message_id": "fs-u5", "metadata": {"reply_to_message_id": "fs-a5"}},
+        {"role": "assistant", "content": "One more question: do you want checkpoint expansion ranked by salience too?", "message_id": "fs-a7"},
+        {"role": "user", "content": "yes", "message_id": "fs-u6", "metadata": {"reply_to_message_id": "fs-a7"}},
+        {"role": "assistant", "content": "Understood — I will rank checkpoint and turn expansion by salience.", "message_id": "fs-a8"}
+      ],
+      "checkpoint_after": ["fs-a8"],
+      "turn_expand_message_id": "fs-a8",
+      "expect": {
+        "latest_user_contains": "User confirmed assistant proposal/question",
+        "active_branch_reply_chain_contains": ["fs-a7", "fs-u6", "fs-a8"],
+        "active_branch_turns_exclude": ["fs-a6"],
+        "top_ranked_turn_message_id": "fs-u6"
+      }
+    }
+  ]
+}

@@ -36,6 +36,25 @@ Default bind:
 - endpoint: `http://127.0.0.1:17890`
 - health: `http://127.0.0.1:17890/healthz`
 
+## Continuity proof / benchmark harness
+
+Run the fixture-driven continuity benchmark:
+
+```bash
+cd /Users/simbimbo/ocmemog
+./.venv/bin/python scripts/ocmemog-continuity-benchmark.py \
+  --fixture tests/fixtures/continuity_benchmark.json \
+  --report reports/continuity-benchmark-latest.json
+```
+
+This exercises:
+- restart/recovery hydration from persisted SQLite state
+- long-thread + ambiguous reply continuity
+- salience-ranked checkpoint expansion
+- salience-ranked turn expansion
+
+A passing run writes a JSON report with per-scenario checks and an `overall_score` that must meet the configured `continuity_bar`.
+
 Optional environment variables:
 
 - `OCMEMOG_HOST`

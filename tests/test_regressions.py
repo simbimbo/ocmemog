@@ -591,6 +591,155 @@ class OcmemogRegressionTests(unittest.TestCase):
             conn.close()
         self.assertGreaterEqual(int(link_count), 1)
 
+    def test_restart_rehydrates_checkpoint_state_after_schema_reset(self) -> None:
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="Please resume the migration after restart.",
+                conversation_id="conv-restart",
+                session_id="sess-restart",
+                thread_id="thread-restart",
+                message_id="r-u1",
+                timestamp="2026-03-15 16:00:00",
+            )
+        )
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="assistant",
+                content="I will resume the migration and verify the checksum next.",
+                conversation_id="conv-restart",
+                session_id="sess-restart",
+                thread_id="thread-restart",
+                message_id="r-a1",
+                timestamp="2026-03-15 16:00:01",
+            )
+        )
+        follow_up = app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="yes",
+                conversation_id="conv-restart",
+                session_id="sess-restart",
+                thread_id="thread-restart",
+                message_id="r-u2",
+                timestamp="2026-03-15 16:00:02",
+                metadata={"reply_to_message_id": "r-a1"},
+            )
+        )
+        checkpoint = app.conversation_checkpoint(
+            app.ConversationCheckpointRequest(
+                conversation_id="conv-restart",
+                session_id="sess-restart",
+                thread_id="thread-restart",
+                checkpoint_kind="manual",
+            )
+        )
+        self.assertTrue(follow_up["ok"])
+        self.assertTrue(checkpoint["ok"])
+
+        store._SCHEMA_READY = False
+
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(
+                conversation_id="conv-restart",
+                session_id="sess-restart",
+                thread_id="thread-restart",
+                turns_limit=10,
+            )
+        )
+        self.assertTrue(hydrate["ok"])
+        self.assertEqual(hydrate["state"]["latest_checkpoint_id"], checkpoint["checkpoint"]["id"])
+        self.assertIn("User confirmed assistant proposal/question", hydrate["state"]["latest_user_ask"])
+        self.assertEqual(hydrate["checkpoint_graph"]["latest"]["id"], checkpoint["checkpoint"]["id"])
+
+        expanded = app.conversation_turn_expand(
+            app.ConversationTurnExpandRequest(turn_id=follow_up["turn_id"], radius_turns=3, turns_limit=12)
+        )
+        self.assertTrue(expanded["ok"])
+        self.assertEqual(expanded["reply_chain"][-1]["message_id"], "r-u2")
+        ranked_turn_ids = [item["turn"]["message_id"] for item in expanded["salience_ranked_turns"]]
+        self.assertIn("r-u2", ranked_turn_ids[:3])
+        ranked_checkpoint_ids = [item["checkpoint"]["id"] for item in expanded["salience_ranked_checkpoints"]]
+        self.assertIn(checkpoint["checkpoint"]["id"], ranked_checkpoint_ids)
+
+    def test_long_thread_ambiguity_stress_and_salience_ranked_expansion(self) -> None:
+        turns = [
+            ("user", "We need to finish recovery before noon.", "s-u1", None),
+            ("assistant", "I can finish recovery first and benchmark continuity after.", "s-a1", None),
+            ("assistant", "Alternatively I can tune dashboards later.", "s-a2", None),
+            ("user", "What about the replay edge cases?", "s-u2", None),
+            ("assistant", "I will cover replay edge cases in the restart suite.", "s-a3", None),
+            ("user", "also check ambiguous replies in long threads", "s-u3", None),
+            ("assistant", "Yes — should I anchor ambiguous replies to the exact proposal thread?", "s-a4", None),
+            ("user", "sure", "s-u4", {"reply_to_message_id": "s-a4"}),
+            ("assistant", "Great, I will anchor them and keep unrelated branches out of hydration.", "s-a5", None),
+            ("assistant", "Unrelated branch: we could rewrite the UI labels later.", "s-a6", None),
+            ("user", "ok", "s-u5", {"reply_to_message_id": "s-a5"}),
+            ("assistant", "One more question: do you want checkpoint expansion ranked by salience too?", "s-a7", None),
+            ("user", "yes", "s-u6", {"reply_to_message_id": "s-a7"}),
+            ("assistant", "Understood — I will rank checkpoint and turn expansion by salience.", "s-a8", None),
+        ]
+        last_turn_id = None
+        for offset, (role, content, message_id, metadata) in enumerate(turns):
+            response = app.conversation_ingest_turn(
+                app.ConversationTurnRequest(
+                    role=role,
+                    content=content,
+                    conversation_id="conv-stress",
+                    session_id="sess-stress",
+                    thread_id="thread-stress",
+                    message_id=message_id,
+                    timestamp=f"2026-03-15 17:00:{offset:02d}",
+                    metadata=metadata,
+                )
+            )
+            self.assertTrue(response["ok"])
+            last_turn_id = response["turn_id"]
+
+        checkpoint = app.conversation_checkpoint(
+            app.ConversationCheckpointRequest(
+                conversation_id="conv-stress",
+                session_id="sess-stress",
+                thread_id="thread-stress",
+                checkpoint_kind="manual",
+                turns_limit=20,
+            )
+        )
+        self.assertTrue(checkpoint["ok"])
+
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(
+                conversation_id="conv-stress",
+                session_id="sess-stress",
+                thread_id="thread-stress",
+                turns_limit=20,
+            )
+        )
+        self.assertIn("rank checkpoint and turn expansion by salience", hydrate["state"]["last_assistant_commitment"].lower())
+        self.assertIn("User confirmed assistant proposal/question", hydrate["summary"]["latest_user_intent"]["effective_content"])
+        active_branch_ids = [turn["message_id"] for turn in hydrate["active_branch"]["turns"]]
+        self.assertNotIn("s-a6", active_branch_ids)
+        self.assertIn("s-u6", [turn["message_id"] for turn in hydrate["active_branch"]["reply_chain"]])
+
+        checkpoint_expand = app.conversation_checkpoint_expand(
+            app.ConversationCheckpointExpandRequest(
+                checkpoint_id=checkpoint["checkpoint"]["id"],
+                radius_turns=1,
+                turns_limit=24,
+            )
+        )
+        self.assertTrue(checkpoint_expand["ok"])
+        self.assertEqual(checkpoint_expand["salience_ranked_turns"][0]["turn"]["message_id"], "s-u6")
+        self.assertEqual(checkpoint_expand["salience_ranked_checkpoints"][0]["checkpoint"]["id"], checkpoint["checkpoint"]["id"])
+
+        turn_expand = app.conversation_turn_expand(
+            app.ConversationTurnExpandRequest(turn_id=last_turn_id, radius_turns=6, turns_limit=20)
+        )
+        self.assertTrue(turn_expand["ok"])
+        self.assertEqual(turn_expand["salience_ranked_turns"][0]["turn"]["message_id"], "s-u6")
+        self.assertIn("s-a7", [item["message_id"] for item in turn_expand["reply_chain"]])
+        self.assertIn(checkpoint["checkpoint"]["id"], [item["id"] for item in turn_expand["related_checkpoints"]])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -212,6 +212,9 @@ CREATE TABLE IF NOT EXISTS conversation_checkpoints (
   last_assistant_commitment TEXT,
   open_loops_json TEXT DEFAULT '[]',
   pending_actions_json TEXT DEFAULT '[]',
+  parent_checkpoint_id INTEGER,
+  root_checkpoint_id INTEGER,
+  depth INTEGER NOT NULL DEFAULT 0,
   metadata_json TEXT DEFAULT '{}',
   schema_version TEXT NOT NULL
 );
@@ -356,6 +359,9 @@ def init_db() -> None:
     _ensure_column(conn, "conversation_checkpoints", "last_assistant_commitment", "TEXT")
     _ensure_column(conn, "conversation_checkpoints", "open_loops_json", "TEXT DEFAULT '[]'")
     _ensure_column(conn, "conversation_checkpoints", "pending_actions_json", "TEXT DEFAULT '[]'")
+    _ensure_column(conn, "conversation_checkpoints", "parent_checkpoint_id", "INTEGER")
+    _ensure_column(conn, "conversation_checkpoints", "root_checkpoint_id", "INTEGER")
+    _ensure_column(conn, "conversation_checkpoints", "depth", "INTEGER NOT NULL DEFAULT 0")
     _ensure_column(conn, "conversation_checkpoints", "metadata_json", "TEXT DEFAULT '{}'")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_checkpoints_conversation ON conversation_checkpoints(conversation_id, id DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_conversation_checkpoints_session ON conversation_checkpoints(session_id, id DESC)")

@@ -240,6 +240,153 @@ class OcmemogRegressionTests(unittest.TestCase):
         self.assertEqual(hydrate["state"]["last_assistant_commitment"], "I will add checkpoints and richer hydration output next.")
         self.assertEqual(hydrate["state"]["latest_checkpoint_id"], checkpoint["checkpoint"]["id"])
 
+    def test_checkpoint_graph_listing_and_expansion(self) -> None:
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="Let's keep a durable graph.",
+                conversation_id="conv-graph",
+                session_id="sess-graph",
+                thread_id="thread-graph",
+                message_id="g-u1",
+                timestamp="2026-03-15 11:00:00",
+            )
+        )
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="assistant",
+                content="I will create a checkpoint graph.",
+                conversation_id="conv-graph",
+                session_id="sess-graph",
+                thread_id="thread-graph",
+                message_id="g-a1",
+                timestamp="2026-03-15 11:00:01",
+            )
+        )
+        first = app.conversation_checkpoint(
+            app.ConversationCheckpointRequest(
+                conversation_id="conv-graph",
+                session_id="sess-graph",
+                thread_id="thread-graph",
+                checkpoint_kind="manual",
+            )
+        )
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="Now add checkpoint expansion.",
+                conversation_id="conv-graph",
+                session_id="sess-graph",
+                thread_id="thread-graph",
+                message_id="g-u2",
+                timestamp="2026-03-15 11:00:02",
+            )
+        )
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="assistant",
+                content="Done, expansion is next.",
+                conversation_id="conv-graph",
+                session_id="sess-graph",
+                thread_id="thread-graph",
+                message_id="g-a2",
+                timestamp="2026-03-15 11:00:03",
+            )
+        )
+        second = app.conversation_checkpoint(
+            app.ConversationCheckpointRequest(
+                conversation_id="conv-graph",
+                session_id="sess-graph",
+                thread_id="thread-graph",
+                checkpoint_kind="manual",
+                turns_limit=8,
+            )
+        )
+
+        self.assertEqual(second["checkpoint"]["parent_checkpoint_id"], first["checkpoint"]["id"])
+        self.assertEqual(second["checkpoint"]["root_checkpoint_id"], first["checkpoint"]["id"])
+        self.assertEqual(second["checkpoint"]["depth"], 1)
+
+        listed = app.conversation_checkpoints(
+            app.ConversationCheckpointListRequest(session_id="sess-graph", thread_id="thread-graph", limit=5)
+        )
+        self.assertEqual([item["id"] for item in listed["checkpoints"]], [second["checkpoint"]["id"], first["checkpoint"]["id"]])
+
+        expanded = app.conversation_checkpoint_expand(
+            app.ConversationCheckpointExpandRequest(checkpoint_id=second["checkpoint"]["id"], turns_limit=10)
+        )
+        self.assertTrue(expanded["ok"])
+        self.assertEqual([item["id"] for item in expanded["lineage"]], [first["checkpoint"]["id"], second["checkpoint"]["id"]])
+        self.assertEqual([turn["message_id"] for turn in expanded["supporting_turns"]], ["g-u1", "g-a1", "g-u2", "g-a2"])
+
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(conversation_id="conv-graph", session_id="sess-graph", thread_id="thread-graph")
+        )
+        self.assertEqual([item["id"] for item in hydrate["checkpoint_graph"]["lineage"]], [first["checkpoint"]["id"], second["checkpoint"]["id"]])
+
+    def test_short_reply_resolution_and_branch_reply_continuity(self) -> None:
+        root_user = app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="Should we ship checkpoints first?",
+                conversation_id="conv-branch",
+                session_id="sess-branch",
+                thread_id="thread-branch",
+                message_id="b-u1",
+                timestamp="2026-03-15 12:00:00",
+            )
+        )
+        root_assistant = app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="assistant",
+                content="Yes — I can ship checkpoints first if you want.",
+                conversation_id="conv-branch",
+                session_id="sess-branch",
+                thread_id="thread-branch",
+                message_id="b-a1",
+                timestamp="2026-03-15 12:00:01",
+            )
+        )
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="assistant",
+                content="Separately, I can prep branch analytics later.",
+                conversation_id="conv-branch",
+                session_id="sess-branch",
+                thread_id="thread-branch",
+                message_id="b-a2",
+                timestamp="2026-03-15 12:00:02",
+            )
+        )
+        short_reply = app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="sure",
+                conversation_id="conv-branch",
+                session_id="sess-branch",
+                thread_id="thread-branch",
+                message_id="b-u2",
+                timestamp="2026-03-15 12:00:03",
+                metadata={"reply_to_message_id": "b-a1"},
+            )
+        )
+        self.assertTrue(root_user["ok"])
+        self.assertTrue(root_assistant["ok"])
+        self.assertTrue(short_reply["ok"])
+
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(conversation_id="conv-branch", session_id="sess-branch", thread_id="thread-branch")
+        )
+        latest_turn = hydrate["recent_turns"][-1]
+        resolution = latest_turn["metadata"]["resolution"]
+        self.assertEqual(resolution["resolved_message_id"], "b-a1")
+        self.assertIn("User confirmed assistant proposal/question", hydrate["summary"]["latest_user_intent"]["effective_content"])
+        self.assertIn("ship checkpoints first", hydrate["state"]["latest_user_ask"])
+        self.assertEqual(latest_turn["metadata"]["reply_to_message_id"], "b-a1")
+        self.assertEqual(hydrate["active_branch"]["reply_chain"][-1]["message_id"], "b-u2")
+        self.assertEqual(hydrate["active_branch"]["reply_chain"][0]["message_id"], "b-u1")
+        self.assertNotIn("b-a2", [turn["message_id"] for turn in hydrate["active_branch"]["turns"]])
+
     def test_provider_embedding_takes_precedence_when_configured(self) -> None:
         with mock.patch.object(embedding_engine.config, "BRAIN_EMBED_MODEL_PROVIDER", "openai"), \
              mock.patch.object(embedding_engine.config, "BRAIN_EMBED_MODEL_LOCAL", "simple"), \

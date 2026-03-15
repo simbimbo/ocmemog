@@ -278,6 +278,19 @@ class ConversationCheckpointRequest(BaseModel):
     checkpoint_kind: str = Field(default="manual")
 
 
+class ConversationCheckpointListRequest(BaseModel):
+    conversation_id: Optional[str] = None
+    session_id: Optional[str] = None
+    thread_id: Optional[str] = None
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class ConversationCheckpointExpandRequest(BaseModel):
+    checkpoint_id: int = Field(ge=1)
+    radius_turns: int = Field(default=0, ge=0, le=25)
+    turns_limit: int = Field(default=100, ge=1, le=300)
+
+
 class DistillRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=100)
 
@@ -657,6 +670,8 @@ def conversation_hydrate(request: ConversationHydrateRequest) -> dict[str, Any]:
         ),
         "linked_memories": linked_memories,
         "linked_references": link_targets,
+        "checkpoint_graph": summary.get("checkpoint_graph"),
+        "active_branch": summary.get("active_branch"),
         "state": state_payload,
         **runtime,
     }
@@ -676,6 +691,38 @@ def conversation_checkpoint(request: ConversationCheckpointRequest) -> dict[str,
     if checkpoint is None:
         return {"ok": False, "error": "no_turns_available", **runtime}
     return {"ok": True, "checkpoint": checkpoint, **runtime}
+
+
+@app.post("/conversation/checkpoints")
+def conversation_checkpoints(request: ConversationCheckpointListRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    checkpoints = conversation_state.list_checkpoints(
+        conversation_id=request.conversation_id,
+        session_id=request.session_id,
+        thread_id=request.thread_id,
+        limit=request.limit,
+    )
+    return {
+        "ok": True,
+        "conversation_id": request.conversation_id,
+        "session_id": request.session_id,
+        "thread_id": request.thread_id,
+        "checkpoints": checkpoints,
+        **runtime,
+    }
+
+
+@app.post("/conversation/checkpoint_expand")
+def conversation_checkpoint_expand(request: ConversationCheckpointExpandRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    expanded = conversation_state.expand_checkpoint(
+        request.checkpoint_id,
+        radius_turns=request.radius_turns,
+        turns_limit=request.turns_limit,
+    )
+    if expanded is None:
+        return {"ok": False, "error": "checkpoint_not_found", "checkpoint_id": request.checkpoint_id, **runtime}
+    return {"ok": True, **expanded, **runtime}
 
 
 @app.post("/memory/ponder")

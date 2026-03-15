@@ -17,6 +17,21 @@ _COMMITMENT_RE = re.compile(
 )
 _CHECKPOINT_EVERY = max(0, int(os.environ.get("OCMEMOG_CONVERSATION_CHECKPOINT_EVERY", "6") or "6"))
 _MAX_STATE_TURNS = max(6, int(os.environ.get("OCMEMOG_CONVERSATION_STATE_TURNS", "24") or "24"))
+_SHORT_REPLY_NORMALIZED = {
+    "yes",
+    "yeah",
+    "yep",
+    "sure",
+    "ok",
+    "okay",
+    "do it",
+    "go ahead",
+    "sounds good",
+    "lets do it",
+    "let us do it",
+}
+_NEGATIVE_SHORT_REPLY_NORMALIZED = {"no", "nope", "not now", "dont", "do not"}
+
 
 
 def _scope_parts(
@@ -75,6 +90,275 @@ def _scope_where(
     return where, params
 
 
+def _normalized_reply_text(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").strip().lower()).strip()
+
+
+def _turn_meta(turn: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not turn:
+        return {}
+    meta = turn.get("metadata") or {}
+    return dict(meta) if isinstance(meta, dict) else {}
+
+
+def _is_ambiguous_short_reply(text: str) -> bool:
+    normalized = _normalized_reply_text(text)
+    if not normalized:
+        return False
+    tokens = normalized.split()
+    if len(tokens) > 4 or len(normalized) > 24:
+        return False
+    return normalized in _SHORT_REPLY_NORMALIZED or normalized in _NEGATIVE_SHORT_REPLY_NORMALIZED
+
+
+def _find_turn_by_message_id(
+    message_id: Optional[str],
+    *,
+    conversation_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    thread_id: Optional[str] = None,
+    upto_turn_id: Optional[int] = None,
+) -> Optional[Dict[str, Any]]:
+    if not message_id:
+        return None
+    where, params = _scope_where(
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+        upto_turn_id=upto_turn_id,
+    )
+    query = f"SELECT * FROM conversation_turns{where}{' AND ' if where else ' WHERE '}message_id = ? ORDER BY id DESC LIMIT 1"
+    conn = store.connect()
+    try:
+        row = conn.execute(query, (*params, message_id)).fetchone()
+    finally:
+        conn.close()
+    turns = _rows_to_turns([row] if row else [])
+    return turns[0] if turns else None
+
+
+def _get_turn_by_id(turn_id: Optional[int]) -> Optional[Dict[str, Any]]:
+    if not turn_id:
+        return None
+    conn = store.connect()
+    try:
+        row = conn.execute("SELECT * FROM conversation_turns WHERE id = ?", (int(turn_id),)).fetchone()
+    finally:
+        conn.close()
+    turns = _rows_to_turns([row] if row else [])
+    return turns[0] if turns else None
+
+
+def _resolve_explicit_reply_target(
+    metadata: Dict[str, Any],
+    prior_turns: Sequence[Dict[str, Any]],
+    *,
+    conversation_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    thread_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    reply_to_turn_id = metadata.get("reply_to_turn_id")
+    if isinstance(reply_to_turn_id, int):
+        for turn in reversed(prior_turns):
+            if int(turn.get("id") or 0) == reply_to_turn_id:
+                return turn
+        found = _get_turn_by_id(reply_to_turn_id)
+        if found:
+            return found
+    reply_to_message_id = metadata.get("reply_to_message_id") or metadata.get("parent_message_id")
+    if isinstance(reply_to_message_id, str) and reply_to_message_id.strip():
+        for turn in reversed(prior_turns):
+            if turn.get("message_id") == reply_to_message_id:
+                return turn
+        found = _find_turn_by_message_id(
+            reply_to_message_id,
+            conversation_id=conversation_id,
+            session_id=session_id,
+            thread_id=thread_id,
+        )
+        if found:
+            return found
+    return None
+
+
+def _infer_short_reply_resolution(
+    turn_content: str,
+    prior_turns: Sequence[Dict[str, Any]],
+    *,
+    reply_target: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    if not _is_ambiguous_short_reply(turn_content):
+        return None
+    normalized = _normalized_reply_text(turn_content)
+    referent = reply_target
+    if referent is None:
+        referent = _assistant_commitment(prior_turns) or _latest_turn_by_role(prior_turns, "assistant")
+    if not referent:
+        return None
+    referent_content = str(referent.get("content") or "").strip()
+    if not referent_content:
+        return None
+    decision = "decline" if normalized in _NEGATIVE_SHORT_REPLY_NORMALIZED else "confirm"
+    effective_summary = referent_content
+    if decision == "confirm":
+        effective_summary = f"User confirmed assistant proposal/question: {referent_content}"
+    elif decision == "decline":
+        effective_summary = f"User declined assistant proposal/question: {referent_content}"
+    return {
+        "kind": "short_reply_reference",
+        "decision": decision,
+        "reply_text": turn_content,
+        "normalized_reply": normalized,
+        "resolved_turn_id": referent.get("id"),
+        "resolved_reference": referent.get("reference"),
+        "resolved_message_id": referent.get("message_id"),
+        "resolved_content": referent_content,
+        "effective_summary": effective_summary,
+    }
+
+
+def _enrich_turn_metadata(
+    *,
+    role: str,
+    content: str,
+    conversation_id: Optional[str],
+    session_id: Optional[str],
+    thread_id: Optional[str],
+    message_id: Optional[str],
+    metadata: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    enriched = dict(metadata or {})
+    prior_turns = get_recent_turns(
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+        limit=max(8, min(_MAX_STATE_TURNS, 32)),
+    )
+    reply_target = _resolve_explicit_reply_target(
+        enriched,
+        prior_turns,
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+    )
+    if reply_target is None and prior_turns:
+        last_turn = prior_turns[-1]
+        if role == "assistant" and last_turn.get("role") == "user":
+            reply_target = last_turn
+        elif role == "user" and last_turn.get("role") == "assistant":
+            reply_target = last_turn
+    resolution = None
+    if role == "user":
+        resolution = _infer_short_reply_resolution(content, prior_turns, reply_target=reply_target)
+        if resolution:
+            enriched["resolution"] = resolution
+            if reply_target is None:
+                reply_target = _get_turn_by_id(resolution.get("resolved_turn_id"))
+    if reply_target:
+        reply_meta = _turn_meta(reply_target)
+        branch_root_turn_id = int(reply_meta.get("branch_root_turn_id") or reply_target.get("id") or 0) or None
+        branch_id = str(reply_meta.get("branch_id") or f"branch:{branch_root_turn_id or reply_target.get('id')}")
+        enriched["reply_to_turn_id"] = int(reply_target.get("id") or 0) or None
+        enriched["reply_to_reference"] = reply_target.get("reference")
+        if reply_target.get("message_id"):
+            enriched["reply_to_message_id"] = reply_target.get("message_id")
+        if branch_root_turn_id:
+            enriched["branch_root_turn_id"] = branch_root_turn_id
+        enriched["branch_id"] = branch_id
+        enriched["branch_depth"] = int(reply_meta.get("branch_depth") or 0) + 1
+    elif message_id and "branch_id" not in enriched:
+        enriched["branch_id"] = f"message:{message_id}"
+        enriched["branch_depth"] = 0
+    return enriched
+
+
+def _effective_turn_content(turn: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not turn:
+        return None
+    resolution = _turn_meta(turn).get("resolution") or {}
+    effective = str(resolution.get("effective_summary") or "").strip()
+    if effective:
+        return effective
+    return str(turn.get("content") or "").strip() or None
+
+
+def _reply_chain_for_turn(turn: Optional[Dict[str, Any]], turns: Sequence[Dict[str, Any]], *, limit: int = 6) -> List[Dict[str, Any]]:
+    if not turn:
+        return []
+    lookup = {int(item.get("id") or 0): item for item in turns if item.get("id") is not None}
+    chain: List[Dict[str, Any]] = []
+    current = turn
+    seen: set[int] = set()
+    while current and len(chain) < max(1, limit):
+        anchor = _turn_anchor(current)
+        if anchor:
+            chain.append(anchor)
+        reply_to_turn_id = _turn_meta(current).get("reply_to_turn_id")
+        if not isinstance(reply_to_turn_id, int) or reply_to_turn_id in seen:
+            break
+        seen.add(reply_to_turn_id)
+        current = lookup.get(reply_to_turn_id) or _get_turn_by_id(reply_to_turn_id)
+    return list(reversed(chain))
+
+
+def _active_branch_payload(turns: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    turns_list = list(turns)
+    if not turns_list:
+        return None
+    latest_turn = turns_list[-1]
+    latest_meta = _turn_meta(latest_turn)
+    root_turn_id = int(latest_meta.get("branch_root_turn_id") or latest_turn.get("id") or 0) or None
+    branch_id = str(latest_meta.get("branch_id") or f"turn:{latest_turn.get('id')}")
+    branch_turns = [
+        turn for turn in turns_list
+        if str(_turn_meta(turn).get("branch_id") or f"turn:{turn.get('id')}") == branch_id
+        or (root_turn_id and int(turn.get("id") or 0) == root_turn_id)
+    ]
+    if not branch_turns:
+        branch_turns = [latest_turn]
+    return {
+        "branch_id": branch_id,
+        "root_turn_id": root_turn_id or latest_turn.get("id"),
+        "latest_turn": _turn_anchor(latest_turn),
+        "turn_ids": [int(turn.get("id") or 0) for turn in branch_turns],
+        "turns": [_turn_anchor(turn) for turn in branch_turns[-8:]],
+        "reply_chain": _reply_chain_for_turn(latest_turn, turns_list, limit=8),
+    }
+
+
+def _checkpoint_scope_filter(checkpoint: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    return {
+        "conversation_id": checkpoint.get("conversation_id"),
+        "session_id": checkpoint.get("session_id"),
+        "thread_id": checkpoint.get("thread_id"),
+    }
+
+
+def _get_turns_between_ids(
+    start_id: int,
+    end_id: int,
+    *,
+    conversation_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    thread_id: Optional[str] = None,
+    limit: int = 200,
+) -> List[Dict[str, Any]]:
+    if end_id < start_id:
+        return []
+    where, params = _scope_where(
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+    )
+    query = f"SELECT * FROM conversation_turns{where}{' AND ' if where else ' WHERE '}id BETWEEN ? AND ? ORDER BY id ASC LIMIT ?"
+    conn = store.connect()
+    try:
+        rows = conn.execute(query, (*params, int(start_id), int(end_id), min(max(limit, 1), 500))).fetchall()
+    finally:
+        conn.close()
+    return _rows_to_turns(rows)
+
+
 def record_turn(
     *,
     role: str,
@@ -94,6 +378,15 @@ def record_turn(
     turn_content = (content or "").strip()
     if not turn_content:
         raise ValueError("empty_turn_content")
+    enriched_metadata = _enrich_turn_metadata(
+        role=turn_role,
+        content=turn_content,
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+        message_id=message_id,
+        metadata=metadata,
+    )
 
     def _write() -> int:
         conn = store.connect()
@@ -119,7 +412,7 @@ def record_turn(
                         transcript_offset,
                         transcript_end_offset,
                         source,
-                        json.dumps(metadata or {}, ensure_ascii=False),
+                        json.dumps(enriched_metadata, ensure_ascii=False),
                         store.SCHEMA_VERSION,
                     ),
                 )
@@ -143,7 +436,7 @@ def record_turn(
                         transcript_offset,
                         transcript_end_offset,
                         source,
-                        json.dumps(metadata or {}, ensure_ascii=False),
+                        json.dumps(enriched_metadata, ensure_ascii=False),
                         store.SCHEMA_VERSION,
                     ),
                 )
@@ -348,6 +641,7 @@ def _assistant_commitment(turns: Sequence[Dict[str, Any]]) -> Optional[Dict[str,
 def _turn_anchor(turn: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if not turn:
         return None
+    meta = _turn_meta(turn)
     return {
         "id": turn.get("id"),
         "reference": turn.get("reference"),
@@ -355,9 +649,16 @@ def _turn_anchor(turn: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         "role": turn.get("role"),
         "timestamp": turn.get("timestamp"),
         "content": turn.get("content"),
+        "effective_content": _effective_turn_content(turn),
         "transcript_path": turn.get("transcript_path"),
         "transcript_offset": turn.get("transcript_offset"),
         "transcript_end_offset": turn.get("transcript_end_offset"),
+        "reply_to_turn_id": meta.get("reply_to_turn_id"),
+        "reply_to_reference": meta.get("reply_to_reference"),
+        "reply_to_message_id": meta.get("reply_to_message_id"),
+        "branch_id": meta.get("branch_id"),
+        "branch_root_turn_id": meta.get("branch_root_turn_id"),
+        "resolution": meta.get("resolution"),
     }
 
 
@@ -369,13 +670,15 @@ def _pending_from_turns(turns: Sequence[Dict[str, Any]]) -> tuple[list[dict[str,
     commitment = _assistant_commitment(turns)
 
     if last_user and (not last_assistant or int(last_user.get("id") or 0) > int(last_assistant.get("id") or 0)):
-        content = str(last_user.get("content") or "").strip()
+        content = _effective_turn_content(last_user) or str(last_user.get("content") or "").strip()
+        resolution = _turn_meta(last_user).get("resolution") or {}
         if content:
             open_loops.append(
                 {
                     "kind": "awaiting_assistant_reply",
                     "summary": content,
                     "source_reference": last_user.get("reference"),
+                    "related_reference": resolution.get("resolved_reference"),
                 }
             )
             pending_actions.append(
@@ -383,6 +686,7 @@ def _pending_from_turns(turns: Sequence[Dict[str, Any]]) -> tuple[list[dict[str,
                     "kind": "respond_to_latest_user",
                     "summary": content,
                     "source_reference": last_user.get("reference"),
+                    "related_reference": resolution.get("resolved_reference"),
                 }
             )
 
@@ -407,7 +711,7 @@ def _pending_from_turns(turns: Sequence[Dict[str, Any]]) -> tuple[list[dict[str,
     deduped_pending: list[dict[str, Any]] = []
     seen = set()
     for item in pending_actions:
-        key = (item.get("kind"), item.get("summary"), item.get("source_reference"))
+        key = (item.get("kind"), item.get("summary"), item.get("source_reference"), item.get("related_reference"))
         if key in seen:
             continue
         seen.add(key)
@@ -416,7 +720,7 @@ def _pending_from_turns(turns: Sequence[Dict[str, Any]]) -> tuple[list[dict[str,
     deduped_loops: list[dict[str, Any]] = []
     seen = set()
     for item in open_loops:
-        key = (item.get("kind"), item.get("summary"), item.get("source_reference"))
+        key = (item.get("kind"), item.get("summary"), item.get("source_reference"), item.get("related_reference"))
         if key in seen:
             continue
         seen.add(key)
@@ -460,6 +764,8 @@ def infer_hydration_payload(
     last_turn = turns_list[-1] if turns_list else None
     pending_actions, open_loops = _pending_from_turns(turns_list)
     unresolved_payload = list(unresolved_items or [])
+    active_branch = _active_branch_payload(turns_list)
+    checkpoint_lineage = get_checkpoint_lineage(latest_checkpoint.get("id")) if latest_checkpoint else []
 
     for item in unresolved_payload:
         summary = str(item.get("summary") or "").strip()
@@ -477,7 +783,7 @@ def infer_hydration_payload(
     deduped_open_loops: list[dict[str, Any]] = []
     seen = set()
     for item in open_loops:
-        key = (item.get("kind"), item.get("summary"), item.get("source_reference"), item.get("state_id"))
+        key = (item.get("kind"), item.get("summary"), item.get("source_reference"), item.get("state_id"), item.get("related_reference"))
         if key in seen:
             continue
         seen.add(key)
@@ -487,7 +793,7 @@ def infer_hydration_payload(
     if latest_checkpoint and latest_checkpoint.get("summary"):
         summary_text_parts.append(str(latest_checkpoint["summary"]).strip())
     if latest_user_turn:
-        summary_text_parts.append(f"Latest user ask: {str(latest_user_turn.get('content') or '').strip()}")
+        summary_text_parts.append(f"Latest user ask: {_effective_turn_content(latest_user_turn) or str(latest_user_turn.get('content') or '').strip()}")
     if latest_commitment_turn:
         summary_text_parts.append(f"Last assistant commitment: {str(latest_commitment_turn.get('content') or '').strip()}")
     summary_text = " | ".join(part for part in summary_text_parts if part)
@@ -497,6 +803,11 @@ def infer_hydration_payload(
         "latest_user_turn": _turn_anchor(latest_user_turn),
         "latest_assistant_turn": _turn_anchor(latest_assistant_turn),
         "latest_user_ask": _turn_anchor(latest_user_turn),
+        "latest_user_intent": {
+            "literal": _turn_anchor(latest_user_turn),
+            "effective_content": _effective_turn_content(latest_user_turn),
+            "resolution": _turn_meta(latest_user_turn).get("resolution") if latest_user_turn else None,
+        } if latest_user_turn else None,
         "last_assistant_commitment": _turn_anchor(latest_commitment_turn),
         "latest_transcript_anchor": {
             "path": last_turn.get("transcript_path") if last_turn else None,
@@ -507,6 +818,11 @@ def infer_hydration_payload(
         "pending_actions": pending_actions,
         "unresolved_state": unresolved_payload,
         "latest_checkpoint": latest_checkpoint,
+        "checkpoint_graph": {
+            "latest": latest_checkpoint,
+            "lineage": checkpoint_lineage,
+        } if latest_checkpoint else None,
+        "active_branch": active_branch,
         "summary_text": summary_text,
         "summary_status": "derived",
         "scope": {
@@ -568,13 +884,13 @@ def _upsert_state(
                     thread_id,
                     (state_payload.get("latest_user_turn") or {}).get("id"),
                     (state_payload.get("latest_assistant_turn") or {}).get("id"),
-                    (state_payload.get("latest_user_ask") or {}).get("content"),
+                    (state_payload.get("latest_user_ask") or {}).get("effective_content") or (state_payload.get("latest_user_ask") or {}).get("content"),
                     (state_payload.get("last_assistant_commitment") or {}).get("content"),
                     json.dumps(state_payload.get("open_loops") or [], ensure_ascii=False),
                     json.dumps(state_payload.get("pending_actions") or [], ensure_ascii=False),
                     json.dumps(state_payload.get("unresolved_state") or [], ensure_ascii=False),
                     (state_payload.get("latest_checkpoint") or {}).get("id"),
-                    json.dumps({"summary_text": state_payload.get("summary_text")}, ensure_ascii=False),
+                    json.dumps({"summary_text": state_payload.get("summary_text"), "active_branch": state_payload.get("active_branch"), "latest_user_intent": state_payload.get("latest_user_intent")}, ensure_ascii=False),
                     store.SCHEMA_VERSION,
                 ),
             )
@@ -684,8 +1000,8 @@ def create_checkpoint(
         f"{len(turns)} recent turns captured",
     ]
     latest_user = derived.get("latest_user_ask") or {}
-    if latest_user.get("content"):
-        summary_parts.append(f"user asked: {latest_user['content']}")
+    if latest_user.get("effective_content") or latest_user.get("content"):
+        summary_parts.append(f"user asked: {latest_user.get('effective_content') or latest_user.get('content')}")
     commitment = derived.get("last_assistant_commitment") or {}
     if commitment.get("content"):
         summary_parts.append(f"assistant committed: {commitment['content']}")
@@ -694,6 +1010,17 @@ def create_checkpoint(
     summary_text = " | ".join(summary_parts)
     turn_start_id = int(turns[0]["id"])
     turn_end_id = int(turns[-1]["id"])
+    parent_checkpoint = None
+    if latest_existing_checkpoint and int(latest_existing_checkpoint.get("turn_end_id") or 0) < turn_end_id:
+        parent_checkpoint = latest_existing_checkpoint
+    parent_checkpoint_id = (int(parent_checkpoint.get("id") or 0) or None) if parent_checkpoint else None
+    root_checkpoint_id = (
+        int(parent_checkpoint.get("root_checkpoint_id") or parent_checkpoint_id or 0) or None
+        if parent_checkpoint
+        else None
+    )
+    checkpoint_depth = int(parent_checkpoint.get("depth") or 0) + 1 if parent_checkpoint else 0
+    supporting_turn_ids = [int(turn.get("id") or 0) for turn in turns]
 
     def _write() -> int:
         conn = store.connect()
@@ -704,8 +1031,9 @@ def create_checkpoint(
                     conversation_id, session_id, thread_id,
                     turn_start_id, turn_end_id, checkpoint_kind, summary,
                     latest_user_ask, last_assistant_commitment,
-                    open_loops_json, pending_actions_json, metadata_json, schema_version
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    open_loops_json, pending_actions_json,
+                    parent_checkpoint_id, root_checkpoint_id, depth, metadata_json, schema_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     conversation_id,
@@ -715,16 +1043,21 @@ def create_checkpoint(
                     turn_end_id,
                     checkpoint_kind,
                     summary_text,
-                    latest_user.get("content"),
+                    latest_user.get("effective_content") or latest_user.get("content"),
                     commitment.get("content"),
                     json.dumps(derived.get("open_loops") or [], ensure_ascii=False),
                     json.dumps(derived.get("pending_actions") or [], ensure_ascii=False),
+                    parent_checkpoint_id,
+                    root_checkpoint_id,
+                    checkpoint_depth,
                     json.dumps(
                         {
                             "turn_count": len(turns),
                             "latest_turn_reference": turns[-1].get("reference"),
                             "latest_turn_timestamp": turns[-1].get("timestamp"),
                             "unresolved_count": len(unresolved_items),
+                            "supporting_turn_ids": supporting_turn_ids,
+                            "active_branch": derived.get("active_branch"),
                         },
                         ensure_ascii=False,
                     ),
@@ -732,7 +1065,14 @@ def create_checkpoint(
                 ),
             )
             conn.commit()
-            return int(cur.lastrowid)
+            checkpoint_id = int(cur.lastrowid)
+            if root_checkpoint_id is None:
+                conn.execute(
+                    "UPDATE conversation_checkpoints SET root_checkpoint_id = ? WHERE id = ? AND root_checkpoint_id IS NULL",
+                    (checkpoint_id, checkpoint_id),
+                )
+                conn.commit()
+            return checkpoint_id
         finally:
             conn.close()
 
@@ -771,6 +1111,9 @@ def _row_to_checkpoint(row) -> Optional[Dict[str, Any]]:
         "summary": row["summary"],
         "latest_user_ask": row["latest_user_ask"],
         "last_assistant_commitment": row["last_assistant_commitment"],
+        "parent_checkpoint_id": row["parent_checkpoint_id"] if "parent_checkpoint_id" in row.keys() else None,
+        "root_checkpoint_id": row["root_checkpoint_id"] if "root_checkpoint_id" in row.keys() else None,
+        "depth": row["depth"] if "depth" in row.keys() else 0,
         "open_loops": loops,
         "pending_actions": pending,
         "metadata": meta,
@@ -784,6 +1127,75 @@ def get_checkpoint_by_id(checkpoint_id: int) -> Optional[Dict[str, Any]]:
     finally:
         conn.close()
     return _row_to_checkpoint(row)
+
+
+def list_checkpoints(
+    *,
+    conversation_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    thread_id: Optional[str] = None,
+    limit: int = 20,
+) -> List[Dict[str, Any]]:
+    where, params = _scope_where(
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+    )
+    conn = store.connect()
+    try:
+        rows = conn.execute(
+            f"SELECT * FROM conversation_checkpoints{where} ORDER BY id DESC LIMIT ?",
+            (*params, min(max(limit, 1), 200)),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [_row_to_checkpoint(row) for row in rows if row]
+
+
+def get_checkpoint_lineage(checkpoint_id: Optional[int]) -> List[Dict[str, Any]]:
+    if not checkpoint_id:
+        return []
+    lineage: List[Dict[str, Any]] = []
+    current = get_checkpoint_by_id(int(checkpoint_id))
+    seen: set[int] = set()
+    while current:
+        current_id = int(current.get("id") or 0)
+        if not current_id or current_id in seen:
+            break
+        seen.add(current_id)
+        lineage.append(current)
+        parent_id = current.get("parent_checkpoint_id")
+        current = get_checkpoint_by_id(int(parent_id)) if parent_id else None
+    return list(reversed(lineage))
+
+
+def get_checkpoint_children(checkpoint_id: int, *, limit: int = 20) -> List[Dict[str, Any]]:
+    conn = store.connect()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM conversation_checkpoints WHERE parent_checkpoint_id = ? ORDER BY id ASC LIMIT ?",
+            (int(checkpoint_id), min(max(limit, 1), 100)),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [_row_to_checkpoint(row) for row in rows if row]
+
+
+def expand_checkpoint(checkpoint_id: int, *, radius_turns: int = 0, turns_limit: int = 200) -> Optional[Dict[str, Any]]:
+    checkpoint = get_checkpoint_by_id(checkpoint_id)
+    if not checkpoint:
+        return None
+    start_id = max(1, int(checkpoint.get("turn_start_id") or 0) - max(0, radius_turns))
+    end_id = int(checkpoint.get("turn_end_id") or 0) + max(0, radius_turns)
+    scope = _checkpoint_scope_filter(checkpoint)
+    turns = _get_turns_between_ids(start_id, end_id, limit=turns_limit, **scope)
+    return {
+        "checkpoint": checkpoint,
+        "lineage": get_checkpoint_lineage(checkpoint_id),
+        "children": get_checkpoint_children(checkpoint_id, limit=20),
+        "supporting_turns": turns,
+        "active_branch": _active_branch_payload(turns),
+    }
 
 
 def get_latest_checkpoint(

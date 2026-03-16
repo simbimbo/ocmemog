@@ -30,6 +30,7 @@ DEFAULT_SKIP_DIRS = {
 
 ASYNC_DEFAULT = os.environ.get("OCMEMOG_INGEST_ASYNC_DEFAULT", "true").lower() in {"1", "true", "yes"}
 INGEST_PATH = "/memory/ingest_async" if ASYNC_DEFAULT else "/memory/ingest"
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _post_json(endpoint: str, path: str, payload: dict, *, timeout: int = 20) -> dict:
@@ -175,16 +176,16 @@ def main() -> int:
     parser.add_argument("--demote-threshold", type=float, default=0.2)
     parser.add_argument("--demote-force", action="store_true")
     parser.add_argument("--ponder-limit", type=int, default=5)
-    parser.add_argument("--report", default="/Users/simbimbo/ocmemog/reports/test-rig-latest.json")
+    parser.add_argument("--report", default=str(REPO_ROOT / "reports" / "test-rig-latest.json"))
     args = parser.parse_args()
 
     _enable_local_embeddings()
 
-    roots = [
-        Path("/Users/simbimbo/.openclaw/workspace"),
-        Path("/Users/simbimbo/smolty"),
-        Path("/Users/simbimbo/brain"),
-    ]
+    default_workspace = Path.home() / ".openclaw" / "workspace"
+    roots = [default_workspace]
+    env_roots = os.environ.get("OCMEMOG_TEST_RIG_ROOTS", "").strip()
+    if env_roots:
+        roots = [Path(p).expanduser() for p in env_roots.split(os.pathsep) if p.strip()]
 
     files = _walk_sources(roots, DEFAULT_EXTS, args.max_files, args.max_size_kb)
 

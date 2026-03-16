@@ -9,13 +9,16 @@ from pathlib import Path
 import subprocess
 
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--duration", type=int, default=3600)
     parser.add_argument("--interval", type=int, default=60)
     parser.add_argument("--concurrency", type=int, default=10)
     parser.add_argument("--mode", default="mixed", choices=["search", "ingest", "mixed"])
-    parser.add_argument("--out", default="/Users/simbimbo/ocmemog/reports/load/soak-latest.jsonl")
+    parser.add_argument("--out", default=str(REPO_ROOT / "reports" / "load" / "soak-latest.jsonl"))
     args = parser.parse_args()
 
     out_path = Path(args.out)
@@ -24,7 +27,7 @@ def main() -> None:
     start = time.time()
     while time.time() - start < args.duration:
         cmd = [
-            "/Users/simbimbo/ocmemog/scripts/ocmemog-load-test.py",
+            str(REPO_ROOT / "scripts" / "ocmemog-load-test.py"),
             "--mode", args.mode,
             "--duration", str(args.interval),
             "--concurrency", str(args.concurrency),

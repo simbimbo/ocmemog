@@ -25,7 +25,7 @@ Architecture at a glance:
 ## Run the sidecar
 
 ```bash
-cd /Users/simbimbo/ocmemog
+cd /path/to/ocmemog
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
@@ -53,7 +53,7 @@ Default bind:
 Run the fixture-driven continuity benchmark:
 
 ```bash
-cd /Users/simbimbo/ocmemog
+cd /path/to/ocmemog
 ./.venv/bin/python scripts/ocmemog-continuity-benchmark.py \
   --fixture tests/fixtures/continuity_benchmark.json \
   --report reports/continuity-benchmark-latest.json
@@ -71,7 +71,7 @@ Optional environment variables:
 
 - `OCMEMOG_HOST`
 - `OCMEMOG_PORT`
-- `OCMEMOG_STATE_DIR` (defaults to `/Users/simbimbo/ocmemog/.ocmemog-state`)
+- `OCMEMOG_STATE_DIR` (defaults to `<repo>/.ocmemog-state`)
 - `OCMEMOG_DB_PATH`
 - `OCMEMOG_MEMORY_MODEL` (default: `gpt-4o-mini`)
 - `OCMEMOG_OPENAI_API_KEY` (required for model-backed distill)
@@ -145,7 +145,7 @@ Add the plugin to your OpenClaw config. The key setting is selecting `memory-ocm
 plugins:
   load:
     paths:
-      - /Users/simbimbo/ocmemog
+      - /path/to/ocmemog
   slots:
     memory: memory-ocmemog
   entries:
@@ -159,7 +159,7 @@ plugins:
 Development install:
 
 ```bash
-openclaw plugins install -l /Users/simbimbo/ocmemog
+openclaw plugins install -l /path/to/ocmemog
 openclaw plugins enable memory-ocmemog
 ```
 

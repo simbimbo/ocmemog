@@ -6,10 +6,13 @@ import json
 from pathlib import Path
 
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--in", dest="input", default="/Users/simbimbo/ocmemog/reports/load/soak-latest.jsonl")
-    parser.add_argument("--out", default="/Users/simbimbo/ocmemog/reports/load/soak-report.html")
+    parser.add_argument("--in", dest="input", default=str(REPO_ROOT / "reports" / "load" / "soak-latest.jsonl"))
+    parser.add_argument("--out", default=str(REPO_ROOT / "reports" / "load" / "soak-report.html"))
     args = parser.parse_args()
 
     input_path = Path(args.input)

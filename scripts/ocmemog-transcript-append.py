@@ -6,7 +6,7 @@ from pathlib import Path
 from datetime import datetime
 import sys
 
-ROOT = Path("/Users/simbimbo/.openclaw/workspace/memory/transcripts")
+ROOT = Path.home() / ".openclaw" / "workspace" / "memory" / "transcripts"
 STATE = ROOT / "transcript-state.json"
 ROOT.mkdir(parents=True, exist_ok=True)
 

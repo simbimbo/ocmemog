@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CONFIG="/Users/simbimbo/.openclaw/openclaw.json"
+CONFIG="${OPENCLAW_CONFIG_PATH:-$HOME/.openclaw/openclaw.json}"
 EXPECTED="memory-ocmemog"
 
 CURRENT=$(jq -r '.plugins.slots.memory // ""' "$CONFIG" 2>/dev/null || echo "")

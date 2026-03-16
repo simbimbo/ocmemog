@@ -1,13 +1,13 @@
 {
   "name": "@openclaw/memory-ocmemog",
-  "version": "0.1.0",
-  "description": "OpenClaw memory plugin scaffold backed by ocmemog",
+  "version": "0.1.1",
+  "description": "Advanced OpenClaw memory plugin with durable recall, transcript-backed continuity, and sidecar APIs",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/openclaw/memory-ocmemog"
+    "url": "https://github.com/simbimbo/ocmemog.git"
   },
-  "homepage": "https://github.com/openclaw/memory-ocmemog",
+  "homepage": "https://github.com/simbimbo/ocmemog",
   "keywords": [
     "openclaw",
     "plugin",
@@ -24,7 +24,13 @@
     "scripts/**",
     "docs/**",
     "README.md",
-    "LICENSE"
+    "CHANGELOG.md",
+    "LICENSE",
+    "!**/__pycache__/**",
+    "!**/*.pyc",
+    "!reports/**",
+    "!tests/**",
+    "!REVIEW.md"
   ],
   "dependencies": {
     "@sinclair/typebox": "^0.34.41"

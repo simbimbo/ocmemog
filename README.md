@@ -16,7 +16,7 @@ Architecture at a glance:
 
 ## Repo layout
 
-- `openclaw.plugin.json`, `index.ts`, `package.json`: OpenClaw plugin scaffold.
+- `openclaw.plugin.json`, `index.ts`, `package.json`: OpenClaw plugin package and manifest.
 - `ocmemog/sidecar/`: FastAPI sidecar with `/memory/search` and `/memory/get`.
 - `brain/runtime/memory/`: copied brAIn memory package.
 - `brain/runtime/`: compatibility shims for state store, instrumentation, redaction, storage paths, and a few placeholder runtime modules needed for importability.
@@ -122,7 +122,15 @@ launchctl bootstrap gui/$UID scripts/launchagents/com.openclaw.ocmemog.ponder.pl
 launchctl bootstrap gui/$UID scripts/launchagents/com.openclaw.ocmemog.guard.plist
 ```
 
-## Install from npm
+## Release prep / publish
+
+Current intended ClawHub publish command:
+
+```bash
+clawhub publish . --slug memory-ocmemog --name "ocmemog" --version 0.1.1 --changelog "Initial public release: durable memory, transcript-backed continuity, packaging cleanup, and publish-ready metadata"
+```
+
+## Install from npm (after publish)
 
 ```bash
 openclaw plugins install @openclaw/memory-ocmemog
@@ -157,10 +165,19 @@ openclaw plugins enable memory-ocmemog
 
 If your local OpenClaw build also documents a separate `memory.backend` setting, keep that at its current default unless your build explicitly requires a plugin-backed override. The slot selection above is what activates this plugin.
 
-## Current compatibility status
+## Current status
 
-The sidecar starts and the endpoints run even when the full original brAIn runtime is not present.
+ocmemog is usable today for local OpenClaw installs that want a stronger memory layer with durable recall and transcript-backed continuity.
 
-- Search/get use the local SQLite store and retrieval path where possible.
-- Provider-backed embeddings, distillation, and some inference-driven flows are still shimmed.
-- When a full path is not available yet, the sidecar returns a clear `TODO` response with `missingDeps` and `warnings` instead of crashing.
+What is working now:
+- Search/get against the local SQLite-backed memory store
+- Transcript ingestion and anchored context recovery
+- Continuity hydration, checkpoint expansion, and salience-ranked expansion flows
+- Local sidecar deployment for macOS/OpenClaw development setups
+
+Current limitations before broader public rollout:
+- Some advanced inference- and embedding-dependent paths still depend on environment configuration and may degrade to simpler local behavior if provider access is unavailable
+- Packaging and install UX are aimed primarily at power users and local developers today
+- Public release/distribution metadata is still being tightened up
+
+When a richer path is unavailable, the sidecar is designed to fail soft with explicit warnings rather than crash.

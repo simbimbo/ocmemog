@@ -312,15 +312,11 @@ def _infer_short_reply_resolution(
         referent = _assistant_commitment(prior_turns) or _latest_turn_by_role(prior_turns, "assistant")
     if not referent:
         return None
-    referent_content = str(referent.get("content") or "").strip()
+    referent_content = _normalize_conversation_text(str(referent.get("content") or "").strip())
     if not referent_content:
         return None
     decision = "decline" if normalized in _NEGATIVE_SHORT_REPLY_NORMALIZED else "confirm"
-    effective_summary = referent_content
-    if decision == "confirm":
-        effective_summary = f"User confirmed assistant proposal/question: {referent_content}"
-    elif decision == "decline":
-        effective_summary = f"User declined assistant proposal/question: {referent_content}"
+    effective_summary = turn_content.strip()
     return {
         "kind": "short_reply_reference",
         "decision": decision,
@@ -331,6 +327,7 @@ def _infer_short_reply_resolution(
         "resolved_message_id": referent.get("message_id"),
         "resolved_content": referent_content,
         "effective_summary": effective_summary,
+        "user_intent_compact": True,
     }
 
 

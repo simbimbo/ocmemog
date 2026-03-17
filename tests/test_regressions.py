@@ -382,8 +382,8 @@ class OcmemogRegressionTests(unittest.TestCase):
         latest_turn = hydrate["recent_turns"][-1]
         resolution = latest_turn["metadata"]["resolution"]
         self.assertEqual(resolution["resolved_message_id"], "b-a1")
-        self.assertIn("User confirmed assistant proposal/question", hydrate["summary"]["latest_user_intent"]["effective_content"])
-        self.assertIn("ship checkpoints first", hydrate["state"]["latest_user_ask"])
+        self.assertEqual(hydrate["summary"]["latest_user_intent"]["effective_content"], "sure")
+        self.assertEqual(hydrate["state"]["latest_user_ask"], "sure")
         self.assertEqual(latest_turn["metadata"]["reply_to_message_id"], "b-a1")
         self.assertEqual(hydrate["active_branch"]["reply_chain"][-1]["message_id"], "b-u2")
         self.assertEqual(hydrate["active_branch"]["reply_chain"][0]["message_id"], "b-u1")
@@ -900,7 +900,7 @@ class OcmemogRegressionTests(unittest.TestCase):
         )
         self.assertTrue(hydrate["ok"])
         self.assertEqual(hydrate["state"]["latest_checkpoint_id"], checkpoint["checkpoint"]["id"])
-        self.assertIn("User confirmed assistant proposal/question", hydrate["state"]["latest_user_ask"])
+        self.assertEqual(hydrate["state"]["latest_user_ask"], "yes")
         self.assertEqual(hydrate["checkpoint_graph"]["latest"]["id"], checkpoint["checkpoint"]["id"])
 
         expanded = app.conversation_turn_expand(
@@ -967,7 +967,7 @@ class OcmemogRegressionTests(unittest.TestCase):
             )
         )
         self.assertIn("rank checkpoint and turn expansion by salience", hydrate["state"]["last_assistant_commitment"].lower())
-        self.assertIn("User confirmed assistant proposal/question", hydrate["summary"]["latest_user_intent"]["effective_content"])
+        self.assertEqual(hydrate["summary"]["latest_user_intent"]["effective_content"], "yes")
         active_branch_ids = [turn["message_id"] for turn in hydrate["active_branch"]["turns"]]
         self.assertNotIn("s-a6", active_branch_ids)
         self.assertIn("s-u6", [turn["message_id"] for turn in hydrate["active_branch"]["reply_chain"]])

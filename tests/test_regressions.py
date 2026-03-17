@@ -615,6 +615,160 @@ class OcmemogRegressionTests(unittest.TestCase):
         self.assertEqual(hydrate["state"]["latest_user_ask"], "Keep the response path alive under queue pressure.")
         self.assertTrue(any("state refresh was delayed" in item for item in hydrate["warnings"]))
 
+    def test_internal_continuity_wrapper_is_ignored_on_ingest(self) -> None:
+        response = app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="Memory continuity (auto-hydrated by ocmemog):\n- Latest user ask: polluted\n- Recent turns: assistant: polluted",
+                session_id="sess-ignore",
+                thread_id="thread-ignore",
+                message_id="ignore-u1",
+                timestamp="2026-03-15 15:11:00",
+            )
+        )
+        self.assertTrue(response["ok"])
+        self.assertTrue(response.get("ignored"))
+
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(session_id="sess-ignore", thread_id="thread-ignore", turns_limit=6)
+        )
+        self.assertTrue(hydrate["ok"])
+        self.assertIsNone(hydrate["summary"]["latest_user_ask"])
+
+    def test_hydrate_filters_internal_continuity_from_latest_user_ask_and_checkpoint(self) -> None:
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="Hello",
+                session_id="sess-filter",
+                thread_id="thread-filter",
+                message_id="filter-u1",
+                timestamp="2026-03-15 15:12:00",
+            )
+        )
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="assistant",
+                content="What do you need?",
+                session_id="sess-filter",
+                thread_id="thread-filter",
+                message_id="filter-a1",
+                timestamp="2026-03-15 15:12:01",
+            )
+        )
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="Memory continuity (auto-hydrated by ocmemog):\n- Checkpoint: polluted\n- Latest user ask: polluted\n- Last assistant commitment: polluted",
+                session_id="sess-filter",
+                thread_id="thread-filter",
+                message_id="filter-u2",
+                timestamp="2026-03-15 15:12:02",
+            )
+        )
+
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(session_id="sess-filter", thread_id="thread-filter", turns_limit=10)
+        )
+        self.assertEqual(hydrate["summary"]["latest_user_ask"]["content"], "Hello")
+
+        checkpoint = app.conversation_checkpoint(
+            app.ConversationCheckpointRequest(session_id="sess-filter", thread_id="thread-filter", checkpoint_kind="manual")
+        )
+        self.assertTrue(checkpoint["ok"])
+        self.assertIn("user asked: Hello", checkpoint["checkpoint"]["summary"])
+        self.assertNotIn("polluted", checkpoint["checkpoint"]["summary"])
+
+    def test_ingest_normalizes_sender_envelope_and_reply_tag(self) -> None:
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="Sender (untrusted metadata):\n```json\n{\"label\":\"openclaw-tui\"}\n```\n\n[Tue 2026-03-17 19:10 EDT] Hello there",
+                session_id="sess-normalize",
+                thread_id="thread-normalize",
+                message_id="normalize-u1",
+                timestamp="2026-03-15 15:12:03",
+            )
+        )
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="assistant",
+                content="[[reply_to_current]] I will fix this now.",
+                session_id="sess-normalize",
+                thread_id="thread-normalize",
+                message_id="normalize-a1",
+                timestamp="2026-03-15 15:12:04",
+            )
+        )
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(session_id="sess-normalize", thread_id="thread-normalize", turns_limit=10)
+        )
+        self.assertEqual(hydrate["summary"]["latest_user_ask"]["content"], "Hello there")
+        self.assertEqual(hydrate["summary"]["last_assistant_commitment"]["content"], "I will fix this now.")
+
+    def test_ingest_keeps_only_latest_timestamp_message_from_polluted_wrapper(self) -> None:
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="- {\"label\":\"openclaw-tui\"} [Tue 2026-03-17 19:10 EDT] Hello - old assistant text [Tue 2026-03-17 19:30 EDT] ok",
+                session_id="sess-timestamp",
+                thread_id="thread-timestamp",
+                message_id="timestamp-u1",
+                timestamp="2026-03-15 15:12:04",
+            )
+        )
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(session_id="sess-timestamp", thread_id="thread-timestamp", turns_limit=10)
+        )
+        self.assertEqual(hydrate["summary"]["latest_user_ask"]["content"], "ok")
+
+    def test_refresh_state_self_heals_legacy_checkpoint_turns(self) -> None:
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="Hello",
+                session_id="sess-heal",
+                thread_id="thread-heal",
+                message_id="heal-u1",
+                timestamp="2026-03-15 15:12:05",
+            )
+        )
+        checkpoint = app.conversation_checkpoint(
+            app.ConversationCheckpointRequest(session_id="sess-heal", thread_id="thread-heal", checkpoint_kind="manual")
+        )
+        self.assertTrue(checkpoint["ok"])
+        conn = store.connect()
+        try:
+            conn.execute(
+                "INSERT INTO conversation_turns (conversation_id, session_id, thread_id, message_id, role, content, metadata_json, schema_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (None, "sess-heal", "thread-heal", "heal-bad1", "user", "- Checkpoint: polluted Latest user ask: polluted", "{}", store.SCHEMA_VERSION),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(session_id="sess-heal", thread_id="thread-heal", turns_limit=10)
+        )
+        self.assertEqual(hydrate["summary"]["latest_user_ask"]["content"], "Hello")
+        latest_checkpoint = hydrate["summary"]["latest_checkpoint"]
+        self.assertIsNotNone(latest_checkpoint)
+        self.assertNotIn("polluted", latest_checkpoint["summary"])
+        conn = store.connect()
+        try:
+            remaining = conn.execute(
+                "SELECT COUNT(*) FROM conversation_turns WHERE session_id=? AND content LIKE '- Checkpoint:%'",
+                ("sess-heal",),
+            ).fetchone()[0]
+            bad_checkpoints = conn.execute(
+                "SELECT COUNT(*) FROM conversation_checkpoints WHERE session_id=? AND summary LIKE '%polluted%'",
+                ("sess-heal",),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(int(remaining), 0)
+        self.assertEqual(int(bad_checkpoints), 0)
+
     def test_vector_rebuild_does_not_break_mixed_conversation_flow(self) -> None:
         with mock.patch("brain.runtime.memory.embedding_engine.generate_embedding", side_effect=lambda text: [0.1, 0.2, float(len(text) % 7)]):
             for idx in range(18):

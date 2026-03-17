@@ -1,7 +1,7 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/memory-core";
 
 const DEFAULT_ENDPOINT = "http://127.0.0.1:17890";
-const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 type PluginConfig = {
   endpoint: string;
@@ -255,6 +255,39 @@ function summarizeList(items: unknown, limit = 3): string[] {
     .slice(0, limit);
 }
 
+const INTERNAL_CONTINUITY_MARKERS = [
+  "Memory continuity (auto-hydrated by ocmemog):",
+  "Pre-compaction memory flush.",
+  "Current time:",
+  "Latest user ask:",
+  "Last assistant commitment:",
+  "Open loops:",
+  "Pending actions:",
+  "Recent turns:",
+  "Linked memories:",
+  "Sender (untrusted metadata):",
+];
+
+function sanitizeContinuityNoise(text: string, maxLen = 280): string {
+  if (!text) {
+    return "";
+  }
+  let cleaned = text;
+  for (const marker of INTERNAL_CONTINUITY_MARKERS) {
+    cleaned = cleaned.split(marker).join(" ");
+  }
+  cleaned = cleaned
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/\b(Memory continuity|Pre-compaction memory flush|Recent turns|Pending actions|Open loops|Linked memories)\b:?/gi, " ")
+    .replace(/\s*\|\s*/g, " | ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (cleaned.length > maxLen) {
+    cleaned = `${cleaned.slice(0, maxLen - 1).trim()}…`;
+  }
+  return cleaned;
+}
+
 function buildHydrationContext(payload: ConversationHydrateResponse): string {
   if (!payload.ok) {
     return "";
@@ -264,59 +297,29 @@ function buildHydrationContext(payload: ConversationHydrateResponse): string {
   const lines: string[] = [];
 
   const checkpoint = asRecord(summary?.latest_checkpoint);
-  const checkpointSummary = firstString(checkpoint?.summary);
+  const checkpointSummary = sanitizeContinuityNoise(firstString(checkpoint?.summary), 140);
   if (checkpointSummary) {
     lines.push(`Checkpoint: ${checkpointSummary}`);
   }
 
   const latestUserAsk = asRecord(summary?.latest_user_ask);
-  const latestUserAskText = firstString(latestUserAsk?.effective_content, latestUserAsk?.content, state?.latest_user_ask);
+  const latestUserAskText = sanitizeContinuityNoise(
+    firstString(latestUserAsk?.effective_content, latestUserAsk?.content, state?.latest_user_ask),
+    220,
+  );
   if (latestUserAskText) {
     lines.push(`Latest user ask: ${latestUserAskText}`);
   }
 
   const commitment = asRecord(summary?.last_assistant_commitment);
-  const commitmentText = firstString(commitment?.content, state?.last_assistant_commitment);
+  const commitmentText = sanitizeContinuityNoise(firstString(commitment?.content, state?.last_assistant_commitment), 180);
   if (commitmentText) {
     lines.push(`Last assistant commitment: ${commitmentText}`);
   }
 
-  const openLoops = summarizeList(summary?.open_loops, 3);
+  const openLoops = summarizeList(summary?.open_loops, 2).map((item) => sanitizeContinuityNoise(item, 120)).filter(Boolean);
   if (openLoops.length) {
     lines.push(`Open loops: ${openLoops.join(" | ")}`);
-  }
-
-  const pendingActions = summarizeList(summary?.pending_actions, 3);
-  if (pendingActions.length) {
-    lines.push(`Pending actions: ${pendingActions.join(" | ")}`);
-  }
-
-  const linkedMemories = Array.isArray(payload.linked_memories)
-    ? payload.linked_memories
-        .map((item) => `${firstString(item.reference)} ${firstString(item.content).slice(0, 120)}`.trim())
-        .filter(Boolean)
-        .slice(0, 2)
-    : [];
-  if (linkedMemories.length) {
-    lines.push(`Linked memories: ${linkedMemories.join(" | ")}`);
-  }
-
-  const recentTurns = Array.isArray(payload.recent_turns)
-    ? payload.recent_turns
-        .slice(-3)
-        .map((turn) => {
-          const record = asRecord(turn);
-          if (!record) {
-            return "";
-          }
-          const role = firstString(record.role) || "turn";
-          const content = firstString(record.effective_content, record.content);
-          return content ? `${role}: ${content.slice(0, 160)}` : "";
-        })
-        .filter(Boolean)
-    : [];
-  if (recentTurns.length) {
-    lines.push(`Recent turns: ${recentTurns.join(" | ")}`);
   }
 
   if (!lines.length) {
@@ -344,7 +347,7 @@ function registerAutomaticContinuityHooks(api: OpenClawPluginApi, config: Plugin
       if (role !== "user" && role !== "assistant") {
         return;
       }
-      const content = extractMessageText(event.message);
+      const content = sanitizeContinuityNoise(extractMessageText(event.message), 4000);
       if (!content) {
         return;
       }
@@ -374,8 +377,8 @@ function registerAutomaticContinuityHooks(api: OpenClawPluginApi, config: Plugin
       }
       const payload = await postJson<ConversationHydrateResponse>(config, "/conversation/hydrate", {
         ...scope,
-        turns_limit: 12,
-        memory_limit: 6,
+        turns_limit: 4,
+        memory_limit: 3,
       });
       const prependContext = buildHydrationContext(payload);
       if (!prependContext) {

@@ -31,6 +31,87 @@ _SHORT_REPLY_NORMALIZED = {
     "let us do it",
 }
 _NEGATIVE_SHORT_REPLY_NORMALIZED = {"no", "nope", "not now", "dont", "do not"}
+_INTERNAL_CONTINUITY_PATTERNS = [
+    re.compile(r"^Memory continuity \(auto-hydrated by ocmemog\):", re.IGNORECASE),
+    re.compile(r"^Pre-compaction memory flush\.", re.IGNORECASE),
+    re.compile(r"^Current time:", re.IGNORECASE),
+]
+_INTERNAL_CONTINUITY_LINE_PREFIXES = (
+    "Latest user ask:",
+    "Last assistant commitment:",
+    "Open loops:",
+    "Pending actions:",
+    "Recent turns:",
+    "Linked memories:",
+    "Checkpoint:",
+    "Sender (untrusted metadata):",
+)
+_REPLY_TAG_RE = re.compile(r"\[\[\s*reply_to(?::[^\]]+|_current)?\s*\]\]", re.IGNORECASE)
+_SENDER_BLOCK_RE = re.compile(r"Sender \(untrusted metadata\):\s*```[\s\S]*?```", re.IGNORECASE)
+_TIMESTAMP_PREFIX_RE = re.compile(r"^\[[^\]]+\]\s*")
+_TIMESTAMP_MARKER_RE = re.compile(r"\[[^\]]+\]\s*")
+
+
+def _looks_like_internal_continuity_text(text: str) -> bool:
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    if any(pattern.search(raw) for pattern in _INTERNAL_CONTINUITY_PATTERNS):
+        return True
+    if raw.startswith("- Checkpoint:") or raw.startswith("Checkpoint:"):
+        return True
+    marker_hits = sum(1 for prefix in _INTERNAL_CONTINUITY_LINE_PREFIXES if prefix in raw)
+    return marker_hits >= 2
+
+
+def _strip_internal_continuity_text(text: str) -> str:
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    lines = []
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if any(pattern.search(stripped) for pattern in _INTERNAL_CONTINUITY_PATTERNS):
+            continue
+        if any(stripped.startswith(prefix) or stripped.startswith(f"- {prefix}") for prefix in _INTERNAL_CONTINUITY_LINE_PREFIXES):
+            continue
+        if stripped.startswith("```") or stripped == "```":
+            continue
+        lines.append(stripped)
+    cleaned = re.sub(r"\s+", " ", " ".join(lines)).strip()
+    return cleaned
+
+
+def _normalize_conversation_text(text: str) -> str:
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return ""
+    cleaned = _SENDER_BLOCK_RE.sub(" ", cleaned)
+    cleaned = _REPLY_TAG_RE.sub(" ", cleaned)
+    cleaned = _strip_internal_continuity_text(cleaned)
+    cleaned = re.sub(r"```[\s\S]*?```", " ", cleaned)
+    timestamp_matches = list(_TIMESTAMP_MARKER_RE.finditer(cleaned))
+    if timestamp_matches:
+        cleaned = cleaned[timestamp_matches[-1].end():]
+    cleaned = _TIMESTAMP_PREFIX_RE.sub("", cleaned).strip()
+    cleaned = re.sub(r"^[\-:\s]+", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def _checkpoint_summary_is_polluted(summary: str) -> bool:
+    text = (summary or "").strip()
+    if not text:
+        return False
+    if _REPLY_TAG_RE.search(text) or "Sender (untrusted metadata):" in text:
+        return True
+    if len(_TIMESTAMP_MARKER_RE.findall(text)) >= 2:
+        return True
+    if '{ "label": "openclaw-tui' in text or '{"label":"openclaw-tui' in text:
+        return True
+    return False
 
 
 def _state_from_payload(
@@ -313,9 +394,12 @@ def _effective_turn_content(turn: Optional[Dict[str, Any]]) -> Optional[str]:
         return None
     resolution = _turn_meta(turn).get("resolution") or {}
     effective = str(resolution.get("effective_summary") or "").strip()
-    if effective:
-        return effective
-    return str(turn.get("content") or "").strip() or None
+    if effective and not _looks_like_internal_continuity_text(effective):
+        normalized = _normalize_conversation_text(effective)
+        if normalized:
+            return normalized
+    content = _normalize_conversation_text(str(turn.get("content") or "").strip())
+    return content or None
 
 
 def _reply_chain_for_turn(turn: Optional[Dict[str, Any]], turns: Sequence[Dict[str, Any]], *, limit: int = 6) -> List[Dict[str, Any]]:
@@ -437,7 +521,12 @@ def record_turn(
     metadata: Optional[Dict[str, Any]] = None,
 ) -> int:
     turn_role = (role or "unknown").strip().lower() or "unknown"
-    turn_content = (content or "").strip()
+    raw_turn_content = (content or "").strip()
+    if not raw_turn_content:
+        raise ValueError("empty_turn_content")
+    if _looks_like_internal_continuity_text(raw_turn_content):
+        raise ValueError("internal_continuity_turn")
+    turn_content = _normalize_conversation_text(raw_turn_content)
     if not turn_content:
         raise ValueError("empty_turn_content")
     enriched_metadata = _enrich_turn_metadata(
@@ -816,13 +905,14 @@ def _turn_anchor(turn: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 def _pending_from_turns(turns: Sequence[Dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     pending_actions: list[dict[str, Any]] = []
     open_loops: list[dict[str, Any]] = []
-    last_user = _latest_turn_by_role(turns, "user")
-    last_assistant = _latest_turn_by_role(turns, "assistant")
-    commitment = _latest_unresolved_commitment(turns)
-    assistant_question = _assistant_question(turns)
+    filtered_turns = [turn for turn in turns if not _looks_like_internal_continuity_text(str(turn.get("content") or ""))]
+    last_user = _latest_turn_by_role(filtered_turns, "user")
+    last_assistant = _latest_turn_by_role(filtered_turns, "assistant")
+    commitment = _latest_unresolved_commitment(filtered_turns)
+    assistant_question = _assistant_question(filtered_turns)
 
     if last_user and (not last_assistant or int(last_user.get("id") or 0) > int(last_assistant.get("id") or 0)):
-        content = _effective_turn_content(last_user) or str(last_user.get("content") or "").strip()
+        content = _effective_turn_content(last_user) or _strip_internal_continuity_text(str(last_user.get("content") or "").strip())
         resolution = _turn_meta(last_user).get("resolution") or {}
         if content:
             open_loops.append(
@@ -852,7 +942,7 @@ def _pending_from_turns(turns: Sequence[Dict[str, Any]]) -> tuple[list[dict[str,
                 )
 
     if assistant_question and (not last_user or int(assistant_question.get("id") or 0) > int(last_user.get("id") or 0)):
-        content = str(assistant_question.get("content") or "").strip()
+        content = _strip_internal_continuity_text(str(assistant_question.get("content") or "").strip())
         if content:
             open_loops.append(
                 {
@@ -870,7 +960,7 @@ def _pending_from_turns(turns: Sequence[Dict[str, Any]]) -> tuple[list[dict[str,
             )
 
     if commitment:
-        content = str(commitment.get("content") or "").strip()
+        content = _strip_internal_continuity_text(str(commitment.get("content") or "").strip())
         if content and not _looks_complete(content):
             pending_actions.append(
                 {
@@ -937,9 +1027,11 @@ def infer_hydration_payload(
     latest_checkpoint: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     turns_list = list(turns)
-    latest_user_turn = _latest_turn_by_role(turns_list, "user")
-    latest_assistant_turn = _latest_turn_by_role(turns_list, "assistant")
-    latest_commitment_turn = _assistant_commitment(turns_list)
+    filtered_user_turns = [turn for turn in turns_list if turn.get("role") == "user" and not _looks_like_internal_continuity_text(str(turn.get("content") or ""))]
+    filtered_assistant_turns = [turn for turn in turns_list if turn.get("role") == "assistant" and not _looks_like_internal_continuity_text(str(turn.get("content") or ""))]
+    latest_user_turn = filtered_user_turns[-1] if filtered_user_turns else None
+    latest_assistant_turn = filtered_assistant_turns[-1] if filtered_assistant_turns else None
+    latest_commitment_turn = _assistant_commitment(filtered_assistant_turns)
     last_turn = turns_list[-1] if turns_list else None
     pending_actions, open_loops = _pending_from_turns(turns_list)
     unresolved_payload = list(unresolved_items or [])
@@ -972,9 +1064,9 @@ def infer_hydration_payload(
     if latest_checkpoint and latest_checkpoint.get("summary"):
         summary_text_parts.append(str(latest_checkpoint["summary"]).strip())
     if latest_user_turn:
-        summary_text_parts.append(f"Latest user ask: {_effective_turn_content(latest_user_turn) or str(latest_user_turn.get('content') or '').strip()}")
+        summary_text_parts.append(f"Latest user ask: {_effective_turn_content(latest_user_turn) or _normalize_conversation_text(str(latest_user_turn.get('content') or '').strip())}")
     if latest_commitment_turn:
-        summary_text_parts.append(f"Last assistant commitment: {str(latest_commitment_turn.get('content') or '').strip()}")
+        summary_text_parts.append(f"Last assistant commitment: {_effective_turn_content(latest_commitment_turn) or _normalize_conversation_text(str(latest_commitment_turn.get('content') or '').strip())}")
     summary_text = " | ".join(part for part in summary_text_parts if part)
 
     return {
@@ -1179,11 +1271,13 @@ def create_checkpoint(
         f"{len(turns)} recent turns captured",
     ]
     latest_user = derived.get("latest_user_ask") or {}
-    if latest_user.get("effective_content") or latest_user.get("content"):
-        summary_parts.append(f"user asked: {latest_user.get('effective_content') or latest_user.get('content')}")
+    latest_user_text = _strip_internal_continuity_text(str(latest_user.get("effective_content") or latest_user.get("content") or "").strip())
+    if latest_user_text:
+        summary_parts.append(f"user asked: {latest_user_text}")
     commitment = derived.get("last_assistant_commitment") or {}
-    if commitment.get("content"):
-        summary_parts.append(f"assistant committed: {commitment['content']}")
+    commitment_text = _strip_internal_continuity_text(str(commitment.get("content") or "").strip())
+    if commitment_text:
+        summary_parts.append(f"assistant committed: {commitment_text}")
     if derived.get("open_loops"):
         summary_parts.append(f"open loops: {len(derived['open_loops'])}")
     summary_text = " | ".join(summary_parts)
@@ -1452,6 +1546,72 @@ def get_latest_checkpoint(
     return _row_to_checkpoint(row)
 
 
+def _self_heal_legacy_continuity_artifacts(
+    *,
+    conversation_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    thread_id: Optional[str] = None,
+) -> int:
+    where, params = _scope_where(
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+    )
+    conn = store.connect()
+    try:
+        rows = conn.execute(f"SELECT id, content FROM conversation_turns{where}", tuple(params)).fetchall()
+        bad_ids = [
+            int(row["id"])
+            for row in rows
+            if _looks_like_internal_continuity_text(str(row["content"] or ""))
+        ]
+        checkpoint_where, checkpoint_params = _scope_where(
+            conversation_id=conversation_id,
+            session_id=session_id,
+            thread_id=thread_id,
+        )
+        checkpoint_rows = conn.execute(
+            f"SELECT id, summary FROM conversation_checkpoints{checkpoint_where}",
+            tuple(checkpoint_params),
+        ).fetchall()
+        bad_checkpoint_ids = [
+            int(row["id"])
+            for row in checkpoint_rows
+            if _checkpoint_summary_is_polluted(str(row["summary"] or ""))
+        ]
+        if not bad_ids and not bad_checkpoint_ids:
+            return 0
+        if bad_ids:
+            placeholders = ",".join("?" for _ in bad_ids)
+            conn.execute(f"DELETE FROM conversation_turns WHERE id IN ({placeholders})", tuple(bad_ids))
+        if bad_checkpoint_ids:
+            placeholders = ",".join("?" for _ in bad_checkpoint_ids)
+            conn.execute(f"DELETE FROM conversation_checkpoints WHERE id IN ({placeholders})", tuple(bad_checkpoint_ids))
+        if thread_id:
+            conn.execute("DELETE FROM conversation_checkpoints WHERE thread_id = ?", (thread_id,))
+            conn.execute("DELETE FROM conversation_state WHERE thread_id = ? OR (scope_type = 'thread' AND scope_id = ?)", (thread_id, thread_id))
+        elif session_id:
+            conn.execute("DELETE FROM conversation_checkpoints WHERE session_id = ?", (session_id,))
+            conn.execute("DELETE FROM conversation_state WHERE session_id = ? OR (scope_type = 'session' AND scope_id = ?)", (session_id, session_id))
+        elif conversation_id:
+            conn.execute("DELETE FROM conversation_checkpoints WHERE conversation_id = ?", (conversation_id,))
+            conn.execute("DELETE FROM conversation_state WHERE conversation_id = ? OR (scope_type = 'conversation' AND scope_id = ?)", (conversation_id, conversation_id))
+        conn.commit()
+        emit_event(
+            LOGFILE,
+            "brain_conversation_state_self_healed",
+            status="ok",
+            removed_turns=len(bad_ids),
+            removed_checkpoints=len(bad_checkpoint_ids),
+            conversation_id=conversation_id,
+            session_id=session_id,
+            thread_id=thread_id,
+        )
+        return len(bad_ids) + len(bad_checkpoint_ids)
+    finally:
+        conn.close()
+
+
 def refresh_state(
     *,
     conversation_id: Optional[str] = None,
@@ -1459,6 +1619,11 @@ def refresh_state(
     thread_id: Optional[str] = None,
     tolerate_write_failure: bool = False,
 ) -> Optional[Dict[str, Any]]:
+    _self_heal_legacy_continuity_artifacts(
+        conversation_id=conversation_id,
+        session_id=session_id,
+        thread_id=thread_id,
+    )
     turns = get_recent_turns(
         conversation_id=conversation_id,
         session_id=session_id,
@@ -1476,6 +1641,8 @@ def refresh_state(
         session_id=session_id,
         thread_id=thread_id,
     )
+    if latest_checkpoint and _checkpoint_summary_is_polluted(str(latest_checkpoint.get("summary") or "")):
+        latest_checkpoint = None
     payload = infer_hydration_payload(
         turns,
         conversation_id=conversation_id,

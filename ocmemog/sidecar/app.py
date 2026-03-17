@@ -394,20 +394,30 @@ def _get_row(reference: str) -> Optional[Dict[str, Any]]:
 
 def _ingest_conversation_turn(request: ConversationTurnRequest) -> dict[str, Any]:
     runtime = _runtime_payload()
-    turn_id = conversation_state.record_turn(
-        role=request.role,
-        content=request.content,
-        conversation_id=request.conversation_id,
-        session_id=request.session_id,
-        thread_id=request.thread_id,
-        message_id=request.message_id,
-        transcript_path=request.transcript_path,
-        transcript_offset=request.transcript_offset,
-        transcript_end_offset=request.transcript_end_offset,
-        source=request.source,
-        timestamp=request.timestamp,
-        metadata=request.metadata,
-    )
+    try:
+        turn_id = conversation_state.record_turn(
+            role=request.role,
+            content=request.content,
+            conversation_id=request.conversation_id,
+            session_id=request.session_id,
+            thread_id=request.thread_id,
+            message_id=request.message_id,
+            transcript_path=request.transcript_path,
+            transcript_offset=request.transcript_offset,
+            transcript_end_offset=request.transcript_end_offset,
+            source=request.source,
+            timestamp=request.timestamp,
+            metadata=request.metadata,
+        )
+    except ValueError as exc:
+        if str(exc) == "internal_continuity_turn":
+            return {
+                "ok": True,
+                "ignored": True,
+                "reason": "internal_continuity_turn",
+                **runtime,
+            }
+        raise
     return {
         "ok": True,
         "turn_id": turn_id,

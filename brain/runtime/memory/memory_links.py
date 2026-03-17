@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from typing import Dict, List
 
 from brain.runtime import state_store
@@ -7,6 +8,19 @@ from brain.runtime.instrumentation import emit_event
 from brain.runtime.memory import store
 
 LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
+
+
+def _dedupe_memory_links(conn) -> None:
+    conn.execute(
+        """
+        DELETE FROM memory_links
+        WHERE rowid NOT IN (
+            SELECT MIN(rowid)
+            FROM memory_links
+            GROUP BY source_reference, link_type, target_reference
+        )
+        """
+    )
 
 
 def _ensure_table(conn) -> None:
@@ -21,9 +35,17 @@ def _ensure_table(conn) -> None:
         )
         """
     )
-    conn.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_links_unique ON memory_links(source_reference, link_type, target_reference)"
-    )
+    try:
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_links_unique ON memory_links(source_reference, link_type, target_reference)"
+        )
+    except sqlite3.IntegrityError:
+        _dedupe_memory_links(conn)
+        conn.execute("DROP INDEX IF EXISTS idx_memory_links_unique")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_links_unique ON memory_links(source_reference, link_type, target_reference)"
+        )
+        conn.commit()
 
 
 def add_memory_link(source_reference: str, link_type: str, target_reference: str) -> None:

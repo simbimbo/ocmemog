@@ -94,18 +94,24 @@ def insert_memory(memory_id: int, content: str, confidence: float, *, source_typ
     store.submit_write(_write, timeout=30.0)
 
 
-def _load_table_rows(table: str, *, limit: int | None = None, descending: bool = False) -> List[Dict[str, Any]]:
+def _load_table_rows(table: str, *, limit: int | None = None, descending: bool = False, missing_only: bool = False) -> List[Dict[str, Any]]:
     conn = store.connect()
     try:
         order = "DESC" if descending else "ASC"
+        where = ""
+        params: list[Any] = []
+        if missing_only:
+            where = " WHERE CAST(id AS TEXT) NOT IN (SELECT source_id FROM vector_embeddings WHERE source_type = ?)"
+            params.append(table)
         if limit is None:
             rows = conn.execute(
-                f"SELECT id, content, confidence, metadata_json FROM {table} ORDER BY id {order}",
+                f"SELECT id, content, confidence, metadata_json FROM {table}{where} ORDER BY id {order}",
+                tuple(params),
             ).fetchall()
         else:
             rows = conn.execute(
-                f"SELECT id, content, confidence, metadata_json FROM {table} ORDER BY id {order} LIMIT ?",
-                (limit,),
+                f"SELECT id, content, confidence, metadata_json FROM {table}{where} ORDER BY id {order} LIMIT ?",
+                tuple(params + [limit]),
             ).fetchall()
     finally:
         conn.close()
@@ -210,6 +216,27 @@ def rebuild_vector_index(*, tables: Iterable[str] | None = None) -> int:
     finally:
         _REBUILD_LOCK.release()
     emit_event(LOGFILE, "brain_memory_vector_rebuild_complete", status="ok", indexed=count)
+    return count
+
+
+def backfill_missing_vectors(*, tables: Iterable[str] | None = None, limit_per_table: int | None = None) -> int:
+    emit_event(LOGFILE, "brain_memory_vector_backfill_start", status="ok")
+    if not _REBUILD_LOCK.acquire(blocking=False):
+        emit_event(LOGFILE, "brain_memory_vector_backfill_complete", status="skipped", reason="already_running")
+        return 0
+    count = 0
+    try:
+        requested_tables = [table for table in (tables or EMBEDDING_TABLES) if table in EMBEDDING_TABLES]
+        for table in requested_tables:
+            prepared = _prepare_embedding_rows(
+                _load_table_rows(table, limit=limit_per_table, missing_only=True),
+                table=table,
+            )
+            for offset in range(0, len(prepared), _WRITE_CHUNK_SIZE):
+                count += _write_embedding_chunk(table, prepared[offset: offset + _WRITE_CHUNK_SIZE])
+    finally:
+        _REBUILD_LOCK.release()
+    emit_event(LOGFILE, "brain_memory_vector_backfill_complete", status="ok", indexed=count)
     return count
 
 

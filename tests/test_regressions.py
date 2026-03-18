@@ -496,6 +496,26 @@ class OcmemogRegressionTests(unittest.TestCase):
         self.assertIn("await_user_clarification", pending_kinds)
         self.assertNotIn("assistant_commitment", open_loop_kinds)
 
+    def test_optional_if_you_want_status_update_does_not_create_user_reply_loop(self) -> None:
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="assistant",
+                content="All 3 are done. Docs, dry-run, and release checklist are in. If you want, I can tighten the open-loop heuristic next.",
+                session_id="sess-optional",
+                thread_id="thread-optional",
+                message_id="o-a1",
+                timestamp="2026-03-15 14:05:00",
+            )
+        )
+
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(session_id="sess-optional", thread_id="thread-optional", turns_limit=10)
+        )
+        open_loop_kinds = [item["kind"] for item in hydrate["summary"]["open_loops"]]
+        pending_kinds = [item["kind"] for item in hydrate["summary"]["pending_actions"]]
+        self.assertNotIn("awaiting_user_reply", open_loop_kinds)
+        self.assertNotIn("await_user_clarification", pending_kinds)
+
     def test_newer_assistant_turn_resolves_older_commitment_loop(self) -> None:
         app.conversation_ingest_turn(
             app.ConversationTurnRequest(

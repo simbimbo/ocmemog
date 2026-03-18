@@ -851,7 +851,13 @@ def _assistant_question(turns: Sequence[Dict[str, Any]]) -> Optional[Dict[str, A
         content = str(turn.get("content") or "").strip()
         if not content:
             continue
-        if "?" in content or any(token in content.lower() for token in ("let me know", "which do you want", "should i", "want me to")):
+        lowered = content.lower()
+        explicit_question = "?" in content
+        explicit_prompt = any(token in lowered for token in ("let me know", "which do you want", "should i", "want me to"))
+        optional_tail_only = "if you want" in lowered and not explicit_question and not explicit_prompt
+        if optional_tail_only:
+            continue
+        if explicit_question or explicit_prompt:
             return turn
     return None
 

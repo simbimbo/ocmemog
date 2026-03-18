@@ -34,6 +34,8 @@ export OCMEMOG_TRANSCRIPT_WATCHER=true
 ./scripts/ocmemog-sidecar.sh
 ```
 
+On macOS laptops, the launcher defaults to `OCMEMOG_LAPTOP_MODE=auto`, which detects battery power and uses lower-impact watcher settings automatically. Override with `OCMEMOG_LAPTOP_MODE=ac` for wall-power behavior or `OCMEMOG_LAPTOP_MODE=battery` to force conservative mode.
+
 Useful environment variables:
 
 ```bash

@@ -83,6 +83,7 @@ Optional environment variables:
 - `OCMEMOG_TRANSCRIPT_ROOTS` (comma-separated allowed roots for transcript context retrieval; default: `~/.openclaw/workspace/memory`)
 - `OCMEMOG_API_TOKEN` (optional; if set, requests must include `x-ocmemog-token` or `Authorization: Bearer ...`)
 - `OCMEMOG_AUTO_HYDRATION` (`true` to re-enable prompt-time continuity prepending; defaults to `false` as a safety guard until the host runtime is verified not to persist prepended context into session history)
+- `OCMEMOG_LAPTOP_MODE` (`auto` by default; on macOS battery power this slows watcher polling, reduces ingest batch size, and disables sentiment reinforcement unless explicitly overridden)
 - `OCMEMOG_USE_OLLAMA` (`true` to use Ollama for distill/inference)
 - `OCMEMOG_OLLAMA_HOST` (default: `http://127.0.0.1:11434`)
 - `OCMEMOG_OLLAMA_MODEL` (default: `phi3:latest`)

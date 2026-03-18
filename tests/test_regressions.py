@@ -798,6 +798,47 @@ class OcmemogRegressionTests(unittest.TestCase):
             )
         )
 
+    def test_refresh_state_self_heals_checkpoint_with_invalid_awaiting_user_reply_loop(self) -> None:
+        turn = app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="assistant",
+                content="All 3 are done. If you want, I can tighten the heuristic next.",
+                session_id="sess-heal-loop",
+                thread_id="thread-heal-loop",
+                message_id="heal-loop-a1",
+                timestamp="2026-03-15 15:12:06",
+            )
+        )
+        open_loops_json = json.dumps([
+            {"kind": "awaiting_user_reply", "summary": "stale", "source_reference": f"conversation_turns:{turn['turn_id']}"}
+        ])
+        pending_actions_json = json.dumps([
+            {"kind": "await_user_clarification", "summary": "stale", "source_reference": f"conversation_turns:{turn['turn_id']}"}
+        ])
+        conn = store.connect()
+        try:
+            conn.execute(
+                "INSERT INTO conversation_checkpoints (conversation_id, session_id, thread_id, turn_start_id, turn_end_id, checkpoint_kind, summary, latest_user_ask, last_assistant_commitment, open_loops_json, pending_actions_json, parent_checkpoint_id, root_checkpoint_id, depth, metadata_json, schema_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (None, "sess-heal-loop", "thread-heal-loop", turn["turn_id"], turn["turn_id"], "rolling", "24 recent turns captured | user asked: proceed | open loops: 1", "proceed", None, open_loops_json, pending_actions_json, None, None, 0, '{}', store.SCHEMA_VERSION),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(session_id="sess-heal-loop", thread_id="thread-heal-loop", turns_limit=10)
+        )
+        self.assertEqual(hydrate["summary"]["open_loops"], [])
+        conn = store.connect()
+        try:
+            remaining = conn.execute(
+                "SELECT COUNT(*) FROM conversation_checkpoints WHERE session_id=? AND open_loops_json LIKE '%awaiting_user_reply%'",
+                ("sess-heal-loop",),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(int(remaining), 0)
+
     def test_vector_rebuild_does_not_break_mixed_conversation_flow(self) -> None:
         with mock.patch("brain.runtime.memory.embedding_engine.generate_embedding", side_effect=lambda text: [0.1, 0.2, float(len(text) % 7)]):
             for idx in range(18):

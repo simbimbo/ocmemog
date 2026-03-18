@@ -844,20 +844,40 @@ def _assistant_commitment(turns: Sequence[Dict[str, Any]]) -> Optional[Dict[str,
     return None
 
 
+def _assistant_turn_creates_user_reply_loop(turn: Optional[Dict[str, Any]]) -> bool:
+    if turn is None:
+        return False
+    if hasattr(turn, "get"):
+        role = turn.get("role")
+        content_value = turn.get("content")
+    else:
+        role = None
+        content_value = None
+        try:
+            role = turn["role"]
+        except Exception:
+            role = None
+        try:
+            content_value = turn["content"]
+        except Exception:
+            content_value = None
+    if role != "assistant":
+        return False
+    content = str(content_value or "").strip()
+    if not content:
+        return False
+    lowered = content.lower()
+    explicit_question = "?" in content
+    explicit_prompt = any(token in lowered for token in ("let me know", "which do you want", "should i", "want me to"))
+    optional_tail_only = "if you want" in lowered and not explicit_question and not explicit_prompt
+    if optional_tail_only:
+        return False
+    return explicit_question or explicit_prompt
+
+
 def _assistant_question(turns: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     for turn in reversed(turns):
-        if turn.get("role") != "assistant":
-            continue
-        content = str(turn.get("content") or "").strip()
-        if not content:
-            continue
-        lowered = content.lower()
-        explicit_question = "?" in content
-        explicit_prompt = any(token in lowered for token in ("let me know", "which do you want", "should i", "want me to"))
-        optional_tail_only = "if you want" in lowered and not explicit_question and not explicit_prompt
-        if optional_tail_only:
-            continue
-        if explicit_question or explicit_prompt:
+        if _assistant_turn_creates_user_reply_loop(turn):
             return turn
     return None
 
@@ -1578,14 +1598,36 @@ def _self_heal_legacy_continuity_artifacts(
             thread_id=thread_id,
         )
         checkpoint_rows = conn.execute(
-            f"SELECT id, summary FROM conversation_checkpoints{checkpoint_where}",
+            f"SELECT * FROM conversation_checkpoints{checkpoint_where}",
             tuple(checkpoint_params),
         ).fetchall()
-        bad_checkpoint_ids = [
-            int(row["id"])
-            for row in checkpoint_rows
-            if _checkpoint_summary_is_polluted(str(row["summary"] or ""))
-        ]
+        turn_lookup = {int(row["id"]): row for row in rows}
+        bad_checkpoint_ids = []
+        for row in checkpoint_rows:
+            polluted = _checkpoint_summary_is_polluted(str(row["summary"] or ""))
+            if not polluted:
+                try:
+                    loops = json.loads(row["open_loops_json"] or "[]")
+                except Exception:
+                    loops = []
+                for item in loops:
+                    if item.get("kind") != "awaiting_user_reply":
+                        continue
+                    source_reference = str(item.get("source_reference") or "")
+                    if not source_reference.startswith("conversation_turns:"):
+                        continue
+                    try:
+                        source_id = int(source_reference.split(":", 1)[1])
+                    except Exception:
+                        continue
+                    turn = turn_lookup.get(source_id)
+                    if turn is None:
+                        turn = conn.execute("SELECT * FROM conversation_turns WHERE id = ?", (source_id,)).fetchone()
+                    if turn is not None and not _assistant_turn_creates_user_reply_loop(turn):
+                        polluted = True
+                        break
+            if polluted:
+                bad_checkpoint_ids.append(int(row["id"]))
         if not bad_ids and not bad_checkpoint_ids:
             return 0
         if bad_ids:

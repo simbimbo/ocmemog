@@ -657,6 +657,25 @@ class OcmemogRegressionTests(unittest.TestCase):
         self.assertTrue(hydrate["ok"])
         self.assertIsNone(hydrate["summary"]["latest_user_ask"])
 
+    def test_hydrate_exposes_memory_layers_and_context_quality(self) -> None:
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="Keep the current task compact.",
+                session_id="sess-quality",
+                thread_id="thread-quality",
+                message_id="quality-u1",
+                timestamp="2026-03-15 15:11:30",
+            )
+        )
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(session_id="sess-quality", thread_id="thread-quality", turns_limit=10)
+        )
+        self.assertEqual(hydrate["summary"]["memory_layers"]["working_state"]["latest_user_ask"], "Keep the current task compact.")
+        self.assertEqual(hydrate["summary"]["memory_layers"]["raw_transcript"]["turn_count"], 1)
+        self.assertIn(hydrate["summary"]["context_quality"]["band"], ("good", "degraded", "poor"))
+        self.assertIn("score", hydrate["summary"]["context_quality"])
+
     def test_hydrate_filters_internal_continuity_from_latest_user_ask_and_checkpoint(self) -> None:
         app.conversation_ingest_turn(
             app.ConversationTurnRequest(

@@ -643,6 +643,7 @@ def conversation_hydrate(request: ConversationHydrateRequest) -> dict[str, Any]:
         thread_id=request.thread_id,
         unresolved_items=unresolved_items,
         latest_checkpoint=latest_checkpoint,
+        linked_memories=linked_memories,
     )
     state_payload = conversation_state.refresh_state(
         conversation_id=request.conversation_id,

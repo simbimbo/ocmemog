@@ -118,6 +118,78 @@ def _checkpoint_summary_is_polluted(summary: str) -> bool:
     return False
 
 
+def _build_memory_layers(
+    *,
+    turns: Sequence[Dict[str, Any]],
+    latest_user_turn: Optional[Dict[str, Any]],
+    latest_commitment_turn: Optional[Dict[str, Any]],
+    linked_memories: Sequence[Dict[str, Any]],
+) -> Dict[str, Any]:
+    transcript_layer = {
+        "kind": "raw_transcript",
+        "turn_count": len(turns),
+        "latest_turn_reference": f"conversation_turns:{turns[-1]['id']}" if turns else None,
+    }
+    working_state_layer = {
+        "kind": "working_state",
+        "latest_user_ask": _effective_turn_content(latest_user_turn) if latest_user_turn else None,
+        "last_assistant_commitment": _effective_turn_content(latest_commitment_turn) if latest_commitment_turn else None,
+    }
+    durable_memory_layer = {
+        "kind": "durable_memory",
+        "linked_memory_count": len(linked_memories),
+        "references": [str(item.get("reference") or "") for item in linked_memories[:5] if item.get("reference")],
+    }
+    return {
+        "raw_transcript": transcript_layer,
+        "working_state": working_state_layer,
+        "durable_memory": durable_memory_layer,
+    }
+
+
+def _context_quality(
+    *,
+    turns: Sequence[Dict[str, Any]],
+    latest_checkpoint: Optional[Dict[str, Any]],
+    linked_memories: Sequence[Dict[str, Any]],
+    summary_text: str,
+) -> Dict[str, Any]:
+    issues: list[str] = []
+    score = 1.0
+    duplicate_turn_text = 0
+    seen = set()
+    for turn in turns:
+        text = (_effective_turn_content(turn) or "").strip().lower()
+        if not text:
+            continue
+        if text in seen:
+            duplicate_turn_text += 1
+        else:
+            seen.add(text)
+    if duplicate_turn_text:
+        issues.append("duplicate_turn_text")
+        score -= min(0.2, duplicate_turn_text * 0.05)
+    if latest_checkpoint and _checkpoint_summary_is_polluted(str(latest_checkpoint.get("summary") or "")):
+        issues.append("polluted_checkpoint")
+        score -= 0.35
+    if summary_text and len(summary_text) > 280:
+        issues.append("oversized_summary")
+        score -= 0.15
+    if len(linked_memories) > 5:
+        issues.append("memory_overlinking")
+        score -= 0.1
+    band = "good"
+    if score < 0.75:
+        band = "degraded"
+    if score < 0.45:
+        band = "poor"
+    return {
+        "score": round(max(0.0, score), 3),
+        "band": band,
+        "issues": issues,
+    }
+
+
 def _state_from_payload(
     state_payload: Dict[str, Any],
     *,
@@ -1052,6 +1124,7 @@ def infer_hydration_payload(
     thread_id: Optional[str] = None,
     unresolved_items: Optional[Sequence[Dict[str, Any]]] = None,
     latest_checkpoint: Optional[Dict[str, Any]] = None,
+    linked_memories: Optional[Sequence[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     turns_list = list(turns)
     filtered_user_turns = [turn for turn in turns_list if turn.get("role") == "user" and not _looks_like_internal_continuity_text(str(turn.get("content") or ""))]
@@ -1095,6 +1168,19 @@ def infer_hydration_payload(
     if latest_commitment_turn:
         summary_text_parts.append(f"Last assistant commitment: {_effective_turn_content(latest_commitment_turn) or _normalize_conversation_text(str(latest_commitment_turn.get('content') or '').strip())}")
     summary_text = " | ".join(part for part in summary_text_parts if part)
+    linked_memories_list = list(linked_memories or [])
+    memory_layers = _build_memory_layers(
+        turns=turns_list,
+        latest_user_turn=latest_user_turn,
+        latest_commitment_turn=latest_commitment_turn,
+        linked_memories=linked_memories_list,
+    )
+    context_quality = _context_quality(
+        turns=turns_list,
+        latest_checkpoint=latest_checkpoint,
+        linked_memories=linked_memories_list,
+        summary_text=summary_text,
+    )
 
     return {
         "turn_count": len(turns_list),
@@ -1123,6 +1209,8 @@ def infer_hydration_payload(
         "active_branch": active_branch,
         "summary_text": summary_text,
         "summary_status": "derived",
+        "memory_layers": memory_layers,
+        "context_quality": context_quality,
         "scope": {
             "conversation_id": conversation_id,
             "session_id": session_id,
@@ -1699,6 +1787,7 @@ def refresh_state(
         thread_id=thread_id,
         unresolved_items=unresolved_items,
         latest_checkpoint=latest_checkpoint,
+        linked_memories=[],
     )
     try:
         return _upsert_state(

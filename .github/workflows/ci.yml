@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Verify shell scripts parse
+        run: |
+          bash -n scripts/install-ocmemog.sh
+          bash -n scripts/ocmemog-install.sh
+          bash -n scripts/ocmemog-sidecar.sh
+
+      - name: Install Python requirements
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Run regression tests
+        run: |
+          . .venv/bin/activate
+          python -m unittest tests.test_regressions
+
+      - name: Check installer help output
+        run: |
+          ./scripts/install-ocmemog.sh --help
+
+      - name: Verify npm package contents
+        run: |
+          npm pack --dry-run

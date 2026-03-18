@@ -533,6 +533,8 @@ class OcmemogRegressionTests(unittest.TestCase):
         )
         open_loop_summaries = [item["summary"] for item in hydrate["summary"]["open_loops"]]
         self.assertNotIn("I will add automatic hydration next.", open_loop_summaries)
+        self.assertIsNone(hydrate["summary"]["last_assistant_commitment"])
+        self.assertIsNone(hydrate["state"]["last_assistant_commitment"])
 
     def test_ponder_timeout_wrapper_returns_without_waiting_for_hung_work(self) -> None:
         started = time.monotonic()

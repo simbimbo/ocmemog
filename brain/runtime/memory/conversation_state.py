@@ -1028,7 +1028,7 @@ def infer_hydration_payload(
     filtered_assistant_turns = [turn for turn in turns_list if turn.get("role") == "assistant" and not _looks_like_internal_continuity_text(str(turn.get("content") or ""))]
     latest_user_turn = filtered_user_turns[-1] if filtered_user_turns else None
     latest_assistant_turn = filtered_assistant_turns[-1] if filtered_assistant_turns else None
-    latest_commitment_turn = _assistant_commitment(filtered_assistant_turns)
+    latest_commitment_turn = _latest_unresolved_commitment(filtered_assistant_turns)
     last_turn = turns_list[-1] if turns_list else None
     pending_actions, open_loops = _pending_from_turns(turns_list)
     unresolved_payload = list(unresolved_items or [])

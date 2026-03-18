@@ -958,6 +958,20 @@ def metrics() -> dict[str, Any]:
     counts["queue_processed"] = QUEUE_STATS.get("processed", 0)
     counts["queue_errors"] = QUEUE_STATS.get("errors", 0)
     payload["counts"] = counts
+    coverage_tables = ["knowledge", "runbooks", "lessons", "directives", "reflections", "tasks"]
+    conn = store.connect()
+    try:
+        payload["coverage"] = [
+            {
+                "table": table,
+                "rows": int(counts.get(table, 0) or 0),
+                "vectors": int(conn.execute("SELECT COUNT(*) FROM vector_embeddings WHERE source_type=?", (table,)).fetchone()[0] or 0),
+                "missing": max(int(counts.get(table, 0) or 0) - int(conn.execute("SELECT COUNT(*) FROM vector_embeddings WHERE source_type=?", (table,)).fetchone()[0] or 0), 0),
+            }
+            for table in coverage_tables
+        ]
+    finally:
+        conn.close()
     payload["queue"] = QUEUE_STATS
     return {"ok": True, "metrics": payload, **runtime}
 
@@ -997,8 +1011,37 @@ def _tail_events(limit: int = 50) -> str:
 def dashboard() -> HTMLResponse:
     metrics_payload = health.get_memory_health()
     counts = metrics_payload.get("counts", {})
+    coverage_tables = ["knowledge", "runbooks", "lessons", "directives", "reflections", "tasks"]
+    conn = store.connect()
+    try:
+        coverage_rows = []
+        for table in coverage_tables:
+            total = int(counts.get(table, 0) or 0)
+            vectors = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM vector_embeddings WHERE source_type=?",
+                    (table,),
+                ).fetchone()[0]
+                or 0
+            )
+            missing = max(total - vectors, 0)
+            coverage_rows.append({"table": table, "rows": total, "vectors": vectors, "missing": missing})
+    finally:
+        conn.close()
+
+    metrics_cards = [{"label": key, "value": value} for key, value in counts.items()]
+    metrics_cards.extend(
+        [
+            {"label": "vector_index_count", "value": metrics_payload.get("vector_index_count", 0)},
+            {"label": "vector_index_coverage", "value": metrics_payload.get("vector_index_coverage", 0)},
+        ]
+    )
     metrics_html = "".join(
-        f"<div class='card'><strong>{key}</strong><br/>{value}</div>" for key, value in counts.items()
+        f"<div class='card'><strong>{card['label']}</strong><br/>{card['value']}</div>" for card in metrics_cards
+    )
+    coverage_html = "".join(
+        f"<div class='card'><strong>{row['table']}</strong><br/>rows: {row['rows']}<br/>vectors: {row['vectors']}<br/>missing: {row['missing']}</div>"
+        for row in coverage_rows
     )
     events_html = _tail_events()
 
@@ -1018,6 +1061,8 @@ def dashboard() -> HTMLResponse:
     <body>
       <h2>ocmemog realtime</h2>
       <div class="metrics" id="metrics">{metrics_html}</div>
+      <h3>Vector coverage</h3>
+      <div class="metrics" id="coverage">{coverage_html}</div>
       <h3>Ponder recommendations</h3>
       <div id="ponder-meta" style="margin-bottom:8px; color:#666;"></div>
       <div id="ponder"></div>
@@ -1025,6 +1070,7 @@ def dashboard() -> HTMLResponse:
       <pre id="events">{events_html}</pre>
       <script>
         const metricsEl = document.getElementById('metrics');
+        const coverageEl = document.getElementById('coverage');
         const ponderEl = document.getElementById('ponder');
         const ponderMetaEl = document.getElementById('ponder-meta');
         const eventsEl = document.getElementById('events');
@@ -1033,8 +1079,17 @@ def dashboard() -> HTMLResponse:
           const res = await fetch('/metrics');
           const data = await res.json();
           const counts = data.metrics?.counts || {{}};
-          metricsEl.innerHTML = Object.entries(counts).map(([k,v]) =>
-            `<div class=\"card\"><strong>${{k}}</strong><br/>${{v}}</div>`
+          const cards = [
+            ...Object.entries(counts).map(([k, v]) => ({{ label: k, value: v }})),
+            {{ label: 'vector_index_count', value: data.metrics?.vector_index_count ?? 0 }},
+            {{ label: 'vector_index_coverage', value: data.metrics?.vector_index_coverage ?? 0 }},
+          ];
+          metricsEl.innerHTML = cards.map((card) =>
+            `<div class="card"><strong>${{card.label}}</strong><br/>${{card.value}}</div>`
+          ).join('');
+          const coverage = data.metrics?.coverage || [];
+          coverageEl.innerHTML = coverage.map((row) =>
+            `<div class="card"><strong>${{row.table}}</strong><br/>rows: ${{row.rows}}<br/>vectors: ${{row.vectors}}<br/>missing: ${{row.missing}}</div>`
           ).join('');
         }}
 
@@ -1047,7 +1102,7 @@ def dashboard() -> HTMLResponse:
           const mode = data.mode || 'n/a';
           ponderMetaEl.textContent = `Last update: ${{lastTs}} • Mode: ${{mode}}${{warnings ? ' • ' + warnings : ''}}`;
           ponderEl.innerHTML = items.map((item) =>
-            `<div class=\"card\"><strong>${{item.summary}}</strong><br/><em>${{item.recommendation || ''}}</em><br/><small>${{item.timestamp || ''}} • ${{item.reference || ''}}</small></div>`
+            `<div class="card"><strong>${{item.summary}}</strong><br/><em>${{item.recommendation || ''}}</em><br/><small>${{item.timestamp || ''}} • ${{item.reference || ''}}</small></div>`
           ).join('');
         }}
 
@@ -1058,7 +1113,7 @@ def dashboard() -> HTMLResponse:
 
         const es = new EventSource('/events');
         es.onmessage = (ev) => {{
-          eventsEl.textContent += ev.data + "\\n";
+          eventsEl.textContent += ev.data + "\n";
           eventsEl.scrollTop = eventsEl.scrollHeight;
         }};
       </script>

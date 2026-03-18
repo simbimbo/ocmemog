@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import threading
 from typing import Any, Dict, List, Iterable
 
@@ -22,6 +23,9 @@ EMBEDDING_TABLES: tuple[str, ...] = (
 )
 _REBUILD_LOCK = threading.Lock()
 _WRITE_CHUNK_SIZE = 64
+_EMBEDDING_TEXT_LIMIT = 8000
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_WHITESPACE_RE = re.compile(r"\s+")
 
 
 def _ensure_vector_table(conn) -> None:
@@ -118,12 +122,23 @@ def _load_table_rows(table: str, *, limit: int | None = None, descending: bool =
     return [dict(row) for row in rows]
 
 
+def _embedding_input(text: str) -> str:
+    cleaned = _HTML_TAG_RE.sub(" ", text)
+    cleaned = _WHITESPACE_RE.sub(" ", cleaned).strip()
+    if len(cleaned) > 20000:
+        return cleaned[:2000]
+    if len(cleaned) > 12000:
+        return cleaned[:4000]
+    return cleaned[:_EMBEDDING_TEXT_LIMIT]
+
+
 def _prepare_embedding_rows(rows: Iterable[Dict[str, Any]], *, table: str) -> List[Dict[str, Any]]:
     prepared: List[Dict[str, Any]] = []
     for row in rows:
         content = str(row.get("content") or "")
         redacted_content, changed = redaction.redact_text(content)
-        embedding = embedding_engine.generate_embedding(redacted_content)
+        embedding_input = _embedding_input(redacted_content)
+        embedding = embedding_engine.generate_embedding(embedding_input)
         if not embedding:
             continue
         try:

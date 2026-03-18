@@ -50,11 +50,11 @@ def run_integrity_check() -> Dict[str, Any]:
 
     # duplicate promotions
     try:
-        dup = conn.execute(
-            "SELECT COUNT(*) FROM promotions GROUP BY source, content HAVING COUNT(*) > 1",
-        ).fetchone()
-        if dup:
-            issues.append("duplicate_promotions")
+        dup_groups = conn.execute(
+            "SELECT COUNT(*) FROM (SELECT 1 FROM promotions GROUP BY source, content HAVING COUNT(*) > 1)",
+        ).fetchone()[0]
+        if dup_groups:
+            issues.append(f"duplicate_promotions:{dup_groups}")
             emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_integrity_issue", status="warn")
     except Exception:
         pass

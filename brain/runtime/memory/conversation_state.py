@@ -111,6 +111,10 @@ def _checkpoint_summary_is_polluted(summary: str) -> bool:
         return True
     if '{ "label": "openclaw-tui' in text or '{"label":"openclaw-tui' in text:
         return True
+    if len(text) > 700:
+        return True
+    if "assistant committed:" in text and len(text) > 280:
+        return True
     return False
 
 

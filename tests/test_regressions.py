@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from unittest import mock
 
-from brain.runtime.memory import api, distill, embedding_engine, pondering_engine, promote, store, vector_index, unresolved_state
+from brain.runtime.memory import api, conversation_state, distill, embedding_engine, pondering_engine, promote, store, vector_index, unresolved_state
 from ocmemog.sidecar import app
 
 
@@ -770,6 +770,13 @@ class OcmemogRegressionTests(unittest.TestCase):
             conn.close()
         self.assertEqual(int(remaining), 0)
         self.assertEqual(int(bad_checkpoints), 0)
+
+    def test_checkpoint_summary_with_oversized_assistant_commitment_is_treated_as_polluted(self) -> None:
+        self.assertTrue(
+            conversation_state._checkpoint_summary_is_polluted(
+                "24 recent turns captured | user asked: ping | assistant committed: " + ("x" * 400)
+            )
+        )
 
     def test_vector_rebuild_does_not_break_mixed_conversation_flow(self) -> None:
         with mock.patch("brain.runtime.memory.embedding_engine.generate_embedding", side_effect=lambda text: [0.1, 0.2, float(len(text) % 7)]):

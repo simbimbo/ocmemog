@@ -14,6 +14,7 @@ INSTALL_PREREQS="${OCMEMOG_INSTALL_PREREQS:-false}"
 SKIP_PLUGIN_INSTALL="false"
 SKIP_LAUNCHAGENTS="false"
 SKIP_MODEL_PULLS="false"
+DRY_RUN="false"
 
 usage() {
   cat <<'EOF'
@@ -30,6 +31,7 @@ Options:
   --skip-plugin-install      Skip OpenClaw plugin install/enable.
   --skip-launchagents        Skip LaunchAgent install/load.
   --skip-model-pulls         Skip local Ollama model pulls.
+  --dry-run                  Print what would happen without making changes.
   --endpoint URL             Override sidecar endpoint (default: http://127.0.0.1:17890).
   --timeout-ms N             Override plugin timeout summary value (default: 30000).
   --repo-url URL             Override git clone/update source.
@@ -61,6 +63,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-model-pulls)
       SKIP_MODEL_PULLS="true"
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN="true"
       shift
       ;;
     --endpoint)
@@ -101,6 +107,16 @@ have() {
   command -v "$1" >/dev/null 2>&1
 }
 
+run_cmd() {
+  if [[ "$DRY_RUN" == "true" ]]; then
+    printf '[ocmemog-install] DRY RUN: '
+    printf '%q ' "$@"
+    printf '\n'
+    return 0
+  fi
+  "$@"
+}
+
 maybe_install_prereqs() {
   if [[ "$INSTALL_PREREQS" != "true" ]]; then
     return
@@ -111,11 +127,11 @@ maybe_install_prereqs() {
   fi
   if ! have ollama; then
     log "Installing Ollama via Homebrew"
-    brew install ollama || warn "brew install ollama failed"
+    run_cmd brew install ollama || warn "brew install ollama failed"
   fi
   if ! have ffmpeg; then
     log "Installing ffmpeg via Homebrew"
-    brew install ffmpeg || warn "brew install ffmpeg failed"
+    run_cmd brew install ffmpeg || warn "brew install ffmpeg failed"
   fi
 }
 
@@ -126,10 +142,10 @@ ensure_repo() {
   fi
   if [[ -d "$TARGET_DIR/.git" ]]; then
     log "Updating existing checkout at $TARGET_DIR"
-    git -C "$TARGET_DIR" pull --ff-only
+    run_cmd git -C "$TARGET_DIR" pull --ff-only
   else
     log "Cloning $REPO_URL to $TARGET_DIR"
-    git clone "$REPO_URL" "$TARGET_DIR"
+    run_cmd git clone "$REPO_URL" "$TARGET_DIR"
   fi
   ROOT_DIR="$TARGET_DIR"
 }
@@ -141,7 +157,11 @@ ensure_python() {
   fi
   if [[ ! -x "$ROOT_DIR/.venv/bin/python" ]]; then
     log "Creating virtualenv"
-    python3 -m venv "$ROOT_DIR/.venv"
+    run_cmd python3 -m venv "$ROOT_DIR/.venv"
+  fi
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log "Would install Python requirements into $ROOT_DIR/.venv"
+    return
   fi
   log "Installing Python requirements"
   "$ROOT_DIR/.venv/bin/python" -m pip install --upgrade pip setuptools wheel
@@ -158,6 +178,12 @@ install_plugin() {
     return
   fi
   log "Installing/enabling OpenClaw plugin if needed"
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log "Would attempt package install: openclaw plugins install $PLUGIN_PACKAGE"
+    log "Would fall back to local path install if needed: openclaw plugins install -l $ROOT_DIR"
+    log "Would enable plugin: openclaw plugins enable $PLUGIN_ID"
+    return
+  fi
   if openclaw plugins install "$PLUGIN_PACKAGE" >/dev/null 2>&1; then
     log "Installed plugin package $PLUGIN_PACKAGE"
   else
@@ -177,7 +203,7 @@ install_launchagents() {
     return
   fi
   log "Installing LaunchAgents"
-  "$ROOT_DIR/scripts/ocmemog-install.sh"
+  run_cmd "$ROOT_DIR/scripts/ocmemog-install.sh"
 }
 
 ensure_ollama_models() {
@@ -191,17 +217,21 @@ ensure_ollama_models() {
   fi
   if ! ollama list | rg -q "$(printf '%s' "$DEFAULT_OLLAMA_MODEL" | sed 's/:.*$//')"; then
     log "Pulling local model $DEFAULT_OLLAMA_MODEL"
-    ollama pull "$DEFAULT_OLLAMA_MODEL"
+    run_cmd ollama pull "$DEFAULT_OLLAMA_MODEL"
   fi
   if ! ollama list | rg -q "$(printf '%s' "$DEFAULT_OLLAMA_EMBED_MODEL" | sed 's/:.*$//')"; then
     log "Pulling local embed model $DEFAULT_OLLAMA_EMBED_MODEL"
-    ollama pull "$DEFAULT_OLLAMA_EMBED_MODEL"
+    run_cmd ollama pull "$DEFAULT_OLLAMA_EMBED_MODEL"
   fi
 }
 
 validate_install() {
   if ! have curl; then
     warn "curl not found; skipping health check"
+    return
+  fi
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log "Would validate sidecar health at $ENDPOINT/healthz"
     return
   fi
   log "Waiting for sidecar health check at $ENDPOINT/healthz"
@@ -228,6 +258,7 @@ ocmemog install summary
 - skip plugin install: $SKIP_PLUGIN_INSTALL
 - skip LaunchAgents: $SKIP_LAUNCHAGENTS
 - skip model pulls: $SKIP_MODEL_PULLS
+- dry run: $DRY_RUN
 
 Next checks:
 - openclaw plugins

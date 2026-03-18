@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TARGET_DIR="${1:-$ROOT_DIR}"
+TARGET_DIR="${ROOT_DIR}"
 REPO_URL="${OCMEMOG_REPO_URL:-https://github.com/simbimbo/ocmemog.git}"
 PLUGIN_PACKAGE="@openclaw/memory-ocmemog"
 PLUGIN_ID="memory-ocmemog"
@@ -11,6 +11,81 @@ TIMEOUT_MS="${OCMEMOG_TIMEOUT_MS:-30000}"
 DEFAULT_OLLAMA_MODEL="${OCMEMOG_OLLAMA_MODEL:-phi3:latest}"
 DEFAULT_OLLAMA_EMBED_MODEL="${OCMEMOG_OLLAMA_EMBED_MODEL:-nomic-embed-text:latest}"
 INSTALL_PREREQS="${OCMEMOG_INSTALL_PREREQS:-false}"
+SKIP_PLUGIN_INSTALL="false"
+SKIP_LAUNCHAGENTS="false"
+SKIP_MODEL_PULLS="false"
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/install-ocmemog.sh [target-dir] [options]
+
+Install/configure ocmemog for local OpenClaw use.
+
+Arguments:
+  target-dir                 Optional clone/update target directory.
+
+Options:
+  --help                     Show this help text.
+  --install-prereqs          Auto-install missing ollama/ffmpeg via Homebrew.
+  --skip-plugin-install      Skip OpenClaw plugin install/enable.
+  --skip-launchagents        Skip LaunchAgent install/load.
+  --skip-model-pulls         Skip local Ollama model pulls.
+  --endpoint URL             Override sidecar endpoint (default: http://127.0.0.1:17890).
+  --timeout-ms N             Override plugin timeout summary value (default: 30000).
+  --repo-url URL             Override git clone/update source.
+
+Environment:
+  OCMEMOG_INSTALL_PREREQS=true   Same as --install-prereqs.
+  OCMEMOG_OLLAMA_MODEL           Default local model to pull.
+  OCMEMOG_OLLAMA_EMBED_MODEL     Default local embedding model to pull.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --install-prereqs)
+      INSTALL_PREREQS="true"
+      shift
+      ;;
+    --skip-plugin-install)
+      SKIP_PLUGIN_INSTALL="true"
+      shift
+      ;;
+    --skip-launchagents)
+      SKIP_LAUNCHAGENTS="true"
+      shift
+      ;;
+    --skip-model-pulls)
+      SKIP_MODEL_PULLS="true"
+      shift
+      ;;
+    --endpoint)
+      ENDPOINT="$2"
+      shift 2
+      ;;
+    --timeout-ms)
+      TIMEOUT_MS="$2"
+      shift 2
+      ;;
+    --repo-url)
+      REPO_URL="$2"
+      shift 2
+      ;;
+    --*)
+      printf 'Unknown option: %s\n\n' "$1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      TARGET_DIR="$1"
+      shift
+      ;;
+  esac
+done
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
@@ -74,6 +149,10 @@ ensure_python() {
 }
 
 install_plugin() {
+  if [[ "$SKIP_PLUGIN_INSTALL" == "true" ]]; then
+    log "Skipping plugin install/enable by request"
+    return
+  fi
   if ! have openclaw; then
     warn "openclaw CLI not found; skipping plugin install/enable"
     return
@@ -89,6 +168,10 @@ install_plugin() {
 }
 
 install_launchagents() {
+  if [[ "$SKIP_LAUNCHAGENTS" == "true" ]]; then
+    log "Skipping LaunchAgent install/load by request"
+    return
+  fi
   if [[ ! -x "$ROOT_DIR/scripts/ocmemog-install.sh" ]]; then
     warn "LaunchAgent installer missing at scripts/ocmemog-install.sh"
     return
@@ -98,6 +181,10 @@ install_launchagents() {
 }
 
 ensure_ollama_models() {
+  if [[ "$SKIP_MODEL_PULLS" == "true" ]]; then
+    log "Skipping local model pulls by request"
+    return
+  fi
   if ! have ollama; then
     warn "Ollama not found. Install from https://ollama.com/download to enable local models."
     return
@@ -138,6 +225,9 @@ ocmemog install summary
 - local model: $DEFAULT_OLLAMA_MODEL
 - embed model: $DEFAULT_OLLAMA_EMBED_MODEL
 - install prereqs automatically: $INSTALL_PREREQS
+- skip plugin install: $SKIP_PLUGIN_INSTALL
+- skip LaunchAgents: $SKIP_LAUNCHAGENTS
+- skip model pulls: $SKIP_MODEL_PULLS
 
 Next checks:
 - openclaw plugins

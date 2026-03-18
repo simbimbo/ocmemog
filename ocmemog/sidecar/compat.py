@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -35,7 +36,8 @@ def probe_runtime() -> RuntimeStatus:
         except Exception as exc:
             missing_deps.append(f"{module_name}: {exc}")
 
-    if importlib.util.find_spec("sentence_transformers") is None:
+    provider = os.environ.get("BRAIN_EMBED_MODEL_PROVIDER", "").strip().lower()
+    if importlib.util.find_spec("sentence_transformers") is None and provider not in {"ollama", "openai", "openai_compatible", "openai-compatible", "local-ollama"}:
         warnings.append("Optional dependency missing: sentence-transformers; using local hash embeddings.")
 
     try:

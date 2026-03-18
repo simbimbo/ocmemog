@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.2 — 2026-03-17
+
+Continuity hydration hardening release.
+
+### Highlights
+- Prevented recursive re-ingest of auto-hydrated continuity wrappers into conversational state
+- Kept short confirmation replies like `ok`, `yes`, and `sure` compact in `latest_user_ask` / `latest_user_intent`
+- Changed hydration to prefer unresolved assistant commitments only
+- Ignored oversized/noisy checkpoint summaries during hydration selection
+- Normalized sender envelopes, reply tags, and polluted multi-timestamp wrapper text before they could pollute state
+- Added self-healing cleanup for legacy poisoned turns/checkpoints during refresh
+- Hardened `memory_links` unique-index setup against duplicate legacy rows
+- Added `.DS_Store` ignore hygiene for the repo
+
+### Included commits
+- `231cfcb` — fix: harden continuity hydration against recursive contamination
+- `3db6891` — fix: keep short reply intent compact in hydration state
+- `fe49663` — fix: prefer unresolved assistant commitments in hydration
+- `74a44fc` — fix: drop oversized checkpoint summaries from hydration
+- `4b89fc1` — chore: ignore macOS Finder metadata files
+
 ## 0.1.1 — 2026-03-16
 
 Publish-prep release.

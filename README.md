@@ -122,6 +122,19 @@ launchctl bootstrap gui/$UID scripts/launchagents/com.openclaw.ocmemog.ponder.pl
 launchctl bootstrap gui/$UID scripts/launchagents/com.openclaw.ocmemog.guard.plist
 ```
 
+## Recent changes
+
+### 0.1.2 (unreleased / current main)
+
+Continuity hydration hardening and prompt-quality improvements:
+- Prevent recursive re-ingest of auto-hydrated continuity wrappers
+- Keep short replies like `ok`, `yes`, and `sure` compact in hydration state
+- Prefer unresolved assistant commitments only
+- Ignore oversized/noisy checkpoint summaries during hydration
+- Normalize sender envelopes, reply tags, and polluted multi-timestamp wrapper text
+- Self-heal legacy poisoned continuity turns/checkpoints during refresh
+- Harden `memory_links` setup against duplicate legacy rows
+
 ## Release prep / publish
 
 Current intended ClawHub publish command:
@@ -153,7 +166,7 @@ plugins:
       enabled: true
       config:
         endpoint: http://127.0.0.1:17890
-        timeoutMs: 10000
+        timeoutMs: 30000
 ```
 
 Development install:

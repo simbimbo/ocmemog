@@ -102,17 +102,18 @@ def store_memory(
 def record_reinforcement(task_id: str, outcome: str, note: str, *, source_module: str | None = None) -> None:
     outcome = _sanitize(outcome)
     note = _sanitize(note)
+    memory_reference = f"reinforcement:{task_id or 'unknown'}:{source_module or 'unspecified'}"
     def _write() -> None:
         conn = store.connect()
         try:
             conn.execute(
-                "INSERT INTO experiences (task_id, outcome, reward_score, confidence, experience_type, source_module, schema_version) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (task_id, outcome, None, 1.0, "reinforcement", source_module, store.SCHEMA_VERSION),
+                "INSERT INTO experiences (task_id, outcome, reward_score, confidence, memory_reference, experience_type, source_module, schema_version) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (task_id, outcome, None, 1.0, memory_reference, "reinforcement", source_module, store.SCHEMA_VERSION),
             )
             conn.execute(
                 "INSERT INTO memory_events (event_type, source, details_json, schema_version) VALUES (?, ?, ?, ?)",
-                ("reinforcement_note", source_module, json.dumps({"task_id": task_id, "note": note}), store.SCHEMA_VERSION),
+                ("reinforcement_note", source_module, json.dumps({"task_id": task_id, "note": note, "memory_reference": memory_reference}), store.SCHEMA_VERSION),
             )
             conn.commit()
         finally:

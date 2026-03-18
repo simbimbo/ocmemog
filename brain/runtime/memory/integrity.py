@@ -66,6 +66,7 @@ def run_integrity_check() -> Dict[str, Any]:
         ).fetchone()[0]
         if missing_ref:
             issues.append(f"missing_memory_reference:{missing_ref}")
+            repairable.append("missing_memory_reference")
             emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_integrity_issue", status="warn")
     except Exception:
         pass
@@ -141,6 +142,7 @@ def repair_integrity() -> Dict[str, Any]:
     def _write() -> Dict[str, Any]:
         conn = store.connect()
         removed_orphans = 0
+        repaired_missing_refs = 0
         try:
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
             if "vector_embeddings" in tables:
@@ -158,8 +160,19 @@ def repair_integrity() -> Dict[str, Any]:
                         """,
                         (table,),
                     ).rowcount
+            if "experiences" in tables:
+                repaired_missing_refs += conn.execute(
+                    """
+                    UPDATE experiences
+                    SET memory_reference = 'legacy:' || COALESCE(experience_type, 'unknown') || ':' || id
+                    WHERE memory_reference IS NULL OR memory_reference = ''
+                    """
+                ).rowcount
             conn.commit()
-            return {"removed_orphan_vectors": int(removed_orphans)}
+            return {
+                "removed_orphan_vectors": int(removed_orphans),
+                "repaired_missing_memory_references": int(repaired_missing_refs),
+            }
         finally:
             conn.close()
 
@@ -167,4 +180,7 @@ def repair_integrity() -> Dict[str, Any]:
     if int(result.get("removed_orphan_vectors") or 0) > 0:
         repaired.append(f"vector_orphan:{int(result['removed_orphan_vectors'])}")
         emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_integrity_repair", status="ok", repaired="vector_orphan", count=int(result["removed_orphan_vectors"]))
+    if int(result.get("repaired_missing_memory_references") or 0) > 0:
+        repaired.append(f"missing_memory_reference:{int(result['repaired_missing_memory_references'])}")
+        emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_integrity_repair", status="ok", repaired="missing_memory_reference", count=int(result["repaired_missing_memory_references"]))
     return {"ok": True, "repaired": repaired, **result}

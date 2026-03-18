@@ -109,6 +109,12 @@ Optional target checkout directory:
 ./scripts/install-ocmemog.sh /custom/path/ocmemog
 ```
 
+Optional prereq auto-install on macOS/Homebrew systems:
+
+```bash
+OCMEMOG_INSTALL_PREREQS=true ./scripts/install-ocmemog.sh
+```
+
 This installer will try to:
 - clone/update the repo when a custom target directory is provided
 - create `.venv`
@@ -119,7 +125,8 @@ This installer will try to:
 - validate `/healthz`
 
 Notes:
-- If Ollama is not installed, the installer warns and continues; local model support will remain unavailable until Ollama is installed.
+- If `OCMEMOG_INSTALL_PREREQS=true` and Homebrew is present, the installer will try to install missing `ollama` and `ffmpeg` automatically.
+- If Ollama is not installed and prereq auto-install is off or unavailable, the installer warns and continues; local model support will remain unavailable until Ollama is installed.
 - If package install is unavailable in the local OpenClaw build, the installer falls back to local-path plugin install.
 
 ## LaunchAgents (macOS)

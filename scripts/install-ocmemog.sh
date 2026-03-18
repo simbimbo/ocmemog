@@ -10,6 +10,7 @@ ENDPOINT="${OCMEMOG_ENDPOINT:-http://127.0.0.1:17890}"
 TIMEOUT_MS="${OCMEMOG_TIMEOUT_MS:-30000}"
 DEFAULT_OLLAMA_MODEL="${OCMEMOG_OLLAMA_MODEL:-phi3:latest}"
 DEFAULT_OLLAMA_EMBED_MODEL="${OCMEMOG_OLLAMA_EMBED_MODEL:-nomic-embed-text:latest}"
+INSTALL_PREREQS="${OCMEMOG_INSTALL_PREREQS:-false}"
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
@@ -23,6 +24,24 @@ warn() {
 
 have() {
   command -v "$1" >/dev/null 2>&1
+}
+
+maybe_install_prereqs() {
+  if [[ "$INSTALL_PREREQS" != "true" ]]; then
+    return
+  fi
+  if ! have brew; then
+    warn "Homebrew not found; cannot auto-install prerequisites"
+    return
+  fi
+  if ! have ollama; then
+    log "Installing Ollama via Homebrew"
+    brew install ollama || warn "brew install ollama failed"
+  fi
+  if ! have ffmpeg; then
+    log "Installing ffmpeg via Homebrew"
+    brew install ffmpeg || warn "brew install ffmpeg failed"
+  fi
 }
 
 ensure_repo() {
@@ -118,6 +137,7 @@ ocmemog install summary
 - timeoutMs: $TIMEOUT_MS
 - local model: $DEFAULT_OLLAMA_MODEL
 - embed model: $DEFAULT_OLLAMA_EMBED_MODEL
+- install prereqs automatically: $INSTALL_PREREQS
 
 Next checks:
 - openclaw plugins
@@ -127,6 +147,7 @@ EOF
 }
 
 ensure_repo
+maybe_install_prereqs
 ensure_python
 install_plugin
 install_launchagents

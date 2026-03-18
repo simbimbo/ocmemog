@@ -82,6 +82,7 @@ Optional environment variables:
 - `OCMEMOG_TRANSCRIPT_WATCHER` (`true` to auto-start transcript watcher inside the sidecar)
 - `OCMEMOG_TRANSCRIPT_ROOTS` (comma-separated allowed roots for transcript context retrieval; default: `~/.openclaw/workspace/memory`)
 - `OCMEMOG_API_TOKEN` (optional; if set, requests must include `x-ocmemog-token` or `Authorization: Bearer ...`)
+- `OCMEMOG_AUTO_HYDRATION` (`true` to re-enable prompt-time continuity prepending; defaults to `false` as a safety guard until the host runtime is verified not to persist prepended context into session history)
 - `OCMEMOG_USE_OLLAMA` (`true` to use Ollama for distill/inference)
 - `OCMEMOG_OLLAMA_HOST` (default: `http://127.0.0.1:11434`)
 - `OCMEMOG_OLLAMA_MODEL` (default: `phi3:latest`)
@@ -152,23 +153,20 @@ launchctl bootstrap gui/$UID scripts/launchagents/com.openclaw.ocmemog.guard.pli
 
 ## Recent changes
 
-### 0.1.2 (unreleased / current main)
+### 0.1.3 (unreleased / current main)
 
-Continuity hydration hardening and prompt-quality improvements:
-- Prevent recursive re-ingest of auto-hydrated continuity wrappers
-- Keep short replies like `ok`, `yes`, and `sure` compact in hydration state
-- Prefer unresolved assistant commitments only
-- Ignore oversized/noisy checkpoint summaries during hydration
-- Normalize sender envelopes, reply tags, and polluted multi-timestamp wrapper text
-- Self-heal legacy poisoned continuity turns/checkpoints during refresh
-- Harden `memory_links` setup against duplicate legacy rows
+Runtime safety hardening for OpenClaw integration:
+- Make `before_message_write` ingest sync-safe for OpenClaw's synchronous hook contract
+- Default auto prompt hydration to opt-in via `OCMEMOG_AUTO_HYDRATION=true`
+- Keep the sidecar-backed memory backend active while preventing accidental prompt-wrapper bloat on unverified hosts
+- Preserve prior continuity self-healing and polluted-wrapper cleanup behavior
 
 ## Release prep / publish
 
 Current intended ClawHub publish command:
 
 ```bash
-clawhub publish . --slug memory-ocmemog --name "ocmemog" --version 0.1.2 --changelog "Continuity hydration hardening: recursive wrapper blocking, compact short-reply intent, unresolved-only commitments, checkpoint hygiene, and packaging/docs polish"
+clawhub publish . --slug memory-ocmemog --name "ocmemog" --version 0.1.3 --changelog "Runtime safety hardening: sync-safe OpenClaw turn ingest, auto-hydration opt-in guard, and continuity prompt-bloat prevention"
 ```
 
 ## Install from npm (after publish)

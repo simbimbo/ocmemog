@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.3 — 2026-03-18
+
+OpenClaw runtime safety hardening release.
+
+### Highlights
+- Made `before_message_write` continuity ingest sync-safe for OpenClaw's synchronous hook contract
+- Disabled automatic prompt hydration by default unless `OCMEMOG_AUTO_HYDRATION=true` is explicitly set
+- Kept sidecar-backed memory search/ingest/checkpoint flows active while guarding against context-window blowups from prepended continuity wrappers
+- Added startup logging so hosts can see when auto hydration is intentionally disabled
+
 ## 0.1.2 — 2026-03-17
 
 Continuity hydration hardening release.

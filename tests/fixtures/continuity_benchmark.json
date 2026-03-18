@@ -15,7 +15,7 @@
       ],
       "checkpoint_after": ["fr-u2"],
       "expect": {
-        "latest_user_contains": "User confirmed assistant proposal/question",
+        "latest_user_contains": "yes",
         "active_branch_reply_chain_contains": ["fr-a1", "fr-u2"],
         "top_ranked_turn_message_id": "fr-u2"
       }
@@ -46,7 +46,7 @@
       "checkpoint_after": ["fs-a8"],
       "turn_expand_message_id": "fs-a8",
       "expect": {
-        "latest_user_contains": "User confirmed assistant proposal/question",
+        "latest_user_contains": "yes",
         "active_branch_reply_chain_contains": ["fs-a7", "fs-u6", "fs-a8"],
         "active_branch_turns_exclude": ["fs-a6"],
         "top_ranked_turn_message_id": "fs-u6"

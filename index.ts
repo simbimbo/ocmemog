@@ -8,6 +8,10 @@ type PluginConfig = {
   timeoutMs: number;
 };
 
+const AUTO_HYDRATION_ENABLED = ["1", "true", "yes"].includes(
+  String(process.env.OCMEMOG_AUTO_HYDRATION ?? "false").trim().toLowerCase(),
+);
+
 type SearchResponse = {
   ok: boolean;
   mode?: string;
@@ -341,7 +345,7 @@ function buildTurnMetadata(message: unknown, ctx: { agentId?: string; sessionKey
 }
 
 function registerAutomaticContinuityHooks(api: OpenClawPluginApi, config: PluginConfig) {
-  api.on("before_message_write", async (event, ctx) => {
+  api.on("before_message_write", (event, ctx) => {
     try {
       const role = extractRole(event.message);
       if (role !== "user" && role !== "assistant") {
@@ -355,7 +359,7 @@ function registerAutomaticContinuityHooks(api: OpenClawPluginApi, config: Plugin
       if (!scope.session_id && !scope.thread_id && !scope.conversation_id) {
         return;
       }
-      await postJson<{ ok: boolean }>(config, "/conversation/ingest_turn", {
+      void postJson<{ ok: boolean }>(config, "/conversation/ingest_turn", {
         ...scope,
         role,
         content,
@@ -363,33 +367,44 @@ function registerAutomaticContinuityHooks(api: OpenClawPluginApi, config: Plugin
         timestamp: extractTimestamp(event.message),
         source: "openclaw.before_message_write",
         metadata: buildTurnMetadata(event.message, ctx),
+      }).catch((error) => {
+        api.logger.warn(`ocmemog continuity ingest failed: ${error instanceof Error ? error.message : String(error)}`);
       });
     } catch (error) {
-      api.logger.warn(`ocmemog continuity ingest failed: ${error instanceof Error ? error.message : String(error)}`);
+      api.logger.warn(`ocmemog continuity ingest scheduling failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   });
 
-  api.on("before_prompt_build", async (event, ctx) => {
-    try {
-      const scope = resolveHydrationScope(event.messages ?? [], ctx);
-      if (!scope.session_id && !scope.thread_id && !scope.conversation_id) {
+  // Safety default (2026-03-18): auto prompt hydration is opt-in.
+  // Rationale: continuity wrappers can contribute to prompt bloat/context-window
+  // failures if a host runtime persists prepended context into transcript history.
+  // Keep the memory backend and sidecar tools active, but only prepend continuity
+  // when explicitly enabled and after the host runtime has been validated.
+  if (AUTO_HYDRATION_ENABLED) {
+    api.on("before_prompt_build", async (event, ctx) => {
+      try {
+        const scope = resolveHydrationScope(event.messages ?? [], ctx);
+        if (!scope.session_id && !scope.thread_id && !scope.conversation_id) {
+          return;
+        }
+        const payload = await postJson<ConversationHydrateResponse>(config, "/conversation/hydrate", {
+          ...scope,
+          turns_limit: 4,
+          memory_limit: 3,
+        });
+        const prependContext = buildHydrationContext(payload);
+        if (!prependContext) {
+          return;
+        }
+        return { prependContext };
+      } catch (error) {
+        api.logger.warn(`ocmemog answer hydration failed: ${error instanceof Error ? error.message : String(error)}`);
         return;
       }
-      const payload = await postJson<ConversationHydrateResponse>(config, "/conversation/hydrate", {
-        ...scope,
-        turns_limit: 4,
-        memory_limit: 3,
-      });
-      const prependContext = buildHydrationContext(payload);
-      if (!prependContext) {
-        return;
-      }
-      return { prependContext };
-    } catch (error) {
-      api.logger.warn(`ocmemog answer hydration failed: ${error instanceof Error ? error.message : String(error)}`);
-      return;
-    }
-  });
+    });
+  } else {
+    api.logger.info("ocmemog auto prompt hydration disabled (set OCMEMOG_AUTO_HYDRATION=true to re-enable after validating host prompt behavior)");
+  }
 
   api.on("after_compaction", async (_event, ctx) => {
     try {

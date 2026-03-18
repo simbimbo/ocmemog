@@ -153,12 +153,13 @@ launchctl bootstrap gui/$UID scripts/launchagents/com.openclaw.ocmemog.guard.pli
 
 ## Recent changes
 
-### 0.1.3 (unreleased / current main)
+### 0.1.4 (unreleased / current main)
 
-Runtime safety hardening for OpenClaw integration:
+Package ownership + runtime safety release:
+- Publish package under `@simbimbo/memory-ocmemog` instead of the unauthorized `@openclaw` scope
+- Keep `memory-ocmemog` as the plugin id for OpenClaw config and enable flows
 - Make `before_message_write` ingest sync-safe for OpenClaw's synchronous hook contract
 - Default auto prompt hydration to opt-in via `OCMEMOG_AUTO_HYDRATION=true`
-- Keep the sidecar-backed memory backend active while preventing accidental prompt-wrapper bloat on unverified hosts
 - Preserve prior continuity self-healing and polluted-wrapper cleanup behavior
 
 ## Release prep / publish
@@ -166,13 +167,13 @@ Runtime safety hardening for OpenClaw integration:
 Current intended ClawHub publish command:
 
 ```bash
-clawhub publish . --slug memory-ocmemog --name "ocmemog" --version 0.1.3 --changelog "Runtime safety hardening: sync-safe OpenClaw turn ingest, auto-hydration opt-in guard, and continuity prompt-bloat prevention"
+clawhub publish . --slug memory-ocmemog --name "ocmemog" --version 0.1.4 --changelog "Package ownership fix: publish under @simbimbo scope plus runtime safety hardening for sync-safe ingest and auto-hydration guard"
 ```
 
 ## Install from npm (after publish)
 
 ```bash
-openclaw plugins install @openclaw/memory-ocmemog
+openclaw plugins install @simbimbo/memory-ocmemog
 openclaw plugins enable memory-ocmemog
 ```
 

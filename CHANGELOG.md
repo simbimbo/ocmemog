@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.4 — 2026-03-18
+
+Package ownership + runtime safety release.
+
+### Highlights
+- Renamed npm package to `@simbimbo/memory-ocmemog` so it can be published under Steven's own npm scope
+- Updated installer/docs to use the `@simbimbo` package while keeping plugin id `memory-ocmemog` unchanged
+- Preserved the OpenClaw runtime safety hardening from 0.1.3 (sync-safe ingest + auto-hydration opt-in guard)
+
 ## 0.1.3 — 2026-03-18
 
 OpenClaw runtime safety hardening release.

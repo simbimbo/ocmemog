@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET_DIR="${ROOT_DIR}"
 REPO_URL="${OCMEMOG_REPO_URL:-https://github.com/simbimbo/ocmemog.git}"
-PLUGIN_PACKAGE="@openclaw/memory-ocmemog"
+PLUGIN_PACKAGE="@simbimbo/memory-ocmemog"
 PLUGIN_ID="memory-ocmemog"
 ENDPOINT="${OCMEMOG_ENDPOINT:-http://127.0.0.1:17890}"
 TIMEOUT_MS="${OCMEMOG_TIMEOUT_MS:-30000}"

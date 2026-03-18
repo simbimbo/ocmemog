@@ -140,7 +140,7 @@ Continuity hydration hardening and prompt-quality improvements:
 Current intended ClawHub publish command:
 
 ```bash
-clawhub publish . --slug memory-ocmemog --name "ocmemog" --version 0.1.1 --changelog "Initial public release: durable memory, transcript-backed continuity, packaging cleanup, and publish-ready metadata"
+clawhub publish . --slug memory-ocmemog --name "ocmemog" --version 0.1.2 --changelog "Continuity hydration hardening: recursive wrapper blocking, compact short-reply intent, unresolved-only commitments, checkpoint hygiene, and packaging/docs polish"
 ```
 
 ## Install from npm (after publish)

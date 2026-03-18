@@ -1,6 +1,6 @@
 {
   "name": "@openclaw/memory-ocmemog",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Advanced OpenClaw memory plugin with durable recall, transcript-backed continuity, and sidecar APIs",
   "license": "MIT",
   "repository": {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -134,11 +135,17 @@ def _embedding_input(text: str) -> str:
 
 def _prepare_embedding_rows(rows: Iterable[Dict[str, Any]], *, table: str) -> List[Dict[str, Any]]:
     prepared: List[Dict[str, Any]] = []
+    embedding_cache: Dict[str, List[float] | None] = {}
     for row in rows:
         content = str(row.get("content") or "")
         redacted_content, changed = redaction.redact_text(content)
         embedding_input = _embedding_input(redacted_content)
-        embedding = embedding_engine.generate_embedding(embedding_input)
+        cache_key = hashlib.sha256(embedding_input.encode("utf-8", errors="ignore")).hexdigest()
+        if cache_key in embedding_cache:
+            embedding = embedding_cache[cache_key]
+        else:
+            embedding = embedding_engine.generate_embedding(embedding_input)
+            embedding_cache[cache_key] = embedding
         if not embedding:
             continue
         try:

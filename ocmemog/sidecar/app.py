@@ -34,6 +34,32 @@ QUEUE_STATS = {
 }
 
 
+def _queue_stats_path() -> Path:
+    path = state_store.data_dir() / "queue_stats.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _load_queue_stats() -> None:
+    path = _queue_stats_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    if not isinstance(data, dict):
+        return
+    for key in list(QUEUE_STATS.keys()):
+        if key in data:
+            QUEUE_STATS[key] = data[key]
+
+
+def _save_queue_stats() -> None:
+    path = _queue_stats_path()
+    tmp = path.with_suffix('.tmp')
+    tmp.write_text(json.dumps(QUEUE_STATS, indent=2, sort_keys=True), encoding='utf-8')
+    tmp.replace(path)
+
+
 @app.middleware("http")
 async def _auth_middleware(request: Request, call_next):
     if API_TOKEN:
@@ -177,6 +203,7 @@ def _process_queue(limit: Optional[int] = None) -> Dict[str, Any]:
         QUEUE_STATS["errors"] += errors
     if last_error:
         QUEUE_STATS["last_error"] = last_error
+    _save_queue_stats()
     return {"processed": processed, "errors": errors, "last_error": last_error}
 
 
@@ -761,11 +788,19 @@ def memory_ponder_latest(limit: int = 5) -> dict[str, Any]:
             meta = json.loads(row["metadata_json"] or "{}")
         except Exception:
             meta = {}
+        content = str(row["content"] or "")
+        summary = content
+        recommendation = meta.get("recommendation")
+        if "\nRecommendation:" in content:
+            summary, _, tail = content.partition("\nRecommendation:")
+            summary = summary.strip()
+            if not recommendation:
+                recommendation = tail.strip()
         items.append({
             "reference": f"reflections:{row['id']}",
             "timestamp": row["timestamp"],
-            "summary": row["content"],
-            "recommendation": meta.get("recommendation"),
+            "summary": summary,
+            "recommendation": recommendation,
             "source_reference": meta.get("source_reference") or ((meta.get("provenance") or {}).get("source_reference") if isinstance(meta.get("provenance"), dict) else None),
             "provenance": provenance.preview_from_metadata(meta),
         })

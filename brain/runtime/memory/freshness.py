@@ -12,6 +12,29 @@ DEFAULT_CONFIDENCE_THRESHOLD = 0.6
 DEFAULT_LIMIT = 25
 
 
+_BAD_SUMMARY_PREFIXES = (
+    "promoted",
+    "candidate_promoted",
+    "no local memory summary available",
+    "summary",
+)
+
+
+def _summary_from_content(content: Any, limit: int = 120) -> str:
+    text = str(content or "").strip()
+    if not text:
+        return "(empty memory content)"
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for line in lines:
+        lowered = line.lower()
+        if lowered in _BAD_SUMMARY_PREFIXES:
+            continue
+        if any(lowered.startswith(prefix + ":") for prefix in _BAD_SUMMARY_PREFIXES):
+            continue
+        return line[:limit]
+    return "(needs summary cleanup)"
+
+
 def scan_freshness(
     stale_days: int = DEFAULT_STALE_DAYS,
     confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
@@ -66,7 +89,7 @@ def scan_freshness(
                 "memory_id": row["id"],
                 "timestamp": row["timestamp"],
                 "confidence": confidence,
-                "summary": str(row["content"])[:120],
+                "summary": _summary_from_content(row["content"]),
                 "freshness_score": round(freshness_score, 3),
                 "refresh_recommended": refresh_recommended,
             }

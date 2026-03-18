@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+Repair and hardening follow-up after the 0.1.4 publish.
+
+### Highlights
+- Fixed vector reindex defaults so repair scripts use provider-backed Ollama embeddings instead of silently rebuilding weak local/hash vectors
+- Added battery-aware sidecar defaults for macOS laptops (`OCMEMOG_LAPTOP_MODE=auto|ac|battery`)
+- Fixed `record_reinforcement()` so new experiences preserve `memory_reference`, and added integrity repair to backfill legacy missing references
+- Added incremental vector backfill tooling (`scripts/ocmemog-backfill-vectors.py`) for non-destructive backlog repair
+- Cleaned freshness summaries so junk placeholders (`promoted`, `summary`, `No local memory summary available`) do not pollute advisories
+- Improved integrity reporting to count duplicate promotion groups accurately
+
+### Notes
+- Historical vector backlog still exists and should be burned down in staged backfills, especially for `knowledge`
+- Detailed repair notes: `docs/notes/2026-03-18-memory-repair-and-backfill.md`
+
 ## 0.1.4 — 2026-03-18
 
 Package ownership + runtime safety release.

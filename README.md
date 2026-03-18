@@ -97,16 +97,30 @@ Optional environment variables:
 - Sidecar binds to **127.0.0.1** by default. Keep it local unless you add auth + firewall rules.
 - If you expose the sidecar, set `OCMEMOG_API_TOKEN` and pass the header `x-ocmemog-token`.
 
-## One‑shot installer (macOS)
+## One‑shot installer (macOS / local dev)
 
 ```bash
-./scripts/ocmemog-install.sh
+./scripts/install-ocmemog.sh
 ```
 
-This will:
-- install LaunchAgents
-- start sidecar + guard + hourly ponder
-- prompt for Ollama install and pull required models
+Optional target checkout directory:
+
+```bash
+./scripts/install-ocmemog.sh /custom/path/ocmemog
+```
+
+This installer will try to:
+- clone/update the repo when a custom target directory is provided
+- create `.venv`
+- install Python requirements
+- install/enable the OpenClaw plugin when the `openclaw` CLI is available
+- install/load LaunchAgents via `scripts/ocmemog-install.sh`
+- pull required local Ollama models when Ollama is already installed
+- validate `/healthz`
+
+Notes:
+- If Ollama is not installed, the installer warns and continues; local model support will remain unavailable until Ollama is installed.
+- If package install is unavailable in the local OpenClaw build, the installer falls back to local-path plugin install.
 
 ## LaunchAgents (macOS)
 

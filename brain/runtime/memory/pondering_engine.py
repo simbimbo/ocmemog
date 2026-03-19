@@ -297,6 +297,8 @@ def _refine_unresolved_summary(summary: str, reference: str = "") -> str:
     raw = _heuristic_summary(summary, limit=500)
     if not _needs_unresolved_refine(raw):
         return _heuristic_summary(raw)
+    if raw and not raw.startswith(("#", "*", "1)", "2)", "TODO:")) and len(raw.split()) >= 5:
+        return _heuristic_summary(raw, limit=180)
     prompt = (
         "Rewrite this unresolved item as one concise actionable unresolved summary. "
         "Keep it under 180 characters. Focus on the decision, blocker, or next action. "

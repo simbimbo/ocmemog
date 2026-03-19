@@ -35,10 +35,24 @@ def _heuristic_queries(prompt: str, limit: int = 3) -> List[str]:
     return deduped
 
 
+def _should_skip_query_grooming(prompt: str) -> bool:
+    cleaned = re.sub(r"\s+", " ", prompt or "").strip()
+    if not cleaned:
+        return True
+    if len(cleaned) <= 32 and ',' not in cleaned and ' and ' not in cleaned.lower():
+        return True
+    words = cleaned.split()
+    if 1 <= len(words) <= 5 and all(len(w) >= 3 for w in words):
+        return True
+    return False
+
+
 def _groom_queries(prompt: str, limit: int = 3) -> List[str]:
     cleaned = re.sub(r"\s+", " ", prompt or "").strip()
     if not cleaned:
         return []
+    if _should_skip_query_grooming(cleaned):
+        return _heuristic_queries(cleaned, limit=limit)
     model = os.environ.get("OCMEMOG_PONDER_MODEL", "qwen2.5:7b")
     ask = (
         "Rewrite this raw memory request into up to 3 short search queries. "

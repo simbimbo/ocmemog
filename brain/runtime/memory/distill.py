@@ -24,7 +24,18 @@ def _heuristic_summary(text: str) -> str:
     return lines[0][:240]
 
 
+def _should_skip_local_distill(text: str) -> bool:
+    cleaned = _normalize(text)
+    if not cleaned or len(cleaned) < 24:
+        return True
+    if cleaned in {"ok", "okay", "done", "fixed", "working", "success", "positive feedback"}:
+        return True
+    return False
+
+
 def _local_distill_summary(text: str) -> str:
+    if _should_skip_local_distill(text):
+        return ""
     prompt = (
         "Distill this experience into one concise operational summary. "
         "Prefer concrete cause/effect, decision, or reusable takeaway. "

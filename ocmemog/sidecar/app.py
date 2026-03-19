@@ -1129,6 +1129,16 @@ def dashboard() -> HTMLResponse:
             {"label": "vector_index_coverage", "value": metrics_payload.get("vector_index_coverage", 0)},
         ]
     )
+    local_inference = metrics_payload.get("local_inference") or {}
+    metrics_cards.extend(
+        [
+            {"label": "local_cache_hits", "value": local_inference.get("cache_hits", 0)},
+            {"label": "local_warm_calls", "value": local_inference.get("warm_calls", 0)},
+            {"label": "local_cold_calls", "value": local_inference.get("cold_calls", 0)},
+            {"label": "local_success", "value": local_inference.get("local_success", 0)},
+            {"label": "local_errors", "value": local_inference.get("local_errors", 0)},
+        ]
+    )
     metrics_html = "".join(
         f"<div class='card'><strong>{card['label']}</strong><br/>{card['value']}</div>" for card in metrics_cards
     )

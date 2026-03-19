@@ -44,6 +44,14 @@ def _looks_like_ollama_model(name: str) -> bool:
     return ":" in lowered
 
 
+def stats() -> dict[str, object]:
+    return {
+        "cache_entries": len(_LOCAL_INFER_CACHE),
+        "warm_models": sorted(_MODEL_WARM_STATE.keys()),
+        **{k: int(v) for k, v in _LOCAL_INFER_STATS.items()},
+    }
+
+
 def infer(prompt: str, provider_name: str | None = None) -> dict[str, str]:
     if not isinstance(prompt, str) or not prompt.strip():
         return {"status": "error", "error": "empty_prompt"}

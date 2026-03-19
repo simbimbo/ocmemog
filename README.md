@@ -86,12 +86,12 @@ Optional environment variables:
 - `OCMEMOG_LAPTOP_MODE` (`auto` by default; on macOS battery power this slows watcher polling, reduces ingest batch size, and disables sentiment reinforcement unless explicitly overridden)
 - `OCMEMOG_USE_OLLAMA` (`true` to use Ollama for distill/inference)
 - `OCMEMOG_OLLAMA_HOST` (default: `http://127.0.0.1:11434`)
-- `OCMEMOG_OLLAMA_MODEL` (default: `phi3:latest`)
+- `OCMEMOG_OLLAMA_MODEL` (default: `phi3:latest`; lightweight local fallback / cheap cognition)
 - `OCMEMOG_OLLAMA_EMBED_MODEL` (default: `nomic-embed-text:latest`)
 - `OCMEMOG_PROMOTION_THRESHOLD` (default: `0.5`)
 - `OCMEMOG_DEMOTION_THRESHOLD` (default: `0.2`)
 - `OCMEMOG_PONDER_ENABLED` (default: `true`)
-- `OCMEMOG_PONDER_MODEL` (default: `OCMEMOG_MEMORY_MODEL`)
+- `OCMEMOG_PONDER_MODEL` (default via launcher: `qwen2.5:7b`; recommended for structured local memory refinement)
 - `OCMEMOG_LESSON_MINING_ENABLED` (default: `true`)
 
 ## Security

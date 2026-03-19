@@ -261,6 +261,58 @@ def _heuristic_summary(text: str, limit: int = 220) -> str:
     return f"{collapsed[: limit - 1].rstrip()}…"
 
 
+def _needs_unresolved_refine(summary: str) -> bool:
+    text = (summary or "").strip().lower()
+    if not text:
+        return True
+    if text.startswith(("## ", "### ", "1)", "2)", "- ", "* ")):
+        return True
+    trigger_phrases = (
+        "next steps",
+        "open questions",
+        "recommended next action",
+        "current status",
+        "quick recap",
+        "paused",
+        "todo:",
+    )
+    return any(phrase in text for phrase in trigger_phrases)
+
+
+def _heuristic_unresolved_rewrite(raw: str) -> str:
+    text = _heuristic_summary(raw, limit=500).strip()
+    lowered = text.lower()
+    text = re.sub(r"^(##+\s*|\*\*|\d+\)\s*)", "", text).strip("* ")
+    if lowered.startswith("todo:"):
+        body = text.split(":", 1)[1].strip() if ":" in text else text[5:].strip()
+        return _heuristic_summary(f"Outstanding task: {body}", limit=180)
+    if "next steps / open questions" in lowered or "current status / next steps" in lowered or "recommended next action" in lowered:
+        return "Review the linked note and extract the concrete pending decision or next action."
+    if lowered.startswith("paused"):
+        return "Resume the paused work from its saved checkpoint and confirm the next concrete action."
+    return _heuristic_summary(text, limit=180)
+
+
+def _refine_unresolved_summary(summary: str, reference: str = "") -> str:
+    raw = _heuristic_summary(summary, limit=500)
+    if not _needs_unresolved_refine(raw):
+        return _heuristic_summary(raw)
+    prompt = (
+        "Rewrite this unresolved item as one concise actionable unresolved summary. "
+        "Keep it under 180 characters. Focus on the decision, blocker, or next action. "
+        "Do not use markdown headings or numbering.\n\n"
+        f"Reference: {reference}\n"
+        f"Unresolved item: {raw}\n\n"
+        "Summary:"
+    )
+    result = _infer_with_timeout(prompt)
+    output = str(result.get("output") or "").strip()
+    cleaned = _SUMMARY_PREFIX_RE.sub("", output).strip()
+    if cleaned and len(cleaned) >= 12 and cleaned.lower() != raw.lower() and not _needs_unresolved_refine(cleaned):
+        return _heuristic_summary(cleaned, limit=180)
+    return _heuristic_unresolved_rewrite(raw)
+
+
 def _heuristic_ponder(record: Dict[str, object]) -> Dict[str, str]:
     text = str(record.get("content") or "").strip()
     reference = str(record.get("reference") or "")
@@ -463,10 +515,11 @@ def run_ponder_cycle(max_items: int = 5) -> Dict[str, object]:
 
     insights: List[Dict[str, object]] = []
     for item in unresolved[:max_items]:
-        summary = str(item.get("summary") or "").strip()
-        if not summary:
+        raw_summary = str(item.get("summary") or "").strip()
+        if not raw_summary:
             continue
         source_reference = str(item.get("reference") or "") or str(item.get("target_reference") or "")
+        summary = _refine_unresolved_summary(raw_summary, source_reference)
         reflection_ref = _store_reflection(
             f"Unresolved state remains active: {summary}",
             source_reference=source_reference or "unresolved_state",

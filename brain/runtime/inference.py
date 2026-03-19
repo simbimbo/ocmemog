@@ -33,13 +33,24 @@ def _infer_ollama(prompt: str, model: str | None = None) -> dict[str, str]:
     return {"status": "ok", "output": str(output).strip()}
 
 
+def _looks_like_ollama_model(name: str) -> bool:
+    if not name:
+        return False
+    lowered = name.strip().lower()
+    if lowered.startswith("ollama:"):
+        return True
+    if "/" in lowered:
+        return False
+    return ":" in lowered
+
+
 def infer(prompt: str, provider_name: str | None = None) -> dict[str, str]:
     if not isinstance(prompt, str) or not prompt.strip():
         return {"status": "error", "error": "empty_prompt"}
 
     use_ollama = os.environ.get("OCMEMOG_USE_OLLAMA", "").lower() in {"1", "true", "yes"}
     model_override = provider_name or config.OCMEMOG_MEMORY_MODEL
-    if use_ollama or model_override.startswith("ollama:"):
+    if use_ollama or _looks_like_ollama_model(model_override):
         model = model_override.split(":", 1)[-1] if model_override.startswith("ollama:") else model_override
         return _infer_ollama(prompt, model)
 

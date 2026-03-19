@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Dict, Any, List
 
@@ -21,6 +22,72 @@ def _heuristic_summary(text: str) -> str:
     if not lines:
         return ""
     return lines[0][:240]
+
+
+def _local_distill_summary(text: str) -> str:
+    prompt = (
+        "Distill this experience into one concise operational summary. "
+        "Prefer concrete cause/effect, decision, or reusable takeaway. "
+        "Keep it under 220 characters. Return NONE if there is no meaningful takeaway.\n\n"
+        f"Experience:\n{text}\n\n"
+        "Summary:"
+    )
+    model = os.environ.get("OCMEMOG_PONDER_MODEL", "qwen2.5:7b")
+    try:
+        result = inference.infer(prompt, provider_name=model)
+    except Exception:
+        return ""
+    if result.get("status") != "ok":
+        return ""
+    output = str(result.get("output", "")).strip()
+    output = re.sub(r"^(Summary|Sentence|Lesson):\s*", "", output, flags=re.IGNORECASE).strip()
+    if not output or output.upper().startswith("NONE"):
+        return ""
+    return output[:240]
+
+
+def _frontier_distill_summary(text: str) -> str:
+    try:
+        model = model_roles.get_model_for_role("memory")
+        result = inference.infer(
+            f"Distill this experience into a concise summary:\n\n{text}".strip(),
+            provider_name=model,
+        )
+        if result.get("status") == "ok":
+            return str(result.get("output", "")).strip()[:240]
+    except Exception:
+        return ""
+    return ""
+
+
+def _needs_frontier_refine(summary: str, source: str) -> bool:
+    if not summary:
+        return True
+    lowered = summary.lower().strip()
+    if lowered.startswith(("be ", "always ", "remember ", "good job", "be careful")):
+        return True
+    if len(summary) < 24:
+        return True
+    if len(summary) > len(source):
+        return True
+    if _normalize(summary) == _normalize(_heuristic_summary(source)):
+        return True
+    return False
+
+
+def _reject_distilled_summary(summary: str, source: str) -> bool:
+    lowered = _normalize(summary)
+    if not lowered:
+        return True
+    if lowered in {"ok", "okay", "done", "fixed", "working", "positive feedback", "success", "passed"}:
+        return True
+    if len(lowered) < 16:
+        return True
+    if lowered.startswith(("good job", "be proactive", "be thorough", "always check", "always remember")):
+        return True
+    if source and lowered == _normalize(source):
+        return True
+    return False
 
 
 def _verification_points(text: str) -> List[str]:
@@ -81,23 +148,21 @@ def distill_experiences(limit: int = 10) -> List[Dict[str, Any]]:
             experience_metadata = {}
         content, _ = redaction.redact_text(content)
 
-        summary = ""
-        try:
-            model = model_roles.get_model_for_role("memory")
-            result = inference.infer(
-                f"Distill this experience into a concise summary:\n\n{content}".strip(),
-                provider_name=model,
-            )
-            if result.get("status") == "ok":
-                summary = str(result.get("output", "")).strip()
-        except Exception:
-            summary = ""
+        heuristic_summary = _heuristic_summary(content)
+        summary = _local_distill_summary(content)
+        if _needs_frontier_refine(summary, content):
+            refined = _frontier_distill_summary(content)
+            if refined:
+                summary = refined
 
         if not summary or len(summary) > len(content):
-            summary = _heuristic_summary(content)
+            summary = heuristic_summary
 
         summary, _ = redaction.redact_text(summary)
         norm = _normalize(summary)
+        if _reject_distilled_summary(summary, content):
+            emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_rejected", status="ok")
+            continue
         if not norm or norm in seen:
             emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_rejected", status="ok")
             continue
@@ -153,8 +218,17 @@ def distill_artifact(artifact: Dict[str, Any]) -> List[Dict[str, Any]]:
         return []
 
     text, _ = redaction.redact_text(text)
-    summary = _heuristic_summary(text)
+    summary = _local_distill_summary(text)
+    if _needs_frontier_refine(summary, text):
+        refined = _frontier_distill_summary(text)
+        if refined:
+            summary = refined
+    if not summary or len(summary) > len(text):
+        summary = _heuristic_summary(text)
     summary, _ = redaction.redact_text(summary)
+    if _reject_distilled_summary(summary, text):
+        emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_rejected", status="ok")
+        return []
     norm = _normalize(summary)
     if not norm:
         emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_rejected", status="ok")
@@ -167,6 +241,64 @@ def distill_artifact(artifact: Dict[str, Any]) -> List[Dict[str, Any]]:
     if score <= 0.1:
         emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_rejected", status="ok")
         return []
+
+    candidate_metadata = provenance.normalize_metadata(
+        {
+            "compression_ratio": round(ratio, 3),
+            "artifact_id": artifact.get("artifact_id"),
+            "derived_via": "artifact_distill",
+            "kind": "distilled_candidate",
+            "source_labels": ["artifact"],
+        }
+    )
+    candidate_result = candidate.create_candidate(
+        source_event_id=0,
+        distilled_summary=summary,
+        verification_points=verification,
+        confidence_score=score,
+        metadata=candidate_metadata,
+    )
+
+    emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_success", status="ok")
+    return [{
+        "source_event_id": 0,
+        "distilled_summary": summary,
+        "verification_points": verification,
+        "confidence_score": score,
+        "compression_ratio": round(ratio, 3),
+        "candidate_id": candidate_result.get("candidate_id"),
+        "duplicate": candidate_result.get("duplicate"),
+        "provenance": provenance.preview_from_metadata(candidate_metadata),
+    }]
+
+    candidate_metadata = provenance.normalize_metadata(
+        {
+            "compression_ratio": round(ratio, 3),
+            "artifact_id": artifact.get("artifact_id"),
+            "derived_via": "artifact_distill",
+            "kind": "distilled_candidate",
+            "source_labels": ["artifact"],
+        }
+    )
+    candidate_result = candidate.create_candidate(
+        source_event_id=0,
+        distilled_summary=summary,
+        verification_points=verification,
+        confidence_score=score,
+        metadata=candidate_metadata,
+    )
+
+    emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_success", status="ok")
+    return [{
+        "source_event_id": 0,
+        "distilled_summary": summary,
+        "verification_points": verification,
+        "confidence_score": score,
+        "compression_ratio": round(ratio, 3),
+        "candidate_id": candidate_result.get("candidate_id"),
+        "duplicate": candidate_result.get("duplicate"),
+        "provenance": provenance.preview_from_metadata(candidate_metadata),
+    }]
 
     candidate_metadata = provenance.normalize_metadata(
         {

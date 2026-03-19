@@ -5,7 +5,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/simbimbo/ocmemog.git"
+    "url": "git+https://github.com/simbimbo/ocmemog.git"
   },
   "homepage": "https://github.com/simbimbo/ocmemog",
   "keywords": [

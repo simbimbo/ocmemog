@@ -19,7 +19,7 @@ from ocmemog.sidecar.transcript_watcher import watch_forever
 
 DEFAULT_CATEGORIES = ("knowledge", "reflections", "directives", "tasks", "runbooks", "lessons")
 
-app = FastAPI(title="ocmemog sidecar", version="0.1.7")
+app = FastAPI(title="ocmemog sidecar", version="0.1.8")
 
 API_TOKEN = os.environ.get("OCMEMOG_API_TOKEN")
 

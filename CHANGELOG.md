@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.8 — 2026-03-19
+
+Documentation and release follow-through after the llama.cpp migration and repo grooming pass.
+
+### Highlights
+- documented the stable local runtime architecture (gateway/sidecar/text/embed split)
+- published the repo in a llama.cpp-first state with fixed ports and cleaned installers/scripts
+- kept compatibility hooks only where still useful instead of leaving Ollama as the implied primary path
+
 ## 0.1.7 — 2026-03-19
 
 llama.cpp-first cleanup after the 0.1.6 runtime cutover.

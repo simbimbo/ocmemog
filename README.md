@@ -14,6 +14,9 @@ Architecture at a glance:
 - **FastAPI sidecar (`ocmemog/sidecar/`)** exposes memory and continuity APIs
 - **SQLite-backed runtime (`brain/runtime/memory/`)** powers storage, hydration, checkpoints, salience ranking, and pondering
 
+Current local runtime architecture note:
+- `docs/architecture/local-runtime-2026-03-19.md`
+
 ## Repo layout
 
 - `openclaw.plugin.json`, `index.ts`, `package.json`: OpenClaw plugin package and manifest.

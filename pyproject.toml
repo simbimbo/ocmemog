@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ocmemog-sidecar"
-version = "0.1.7"
+version = "0.1.8"
 description = "FastAPI sidecar for the ocmemog OpenClaw memory plugin"
 requires-python = ">=3.9"
 dependencies = [

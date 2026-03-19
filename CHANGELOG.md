@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.10 — 2026-03-19
+
+Release alignment follow-up.
+
+### Highlights
+- normalized npm repository metadata to the canonical `git+https` form
+- aligned repo `main`, git tag/release, and npm package version after the 0.1.9 publish
+
 ## 0.1.9 — 2026-03-19
 
 Memory quality, governance, and review release.

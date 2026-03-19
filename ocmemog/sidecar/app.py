@@ -415,7 +415,38 @@ def _fallback_search(query: str, limit: int, categories: List[str]) -> List[Dict
         conn.close()
 
 
+_ALLOWED_MEMORY_REFERENCE_TYPES = {
+    "knowledge",
+    "reflections",
+    "directives",
+    "tasks",
+    "runbooks",
+    "lessons",
+    "conversation_turns",
+    "conversation_checkpoints",
+}
+
+
+def _parse_reference(reference: str) -> tuple[str, str] | None:
+    if not isinstance(reference, str) or ":" not in reference:
+        return None
+    prefix, identifier = reference.split(":", 1)
+    prefix = prefix.strip()
+    identifier = identifier.strip()
+    if not prefix or not identifier:
+        return None
+    return prefix, identifier
+
+
 def _get_row(reference: str) -> Optional[Dict[str, Any]]:
+    parsed = _parse_reference(reference)
+    if not parsed:
+        return None
+    prefix, identifier = parsed
+    if prefix not in _ALLOWED_MEMORY_REFERENCE_TYPES:
+        return None
+    if prefix in {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons", "conversation_turns", "conversation_checkpoints"} and not identifier.isdigit():
+        return None
     return provenance.hydrate_reference(reference, depth=2)
 
 
@@ -568,11 +599,38 @@ def memory_search(request: SearchRequest) -> dict[str, Any]:
 @app.post("/memory/get")
 def memory_get(request: GetRequest) -> dict[str, Any]:
     runtime = _runtime_payload()
-    row = _get_row(request.reference)
+    parsed = _parse_reference(request.reference)
+    if not parsed:
+        return {
+            "ok": False,
+            "error": "invalid_reference",
+            "message": "Reference must be in the form type:id",
+            "reference": request.reference,
+            **runtime,
+        }
+    prefix, identifier = parsed
+    if prefix not in _ALLOWED_MEMORY_REFERENCE_TYPES:
+        return {
+            "ok": False,
+            "error": "unsupported_reference_type",
+            "message": f"Unsupported memory reference type: {prefix}",
+            "reference": request.reference,
+            **runtime,
+        }
+    if prefix in {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons", "conversation_turns", "conversation_checkpoints"} and not identifier.isdigit():
+        return {
+            "ok": False,
+            "error": "invalid_reference_id",
+            "message": f"Reference id for {prefix} must be numeric",
+            "reference": request.reference,
+            **runtime,
+        }
+    row = provenance.hydrate_reference(request.reference, depth=2)
     if row is None:
         return {
             "ok": False,
-            "error": "TODO: memory reference was not found or is not yet supported by the sidecar.",
+            "error": "reference_not_found",
+            "message": "Reference was well-formed but no matching memory was found",
             "reference": request.reference,
             **runtime,
         }
@@ -1148,7 +1206,7 @@ def dashboard() -> HTMLResponse:
 
         const es = new EventSource('/events');
         es.onmessage = (ev) => {{
-          eventsEl.textContent += ev.data + "\n";
+          eventsEl.textContent += ev.data + "\\n";
           eventsEl.scrollTop = eventsEl.scrollHeight;
         }};
       </script>

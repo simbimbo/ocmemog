@@ -43,7 +43,7 @@ def _local_distill_summary(text: str) -> str:
         f"Experience:\n{text}\n\n"
         "Summary:"
     )
-    model = os.environ.get("OCMEMOG_PONDER_MODEL", "qwen2.5:7b")
+    model = os.environ.get("OCMEMOG_PONDER_MODEL", "local-openai:qwen2.5-7b-instruct")
     try:
         result = inference.infer(prompt, provider_name=model)
     except Exception:

@@ -153,8 +153,9 @@ def _distill_batches(endpoint: str, target: int, batch_sizes: list[int], timeout
 
 def _enable_local_embeddings() -> None:
     os.environ.setdefault("BRAIN_EMBED_MODEL_LOCAL", "")
-    os.environ.setdefault("BRAIN_EMBED_MODEL_PROVIDER", "ollama")
-    os.environ.setdefault("OCMEMOG_OLLAMA_EMBED_MODEL", "nomic-embed-text:latest")
+    os.environ.setdefault("BRAIN_EMBED_MODEL_PROVIDER", "local-openai")
+    os.environ.setdefault("OCMEMOG_LOCAL_EMBED_BASE_URL", "http://127.0.0.1:18081/v1")
+    os.environ.setdefault("OCMEMOG_LOCAL_EMBED_MODEL", "nomic-embed-text-v1.5")
 
 
 def main() -> int:

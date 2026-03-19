@@ -78,20 +78,24 @@ Optional environment variables:
 - `OCMEMOG_OPENAI_API_BASE` (default: `https://api.openai.com/v1`)
 - `OCMEMOG_OPENAI_EMBED_MODEL` (default: `text-embedding-3-small`)
 - `BRAIN_EMBED_MODEL_LOCAL` (`simple` by default)
-- `BRAIN_EMBED_MODEL_PROVIDER` (`openai` to enable provider embeddings)
+- `BRAIN_EMBED_MODEL_PROVIDER` (`local-openai` to use the local llama.cpp embedding endpoint; `openai` remains available for hosted embeddings)
 - `OCMEMOG_TRANSCRIPT_WATCHER` (`true` to auto-start transcript watcher inside the sidecar)
 - `OCMEMOG_TRANSCRIPT_ROOTS` (comma-separated allowed roots for transcript context retrieval; default: `~/.openclaw/workspace/memory`)
 - `OCMEMOG_API_TOKEN` (optional; if set, requests must include `x-ocmemog-token` or `Authorization: Bearer ...`)
 - `OCMEMOG_AUTO_HYDRATION` (`true` to re-enable prompt-time continuity prepending; defaults to `false` as a safety guard until the host runtime is verified not to persist prepended context into session history)
 - `OCMEMOG_LAPTOP_MODE` (`auto` by default; on macOS battery power this slows watcher polling, reduces ingest batch size, and disables sentiment reinforcement unless explicitly overridden)
-- `OCMEMOG_USE_OLLAMA` (`true` to use Ollama for distill/inference)
-- `OCMEMOG_OLLAMA_HOST` (default: `http://127.0.0.1:11434`)
-- `OCMEMOG_OLLAMA_MODEL` (default: `phi3:latest`; lightweight local fallback / cheap cognition)
-- `OCMEMOG_OLLAMA_EMBED_MODEL` (default: `nomic-embed-text:latest`)
+- `OCMEMOG_LOCAL_LLM_BASE_URL` (default: `http://127.0.0.1:18080/v1`; local OpenAI-compatible text endpoint, e.g. llama.cpp)
+- `OCMEMOG_LOCAL_LLM_MODEL` (default: `qwen2.5-7b-instruct`; matches the active Qwen2.5-7B-Instruct GGUF runtime)
+- `OCMEMOG_LOCAL_EMBED_BASE_URL` (default: `http://127.0.0.1:18081/v1`; local OpenAI-compatible embedding endpoint)
+- `OCMEMOG_LOCAL_EMBED_MODEL` (default: `nomic-embed-text-v1.5`)
+- `OCMEMOG_USE_OLLAMA` (`true` to force legacy Ollama local inference path)
+- `OCMEMOG_OLLAMA_HOST` (default: `http://127.0.0.1:11434`; legacy fallback)
+- `OCMEMOG_OLLAMA_MODEL` (default: `qwen2.5:7b`; legacy fallback for machines that still use Ollama)
+- `OCMEMOG_OLLAMA_EMBED_MODEL` (default: `nomic-embed-text:latest`; legacy embedding fallback)
 - `OCMEMOG_PROMOTION_THRESHOLD` (default: `0.5`)
 - `OCMEMOG_DEMOTION_THRESHOLD` (default: `0.2`)
 - `OCMEMOG_PONDER_ENABLED` (default: `true`)
-- `OCMEMOG_PONDER_MODEL` (default via launcher: `qwen2.5:7b`; recommended for structured local memory refinement)
+- `OCMEMOG_PONDER_MODEL` (default via launcher: `local-openai:qwen2.5-7b-instruct`; recommended for structured local memory refinement)
 - `OCMEMOG_LESSON_MINING_ENABLED` (default: `true`)
 
 ## Security
@@ -129,12 +133,13 @@ This installer will try to:
 - install Python requirements
 - install/enable the OpenClaw plugin when the `openclaw` CLI is available
 - install/load LaunchAgents via `scripts/ocmemog-install.sh`
-- pull required local Ollama models when Ollama is already installed
+- verify the local llama.cpp runtime and expected text/embed endpoints
 - validate `/healthz`
 
 Notes:
-- If `OCMEMOG_INSTALL_PREREQS=true` and Homebrew is present, the installer will try to install missing `ollama` and `ffmpeg` automatically.
-- If Ollama is not installed and prereq auto-install is off or unavailable, the installer warns and continues; local model support will remain unavailable until Ollama is installed.
+- If `OCMEMOG_INSTALL_PREREQS=true` and Homebrew is present, the installer will try to install missing `llama.cpp` and `ffmpeg` automatically.
+- The installer no longer pulls local models. It assumes your llama.cpp text endpoint is on `127.0.0.1:18080` and your embedding endpoint is on `127.0.0.1:18081`.
+- Legacy Ollama compatibility remains available only when you explicitly opt into it with `OCMEMOG_USE_OLLAMA=true`.
 - If package install is unavailable in the local OpenClaw build, the installer falls back to local-path plugin install.
 - Advanced flags are available for local debugging/CI (`--skip-plugin-install`, `--skip-launchagents`, `--skip-model-pulls`, `--endpoint`, `--repo-url`).
 
@@ -154,7 +159,7 @@ launchctl bootstrap gui/$UID scripts/launchagents/com.openclaw.ocmemog.guard.pli
 
 ## Recent changes
 
-### 0.1.5 (current main)
+### 0.1.6 (current main)
 
 Package ownership + runtime safety release:
 - Publish package under `@simbimbo/memory-ocmemog` instead of the unauthorized `@openclaw` scope

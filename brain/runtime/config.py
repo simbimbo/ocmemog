@@ -9,8 +9,13 @@ OCMEMOG_MEMORY_MODEL = os.environ.get("OCMEMOG_MEMORY_MODEL", "gpt-4o-mini")
 OCMEMOG_OPENAI_API_BASE = os.environ.get("OCMEMOG_OPENAI_API_BASE", "https://api.openai.com/v1")
 OCMEMOG_OPENAI_EMBED_MODEL = os.environ.get("OCMEMOG_OPENAI_EMBED_MODEL", "text-embedding-3-small")
 
+OCMEMOG_LOCAL_LLM_BASE_URL = os.environ.get("OCMEMOG_LOCAL_LLM_BASE_URL", "http://127.0.0.1:18080/v1")
+OCMEMOG_LOCAL_LLM_MODEL = os.environ.get("OCMEMOG_LOCAL_LLM_MODEL", "qwen2.5-7b-instruct")
+OCMEMOG_LOCAL_EMBED_BASE_URL = os.environ.get("OCMEMOG_LOCAL_EMBED_BASE_URL", "http://127.0.0.1:18081/v1")
+OCMEMOG_LOCAL_EMBED_MODEL = os.environ.get("OCMEMOG_LOCAL_EMBED_MODEL", "nomic-embed-text-v1.5")
+
 OCMEMOG_OLLAMA_HOST = os.environ.get("OCMEMOG_OLLAMA_HOST", "http://127.0.0.1:11434")
-OCMEMOG_OLLAMA_MODEL = os.environ.get("OCMEMOG_OLLAMA_MODEL", "phi3:latest")
+OCMEMOG_OLLAMA_MODEL = os.environ.get("OCMEMOG_OLLAMA_MODEL", "qwen2.5:7b")
 OCMEMOG_OLLAMA_EMBED_MODEL = os.environ.get("OCMEMOG_OLLAMA_EMBED_MODEL", "nomic-embed-text:latest")
 
 OCMEMOG_PROMOTION_THRESHOLD = float(os.environ.get("OCMEMOG_PROMOTION_THRESHOLD", "0.5"))

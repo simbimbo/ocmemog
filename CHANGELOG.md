@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.7 — 2026-03-19
+
+llama.cpp-first cleanup after the 0.1.6 runtime cutover.
+
+### Highlights
+- made llama.cpp / local OpenAI-compatible endpoints the primary documented and scripted local runtime path
+- reduced misleading Ollama-first defaults in installers, sidecar scripts, docs, and helper tooling
+- aligned context/distill/runtime helpers with the fixed local model architecture (`17890` gateway, `17891` sidecar, `18080` text, `18081` embeddings)
+- kept compatibility hooks only where still useful for rollback or mixed environments
+
 ## 0.1.6 — 2026-03-19
 
 Port-separation and publish-solid follow-up.
@@ -8,6 +18,7 @@ Port-separation and publish-solid follow-up.
 - Split ocmemog sidecar onto dedicated loopback port `17891` to avoid collision with the OpenClaw gateway/dashboard on `17890`
 - Restored the plain realtime dashboard on `/dashboard` and fixed the `local_html` template crash
 - Updated plugin/runtime defaults, scripts, and documentation to use the dedicated sidecar endpoint on `17891`
+- Switched repo-facing local-runtime defaults to llama.cpp-first endpoints on `18080`/`18081` with Qwen2.5 text and `nomic-embed-text-v1.5` embeddings, while keeping Ollama as explicit legacy fallback only
 - Added governance retrieval/governance-policy hardening plus expanded regression coverage for duplicate, contradiction, supersession, queue, audit, rollback, and auto-resolve flows
 - Aligned package/version metadata across npm, Python, and FastAPI surfaces
 
@@ -16,7 +27,7 @@ Port-separation and publish-solid follow-up.
 Repair and hardening follow-up after the 0.1.4 publish.
 
 ### Highlights
-- Fixed vector reindex defaults so repair scripts use provider-backed Ollama embeddings instead of silently rebuilding weak local/hash vectors
+- Fixed vector reindex defaults so repair scripts use provider-backed local embeddings instead of silently rebuilding weak local/hash vectors
 - Added battery-aware sidecar defaults for macOS laptops (`OCMEMOG_LAPTOP_MODE=auto|ac|battery`)
 - Fixed `record_reinforcement()` so new experiences preserve `memory_reference`, and added integrity repair to backfill legacy missing references
 - Added incremental vector backfill tooling (`scripts/ocmemog-backfill-vectors.py`) for non-destructive backlog repair

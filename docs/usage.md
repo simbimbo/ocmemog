@@ -2,10 +2,10 @@
 
 ## Current operating model
 
-ocmemog is a repo-local OpenClaw memory sidecar backed by SQLite. It is not a full brAIn runtime clone. The safe assumption is:
+ocmemog is a repo-local OpenClaw memory sidecar backed by SQLite with llama.cpp-first local inference and embeddings. It is not a full brAIn runtime clone. The safe assumption is:
 
 - search/get over local memory are supported
-- heuristic embeddings are supported by default
+- provider-backed local embeddings are the primary path
 - several advanced brAIn memory flows are copied in but still degraded by missing runtime dependencies
 
 ## Running the sidecar
@@ -47,8 +47,12 @@ export OCMEMOG_MEMORY_MODEL=gpt-4o-mini
 export OCMEMOG_OPENAI_API_KEY=sk-...
 export OCMEMOG_OPENAI_API_BASE=https://api.openai.com/v1
 export OCMEMOG_OPENAI_EMBED_MODEL=text-embedding-3-small
+export OCMEMOG_LOCAL_LLM_BASE_URL=http://127.0.0.1:18080/v1
+export OCMEMOG_LOCAL_LLM_MODEL=qwen2.5-7b-instruct
+export OCMEMOG_LOCAL_EMBED_BASE_URL=http://127.0.0.1:18081/v1
+export OCMEMOG_LOCAL_EMBED_MODEL=nomic-embed-text-v1.5
 export BRAIN_EMBED_MODEL_LOCAL=simple
-export BRAIN_EMBED_MODEL_PROVIDER=openai
+export BRAIN_EMBED_MODEL_PROVIDER=local-openai
 export OCMEMOG_TRANSCRIPT_DIR=$HOME/.openclaw/workspace/memory/transcripts
 export OCMEMOG_TRANSCRIPT_GLOB=*.log
 export OCMEMOG_TRANSCRIPT_POLL_SECONDS=1
@@ -182,8 +186,8 @@ Notes:
 - `brain/runtime/memory/api.py`
   - It targets missing/legacy tables and columns.
 - Provider-backed embeddings
-  - Available when `BRAIN_EMBED_MODEL_PROVIDER=openai` and `OCMEMOG_OPENAI_API_KEY` is set.
-  - Falls back to local embeddings when missing.
+  - Available when `BRAIN_EMBED_MODEL_PROVIDER=local-openai` and the local embedding endpoint is reachable.
+  - Legacy OpenAI-hosted embeddings remain available when `BRAIN_EMBED_MODEL_PROVIDER=openai` and `OCMEMOG_OPENAI_API_KEY` is set.
 - Model-backed distillation
   - Available when `OCMEMOG_OPENAI_API_KEY` is set; otherwise falls back to heuristic distill.
 - Role-prioritized context building

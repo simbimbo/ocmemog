@@ -66,21 +66,13 @@ for plist in "$ROOT_DIR"/scripts/launchagents/com.openclaw.ocmemog.{sidecar,pond
   echo "Loaded $label"
 done
 
-if ! command -v ollama >/dev/null 2>&1; then
-  echo "Ollama not found. Install from: https://ollama.com/download"
-  echo "Then run: ollama pull phi3 && ollama pull nomic-embed-text"
+if ! command -v llama-server >/dev/null 2>&1; then
+  echo "llama.cpp not found. Install with: brew install llama.cpp"
   exit 0
 fi
 
-if ! ollama list | rg -q "phi3"; then
-  echo "Pulling phi3..."
-  ollama pull phi3
-fi
-
-if ! ollama list | rg -q "nomic-embed-text"; then
-  echo "Pulling nomic-embed-text..."
-  ollama pull nomic-embed-text
-fi
+echo "Expect local llama.cpp text endpoint at http://127.0.0.1:18080/v1"
+echo "Expect local llama.cpp embed endpoint at http://127.0.0.1:18081/v1"
 
 if ! command -v ffmpeg >/dev/null 2>&1; then
   echo "ffmpeg not found. Install with: brew install ffmpeg"

@@ -8,7 +8,9 @@ PLUGIN_PACKAGE="@simbimbo/memory-ocmemog"
 PLUGIN_ID="memory-ocmemog"
 ENDPOINT="${OCMEMOG_ENDPOINT:-http://127.0.0.1:17891}"
 TIMEOUT_MS="${OCMEMOG_TIMEOUT_MS:-30000}"
-DEFAULT_OLLAMA_MODEL="${OCMEMOG_OLLAMA_MODEL:-phi3:latest}"
+DEFAULT_LOCAL_LLM_MODEL="${OCMEMOG_LOCAL_LLM_MODEL:-qwen2.5-7b-instruct}"
+DEFAULT_LOCAL_EMBED_MODEL="${OCMEMOG_LOCAL_EMBED_MODEL:-nomic-embed-text-v1.5}"
+DEFAULT_OLLAMA_MODEL="${OCMEMOG_OLLAMA_MODEL:-qwen2.5:7b}"
 DEFAULT_OLLAMA_EMBED_MODEL="${OCMEMOG_OLLAMA_EMBED_MODEL:-nomic-embed-text:latest}"
 INSTALL_PREREQS="${OCMEMOG_INSTALL_PREREQS:-false}"
 SKIP_PLUGIN_INSTALL="false"
@@ -27,10 +29,10 @@ Arguments:
 
 Options:
   --help                     Show this help text.
-  --install-prereqs          Auto-install missing ollama/ffmpeg via Homebrew.
+  --install-prereqs          Auto-install missing llama.cpp/ffmpeg via Homebrew.
   --skip-plugin-install      Skip OpenClaw plugin install/enable.
   --skip-launchagents        Skip LaunchAgent install/load.
-  --skip-model-pulls         Skip local Ollama model pulls.
+  --skip-model-pulls         Skip local llama.cpp runtime checks.
   --dry-run                  Print what would happen without making changes.
   --endpoint URL             Override sidecar endpoint (default: http://127.0.0.1:17891).
   --timeout-ms N             Override plugin timeout summary value (default: 30000).
@@ -38,8 +40,10 @@ Options:
 
 Environment:
   OCMEMOG_INSTALL_PREREQS=true   Same as --install-prereqs.
-  OCMEMOG_OLLAMA_MODEL           Default local model to pull.
-  OCMEMOG_OLLAMA_EMBED_MODEL     Default local embedding model to pull.
+  OCMEMOG_LOCAL_LLM_MODEL        Default local llama.cpp/OpenAI-compatible text model.
+  OCMEMOG_LOCAL_EMBED_MODEL      Default local llama.cpp/OpenAI-compatible embedding model.
+  OCMEMOG_OLLAMA_MODEL           Legacy Ollama text model fallback.
+  OCMEMOG_OLLAMA_EMBED_MODEL     Legacy Ollama embedding model fallback.
 EOF
 }
 
@@ -125,9 +129,9 @@ maybe_install_prereqs() {
     warn "Homebrew not found; cannot auto-install prerequisites"
     return
   fi
-  if ! have ollama; then
-    log "Installing Ollama via Homebrew"
-    run_cmd brew install ollama || warn "brew install ollama failed"
+  if ! have llama-server; then
+    log "Installing llama.cpp via Homebrew"
+    run_cmd brew install llama.cpp || warn "brew install llama.cpp failed"
   fi
   if ! have ffmpeg; then
     log "Installing ffmpeg via Homebrew"
@@ -206,23 +210,18 @@ install_launchagents() {
   run_cmd "$ROOT_DIR/scripts/ocmemog-install.sh"
 }
 
-ensure_ollama_models() {
+ensure_local_runtime() {
   if [[ "$SKIP_MODEL_PULLS" == "true" ]]; then
-    log "Skipping local model pulls by request"
+    log "Skipping local llama.cpp runtime checks by request"
     return
   fi
-  if ! have ollama; then
-    warn "Ollama not found. Install from https://ollama.com/download to enable local models."
+  if ! have llama-server; then
+    warn "llama-server not found. Install llama.cpp or provide your own local OpenAI-compatible endpoints."
     return
   fi
-  if ! ollama list | rg -q "$(printf '%s' "$DEFAULT_OLLAMA_MODEL" | sed 's/:.*$//')"; then
-    log "Pulling local model $DEFAULT_OLLAMA_MODEL"
-    run_cmd ollama pull "$DEFAULT_OLLAMA_MODEL"
-  fi
-  if ! ollama list | rg -q "$(printf '%s' "$DEFAULT_OLLAMA_EMBED_MODEL" | sed 's/:.*$//')"; then
-    log "Pulling local embed model $DEFAULT_OLLAMA_EMBED_MODEL"
-    run_cmd ollama pull "$DEFAULT_OLLAMA_EMBED_MODEL"
-  fi
+  log "Detected llama.cpp runtime via llama-server"
+  log "Expect local text endpoint at http://127.0.0.1:18080/v1 using model $DEFAULT_LOCAL_LLM_MODEL"
+  log "Expect local embed endpoint at http://127.0.0.1:18081/v1 using model $DEFAULT_LOCAL_EMBED_MODEL"
 }
 
 validate_install() {
@@ -252,12 +251,13 @@ ocmemog install summary
 - repo: $ROOT_DIR
 - endpoint: $ENDPOINT
 - timeoutMs: $TIMEOUT_MS
-- local model: $DEFAULT_OLLAMA_MODEL
-- embed model: $DEFAULT_OLLAMA_EMBED_MODEL
+- local text model: $DEFAULT_LOCAL_LLM_MODEL
+- local embed model: $DEFAULT_LOCAL_EMBED_MODEL
+- legacy Ollama fallback model: $DEFAULT_OLLAMA_MODEL
 - install prereqs automatically: $INSTALL_PREREQS
 - skip plugin install: $SKIP_PLUGIN_INSTALL
 - skip LaunchAgents: $SKIP_LAUNCHAGENTS
-- skip model pulls: $SKIP_MODEL_PULLS
+- skip local runtime checks: $SKIP_MODEL_PULLS
 - dry run: $DRY_RUN
 
 Next checks:
@@ -272,6 +272,6 @@ maybe_install_prereqs
 ensure_python
 install_plugin
 install_launchagents
-ensure_ollama_models
+ensure_local_runtime
 validate_install
 print_summary

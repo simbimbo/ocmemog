@@ -53,7 +53,7 @@ def _groom_queries(prompt: str, limit: int = 3) -> List[str]:
         return []
     if _should_skip_query_grooming(cleaned):
         return _heuristic_queries(cleaned, limit=limit)
-    model = os.environ.get("OCMEMOG_PONDER_MODEL", "qwen2.5:7b")
+    model = os.environ.get("OCMEMOG_PONDER_MODEL", "local-openai:qwen2.5-7b-instruct")
     ask = (
         "Rewrite this raw memory request into up to 3 short search queries. "
         "Return strict JSON as {\"queries\":[\"...\"]}. "

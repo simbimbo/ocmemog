@@ -31,12 +31,16 @@ if [[ "$LAPTOP_MODE" == "auto" ]]; then
 fi
 export OCMEMOG_LAPTOP_MODE="$LAPTOP_MODE"
 
-# defaults for local ollama-backed inference/embeddings
-export OCMEMOG_USE_OLLAMA="${OCMEMOG_USE_OLLAMA:-true}"
-export OCMEMOG_OLLAMA_MODEL="${OCMEMOG_OLLAMA_MODEL:-phi3:latest}"
+# defaults for local llama.cpp / OpenAI-compatible inference and embeddings
+export OCMEMOG_USE_OLLAMA="${OCMEMOG_USE_OLLAMA:-false}"
+export OCMEMOG_LOCAL_LLM_BASE_URL="${OCMEMOG_LOCAL_LLM_BASE_URL:-http://127.0.0.1:18080/v1}"
+export OCMEMOG_LOCAL_LLM_MODEL="${OCMEMOG_LOCAL_LLM_MODEL:-qwen2.5-7b-instruct}"
+export OCMEMOG_LOCAL_EMBED_BASE_URL="${OCMEMOG_LOCAL_EMBED_BASE_URL:-http://127.0.0.1:18081/v1}"
+export OCMEMOG_LOCAL_EMBED_MODEL="${OCMEMOG_LOCAL_EMBED_MODEL:-nomic-embed-text-v1.5}"
+export OCMEMOG_OLLAMA_MODEL="${OCMEMOG_OLLAMA_MODEL:-qwen2.5:7b}"
 export OCMEMOG_OLLAMA_EMBED_MODEL="${OCMEMOG_OLLAMA_EMBED_MODEL:-nomic-embed-text:latest}"
-export OCMEMOG_PONDER_MODEL="${OCMEMOG_PONDER_MODEL:-qwen2.5:7b}"
-export BRAIN_EMBED_MODEL_PROVIDER="${BRAIN_EMBED_MODEL_PROVIDER:-ollama}"
+export OCMEMOG_PONDER_MODEL="${OCMEMOG_PONDER_MODEL:-local-openai:qwen2.5-7b-instruct}"
+export BRAIN_EMBED_MODEL_PROVIDER="${BRAIN_EMBED_MODEL_PROVIDER:-local-openai}"
 export BRAIN_EMBED_MODEL_LOCAL="${BRAIN_EMBED_MODEL_LOCAL:-}"
 
 # battery-aware transcript watcher defaults

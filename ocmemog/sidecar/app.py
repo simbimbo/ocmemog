@@ -1137,6 +1137,10 @@ def dashboard() -> HTMLResponse:
             {"label": "local_cold_calls", "value": local_inference.get("cold_calls", 0)},
             {"label": "local_success", "value": local_inference.get("local_success", 0)},
             {"label": "local_errors", "value": local_inference.get("local_errors", 0)},
+            {"label": "frontier_calls_avoided_est", "value": local_inference.get("frontier_calls_avoided_est", 0)},
+            {"label": "prompt_tokens_saved_est", "value": local_inference.get("prompt_tokens_saved_est", 0)},
+            {"label": "completion_tokens_saved_est", "value": local_inference.get("completion_tokens_saved_est", 0)},
+            {"label": "cost_saved_usd_est", "value": local_inference.get("cost_saved_usd_est", 0)},
         ]
     )
     metrics_html = "".join(
@@ -1164,6 +1168,8 @@ def dashboard() -> HTMLResponse:
     <body>
       <h2>ocmemog realtime</h2>
       <div class="metrics" id="metrics">{metrics_html}</div>
+      <h3>Local cognition savings</h3>
+      <div class="metrics" id="local-cognition">{local_html}</div>
       <h3>Vector coverage</h3>
       <div class="metrics" id="coverage">{coverage_html}</div>
       <h3>Ponder recommendations</h3>
@@ -1204,6 +1210,27 @@ def dashboard() -> HTMLResponse:
           const warnings = (data.warnings || []).join('; ');
           const mode = data.mode || 'n/a';
           ponderMetaEl.textContent = `Last update: ${{lastTs}} • Mode: ${{mode}}${{warnings ? ' • ' + warnings : ''}}`;
+          ponderEl.innerHTML = items.map((item) =>
+            `<div class="card"><strong>${{item.summary}}</strong><br/><em>${{item.recommendation || ''}}</em><br/><small>${{item.timestamp || ''}} • ${{item.reference || ''}}</small></div>`
+          ).join('');
+        }}
+
+        refreshMetrics();
+        refreshPonder();
+        setInterval(refreshMetrics, 5000);
+        setInterval(refreshPonder, 10000);
+
+        const es = new EventSource('/events');
+        es.onmessage = (ev) => {{
+          eventsEl.textContent += ev.data + "\\n";
+          eventsEl.scrollTop = eventsEl.scrollHeight;
+        }};
+      </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(html)
+� Mode: ${{mode}}${{warnings ? ' • ' + warnings : ''}}`;
           ponderEl.innerHTML = items.map((item) =>
             `<div class="card"><strong>${{item.summary}}</strong><br/><em>${{item.recommendation || ''}}</em><br/><small>${{item.timestamp || ''}} • ${{item.reference || ''}}</small></div>`
           ).join('');

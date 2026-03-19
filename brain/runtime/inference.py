@@ -45,9 +45,20 @@ def _looks_like_ollama_model(name: str) -> bool:
 
 
 def stats() -> dict[str, object]:
+    materialized_local = int(_LOCAL_INFER_STATS.get("local_success", 0)) + int(_LOCAL_INFER_STATS.get("cache_hits", 0))
+    est_prompt_tokens_saved = materialized_local * _AVG_PROMPT_TOKENS_SAVED
+    est_completion_tokens_saved = materialized_local * _AVG_COMPLETION_TOKENS_SAVED
+    est_cost_saved = (
+        (est_prompt_tokens_saved / 1000.0) * _EST_FRONTIER_INPUT_COST_PER_1K
+        + (est_completion_tokens_saved / 1000.0) * _EST_FRONTIER_OUTPUT_COST_PER_1K
+    )
     return {
         "cache_entries": len(_LOCAL_INFER_CACHE),
         "warm_models": sorted(_MODEL_WARM_STATE.keys()),
+        "frontier_calls_avoided_est": materialized_local,
+        "prompt_tokens_saved_est": est_prompt_tokens_saved,
+        "completion_tokens_saved_est": est_completion_tokens_saved,
+        "cost_saved_usd_est": round(est_cost_saved, 4),
         **{k: int(v) for k, v in _LOCAL_INFER_STATS.items()},
     }
 

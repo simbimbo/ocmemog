@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import threading
@@ -214,13 +215,33 @@ def _load_continuity_candidates(limit: int) -> List[Dict[str, object]]:
     return items[:limit]
 
 
+def _low_value_candidate(record: Dict[str, object]) -> bool:
+    content = str(record.get("content") or "").strip()
+    if not content:
+        return True
+    normalized = re.sub(r"\s+", " ", content.lower())
+    if normalized.startswith("202") and "[assistant]" in normalized and "[[reply_to_current]]" in normalized:
+        return True
+    if "**current target**" in normalized and "validation performed" in normalized:
+        return True
+    if normalized.startswith("recent memory worth reinforcing:"):
+        return True
+    if normalized.startswith("consolidated pattern:"):
+        return True
+    return False
+
+
 def _dedupe_candidates(items: List[Dict[str, object]], limit: int) -> List[Dict[str, object]]:
     deduped: List[Dict[str, object]] = []
     seen: set[str] = set()
     for item in items:
         reference = str(item.get("reference") or "")
         content = str(item.get("content") or "").strip()
-        key = reference or content.lower()
+        if _low_value_candidate(item):
+            continue
+        normalized = re.sub(r"\s+", " ", content.lower())[:1200]
+        content_key = hashlib.sha256(normalized.encode("utf-8", errors="ignore")).hexdigest() if normalized else ""
+        key = content_key or reference
         if not key or key in seen or not content:
             continue
         seen.add(key)
@@ -232,6 +253,9 @@ def _dedupe_candidates(items: List[Dict[str, object]], limit: int) -> List[Dict[
 
 def _heuristic_summary(text: str, limit: int = 220) -> str:
     collapsed = re.sub(r"\s+", " ", text or "").strip()
+    collapsed = re.sub(r"^\d{4}-\d{2}-\d{2}T[^ ]+\s+\[[^\]]+\]\s*", "", collapsed)
+    collapsed = re.sub(r"^\d{4}-\d{2}-\d{2}t[^ ]+\s+\[[^\]]+\]\s*", "", collapsed, flags=re.IGNORECASE)
+    collapsed = re.sub(r"^\[\[reply_to_current\]\]\s*", "", collapsed)
     if len(collapsed) <= limit:
         return collapsed
     return f"{collapsed[: limit - 1].rstrip()}…"
@@ -256,12 +280,12 @@ def _heuristic_ponder(record: Dict[str, object]) -> Dict[str, str]:
     if kind == "turn":
         role = str(metadata.get("role") or "conversation")
         return {
-            "insight": f"Recent {role} turn may shape near-term continuity: {summary}",
-            "recommendation": "Retain the turn in short-horizon context and checkpoint if it changes the active branch or next action.",
+            "insight": f"Recent {role} turn changed active context: {summary}",
+            "recommendation": "Preserve only the decision, lesson, or next action from this turn instead of the full transcript wording.",
         }
     return {
-        "insight": f"Recent memory worth reinforcing: {summary}",
-        "recommendation": "Link the reflection back to its source memory so future retrieval can hydrate it with provenance.",
+        "insight": f"Potential durable learning: {summary}",
+        "recommendation": "Capture the concrete lesson, decision, or next action so this memory is reusable instead of just retrievable.",
     }
 
 
@@ -414,7 +438,7 @@ def _store_lesson_once(lesson: str, *, source_reference: str) -> Optional[str]:
 
 def _candidate_memories(max_items: int) -> List[Dict[str, object]]:
     base_candidates: List[Dict[str, object]] = []
-    for table in ("reflections", "knowledge", "tasks", "runbooks"):
+    for table in ("knowledge", "tasks", "runbooks", "lessons"):
         base_candidates.extend(_load_recent(table, max_items))
     base_candidates.extend(_load_continuity_candidates(max_items))
     return _dedupe_candidates(base_candidates, max_items)

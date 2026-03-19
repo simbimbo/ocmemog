@@ -9,7 +9,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib import request as urlrequest
 
-ENDPOINT = "http://127.0.0.1:17890"
+ENDPOINT = "http://127.0.0.1:17891"
 ASYNC_DEFAULT = os.environ.get("OCMEMOG_INGEST_ASYNC_DEFAULT", "true").lower() in {"1", "true", "yes"}
 INGEST_PATH = "/memory/ingest_async" if ASYNC_DEFAULT else "/memory/ingest"
 

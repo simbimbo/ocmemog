@@ -15,7 +15,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from brain.runtime.memory import store
 
-ENDPOINT = "http://127.0.0.1:17890"
+ENDPOINT = "http://127.0.0.1:17891"
 
 
 def post(path: str, payload: dict) -> dict:

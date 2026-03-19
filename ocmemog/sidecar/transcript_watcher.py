@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 from urllib import request as urlrequest
 
-DEFAULT_ENDPOINT = "http://127.0.0.1:17890/memory/ingest_async"
+DEFAULT_ENDPOINT = "http://127.0.0.1:17891/memory/ingest_async"
 DEFAULT_GLOB = "*.log"
 DEFAULT_SESSION_GLOB = "*.jsonl"
 DEFAULT_REINFORCE_POSITIVE = [
@@ -152,7 +152,7 @@ def watch_forever() -> None:
 
     reinforce_enabled = os.environ.get("OCMEMOG_REINFORCE_SENTIMENT", "true").lower() in {"1", "true", "yes"}
     reinforce_endpoint = os.environ.get(
-        "OCMEMOG_REINFORCE_ENDPOINT", "http://127.0.0.1:17890/memory/reinforce"
+        "OCMEMOG_REINFORCE_ENDPOINT", "http://127.0.0.1:17891/memory/reinforce"
     ).strip()
     pos_terms = os.environ.get("OCMEMOG_REINFORCE_POSITIVE", ",".join(DEFAULT_REINFORCE_POSITIVE))
     neg_terms = os.environ.get("OCMEMOG_REINFORCE_NEGATIVE", ",".join(DEFAULT_REINFORCE_NEGATIVE))

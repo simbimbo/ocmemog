@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.6 — 2026-03-19
+
+Port-separation and publish-solid follow-up.
+
+### Highlights
+- Split ocmemog sidecar onto dedicated loopback port `17891` to avoid collision with the OpenClaw gateway/dashboard on `17890`
+- Restored the plain realtime dashboard on `/dashboard` and fixed the `local_html` template crash
+- Updated plugin/runtime defaults, scripts, and documentation to use the dedicated sidecar endpoint on `17891`
+- Added governance retrieval/governance-policy hardening plus expanded regression coverage for duplicate, contradiction, supersession, queue, audit, rollback, and auto-resolve flows
+- Aligned package/version metadata across npm, Python, and FastAPI surfaces
+
 ## 0.1.5 — 2026-03-18
 
 Repair and hardening follow-up after the 0.1.4 publish.

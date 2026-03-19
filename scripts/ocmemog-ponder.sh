@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENDPOINT="${OCMEMOG_ENDPOINT:-http://127.0.0.1:17890}"
+ENDPOINT="${OCMEMOG_ENDPOINT:-http://127.0.0.1:17891}"
 TOKEN="${OCMEMOG_API_TOKEN:-}"
 MAX_ITEMS="${OCMEMOG_PONDER_ITEMS:-5}"
 
@@ -12,7 +12,7 @@ fi
 
 QUEUE_DEPTH=$(python3 - <<'PY'
 import json, urllib.request, os
-endpoint = os.environ.get("OCMEMOG_ENDPOINT", "http://127.0.0.1:17890")
+endpoint = os.environ.get("OCMEMOG_ENDPOINT", "http://127.0.0.1:17891")
 req = urllib.request.Request(f"{endpoint}/memory/ingest_status")
 with urllib.request.urlopen(req, timeout=10) as resp:
     data = json.loads(resp.read().decode("utf-8"))

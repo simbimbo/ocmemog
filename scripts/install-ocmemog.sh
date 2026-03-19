@@ -6,7 +6,7 @@ TARGET_DIR="${ROOT_DIR}"
 REPO_URL="${OCMEMOG_REPO_URL:-https://github.com/simbimbo/ocmemog.git}"
 PLUGIN_PACKAGE="@simbimbo/memory-ocmemog"
 PLUGIN_ID="memory-ocmemog"
-ENDPOINT="${OCMEMOG_ENDPOINT:-http://127.0.0.1:17890}"
+ENDPOINT="${OCMEMOG_ENDPOINT:-http://127.0.0.1:17891}"
 TIMEOUT_MS="${OCMEMOG_TIMEOUT_MS:-30000}"
 DEFAULT_OLLAMA_MODEL="${OCMEMOG_OLLAMA_MODEL:-phi3:latest}"
 DEFAULT_OLLAMA_EMBED_MODEL="${OCMEMOG_OLLAMA_EMBED_MODEL:-nomic-embed-text:latest}"
@@ -32,7 +32,7 @@ Options:
   --skip-launchagents        Skip LaunchAgent install/load.
   --skip-model-pulls         Skip local Ollama model pulls.
   --dry-run                  Print what would happen without making changes.
-  --endpoint URL             Override sidecar endpoint (default: http://127.0.0.1:17890).
+  --endpoint URL             Override sidecar endpoint (default: http://127.0.0.1:17891).
   --timeout-ms N             Override plugin timeout summary value (default: 30000).
   --repo-url URL             Override git clone/update source.
 

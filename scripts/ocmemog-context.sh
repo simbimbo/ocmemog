@@ -3,7 +3,7 @@ set -euo pipefail
 
 REF="${1:-}"
 RADIUS="${2:-10}"
-ENDPOINT="${OCMEMOG_ENDPOINT:-http://127.0.0.1:17890}"
+ENDPOINT="${OCMEMOG_ENDPOINT:-http://127.0.0.1:17891}"
 
 if [[ -z "${REF}" ]]; then
   echo "usage: ocmemog-context.sh <reference> [radius]" >&2

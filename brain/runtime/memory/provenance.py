@@ -106,6 +106,16 @@ def normalize_metadata(metadata: Optional[Dict[str, Any]], *, source: Optional[s
         "derived_from_promotion_id",
         "derived_via",
         "kind",
+        "memory_status",
+        "superseded_by",
+        "supersedes",
+        "duplicate_of",
+        "duplicate_candidates",
+        "contradicts",
+        "contradiction_candidates",
+        "contradiction_status",
+        "canonical_reference",
+        "supersession_recommendation",
     ):
         if raw.get(key) is not None and provenance.get(key) is None:
             provenance[key] = raw.get(key)
@@ -177,6 +187,20 @@ def apply_links(reference: str, metadata: Optional[Dict[str, Any]]) -> None:
         _link_once(reference, "candidate", f"candidate:{provenance['derived_from_candidate_id']}")
     if provenance.get("derived_from_promotion_id"):
         _link_once(reference, "promotion", f"promotions:{provenance['derived_from_promotion_id']}")
+    if provenance.get("superseded_by"):
+        _link_once(reference, "superseded_by", str(provenance.get("superseded_by")))
+    if provenance.get("supersedes"):
+        _link_once(reference, "supersedes", str(provenance.get("supersedes")))
+    if provenance.get("duplicate_of"):
+        _link_once(reference, "duplicate_of", str(provenance.get("duplicate_of")))
+    for candidate in provenance.get("duplicate_candidates") or []:
+        _link_once(reference, "duplicate_candidate", str(candidate))
+    for target in provenance.get("contradicts") or []:
+        _link_once(reference, "contradicts", str(target))
+    for target in provenance.get("contradiction_candidates") or []:
+        _link_once(reference, "contradiction_candidate", str(target))
+    if provenance.get("canonical_reference"):
+        _link_once(reference, "canonical", str(provenance.get("canonical_reference")))
 
 
 def update_memory_metadata(reference: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -199,6 +223,34 @@ def update_memory_metadata(reference: str, updates: Dict[str, Any]) -> Optional[
         conn.close()
     apply_links(reference, merged)
     return merged
+
+
+def force_update_memory_metadata(reference: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    table, sep, raw_id = reference.partition(":")
+    if not sep or table not in _MEMORY_TABLES or not raw_id.isdigit():
+        return None
+    conn = store.connect()
+    try:
+        row = conn.execute(f"SELECT metadata_json FROM {table} WHERE id = ?", (int(raw_id),)).fetchone()
+        if not row:
+            return None
+        current = _load_json(row["metadata_json"], {})
+        provenance_meta = current.get("provenance") if isinstance(current.get("provenance"), dict) else {}
+        for key, value in updates.items():
+            if value is None or value == "":
+                provenance_meta.pop(key, None)
+            else:
+                provenance_meta[key] = value
+        current["provenance"] = provenance_meta
+        conn.execute(
+            f"UPDATE {table} SET metadata_json = ? WHERE id = ?",
+            (json.dumps(current, ensure_ascii=False), int(raw_id)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    apply_links(reference, current)
+    return current
 
 
 def fetch_reference(reference: str) -> Optional[Dict[str, Any]]:

@@ -32,7 +32,7 @@ pip install -r requirements.txt
 ./scripts/ocmemog-sidecar.sh
 
 # then open
-# http://127.0.0.1:17890/dashboard
+# http://127.0.0.1:17891/dashboard
 ```
 
 ## Optional: transcript watcher (auto-ingest)
@@ -45,8 +45,8 @@ export OCMEMOG_TRANSCRIPT_DIR="$HOME/.openclaw/workspace/memory/transcripts"
 
 Default bind:
 
-- endpoint: `http://127.0.0.1:17890`
-- health: `http://127.0.0.1:17890/healthz`
+- endpoint: `http://127.0.0.1:17891`
+- health: `http://127.0.0.1:17891/healthz`
 
 ## Continuity proof / benchmark harness
 
@@ -193,7 +193,7 @@ plugins:
     memory-ocmemog:
       enabled: true
       config:
-        endpoint: http://127.0.0.1:17890
+        endpoint: http://127.0.0.1:17891
         timeoutMs: 30000
 ```
 

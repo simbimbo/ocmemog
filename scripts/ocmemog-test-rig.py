@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Iterable
 from urllib import request as urlrequest
 
-DEFAULT_ENDPOINT = "http://127.0.0.1:17890"
+DEFAULT_ENDPOINT = "http://127.0.0.1:17891"
 DEFAULT_EXTS = {".md", ".txt", ".log", ".jsonl"}
 DEFAULT_SKIP_DIRS = {
     ".git",

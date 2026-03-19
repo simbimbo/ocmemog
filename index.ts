@@ -1,6 +1,6 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/memory-core";
 
-const DEFAULT_ENDPOINT = "http://127.0.0.1:17890";
+const DEFAULT_ENDPOINT = "http://127.0.0.1:17891";
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 type PluginConfig = {

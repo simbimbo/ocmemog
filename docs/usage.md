@@ -23,7 +23,7 @@ Manual watcher:
 ```bash
 # defaults to ~/.openclaw/workspace/memory/transcripts if not set
 export OCMEMOG_TRANSCRIPT_DIR="$HOME/.openclaw/workspace/memory/transcripts"
-export OCMEMOG_INGEST_ENDPOINT="http://127.0.0.1:17890/memory/ingest"
+export OCMEMOG_INGEST_ENDPOINT="http://127.0.0.1:17891/memory/ingest"
 ./scripts/ocmemog-transcript-watcher.sh
 ```
 
@@ -40,7 +40,7 @@ Useful environment variables:
 
 ```bash
 export OCMEMOG_HOST=127.0.0.1
-export OCMEMOG_PORT=17890
+export OCMEMOG_PORT=17891
 export OCMEMOG_STATE_DIR=/path/to/state
 export OCMEMOG_DB_PATH=/path/to/brain_memory.sqlite3
 export OCMEMOG_MEMORY_MODEL=gpt-4o-mini
@@ -64,26 +64,26 @@ Default state location in this repo is `.ocmemog-state/`.
 Health:
 
 ```bash
-curl http://127.0.0.1:17890/healthz
+curl http://127.0.0.1:17891/healthz
 ```
 
 Realtime metrics + events:
 
 ```bash
-curl http://127.0.0.1:17890/metrics
-curl http://127.0.0.1:17890/events
+curl http://127.0.0.1:17891/metrics
+curl http://127.0.0.1:17891/events
 ```
 
 Dashboard:
 
 ```bash
-open http://127.0.0.1:17890/dashboard
+open http://127.0.0.1:17891/dashboard
 ```
 
 Search:
 
 ```bash
-curl -s http://127.0.0.1:17890/memory/search \
+curl -s http://127.0.0.1:17891/memory/search \
   -H 'content-type: application/json' \
   -d '{"query":"deploy risk","limit":5,"categories":["knowledge","tasks"]}'
 ```
@@ -97,7 +97,7 @@ If `OCMEMOG_API_TOKEN` is set, include the header:
 Get by reference:
 
 ```bash
-curl -s http://127.0.0.1:17890/memory/get \
+curl -s http://127.0.0.1:17891/memory/get \
   -H 'content-type: application/json' \
   -d '{"reference":"knowledge:12"}'
 ```
@@ -105,7 +105,7 @@ curl -s http://127.0.0.1:17890/memory/get \
 Fetch linked context (transcript snippet):
 
 ```bash
-curl -s http://127.0.0.1:17890/memory/context \
+curl -s http://127.0.0.1:17891/memory/context \
   -H 'content-type: application/json' \
   -d '{"reference":"knowledge:12","radius":10}'
 ```
@@ -119,7 +119,7 @@ Helper script:
 Run pondering (writes summaries into reflections):
 
 ```bash
-curl -s http://127.0.0.1:17890/memory/ponder \
+curl -s http://127.0.0.1:17891/memory/ponder \
   -H 'content-type: application/json' \
   -d '{"max_items":5}'
 ```
@@ -127,13 +127,13 @@ curl -s http://127.0.0.1:17890/memory/ponder \
 Fetch latest ponder recommendations:
 
 ```bash
-curl -s http://127.0.0.1:17890/memory/ponder/latest?limit=5
+curl -s http://127.0.0.1:17891/memory/ponder/latest?limit=5
 ```
 
 Ingest content:
 
 ```bash
-curl -s http://127.0.0.1:17890/memory/ingest \
+curl -s http://127.0.0.1:17891/memory/ingest \
   -H 'content-type: application/json' \
   -d '{"content":"remember this","kind":"memory","memory_type":"knowledge"}'
 ```
@@ -141,7 +141,7 @@ curl -s http://127.0.0.1:17890/memory/ingest \
 Ingest with context anchors (links to chat/transcript):
 
 ```bash
-curl -s http://127.0.0.1:17890/memory/ingest \
+curl -s http://127.0.0.1:17891/memory/ingest \
   -H 'content-type: application/json' \
   -d '{
         "content":"remember this",
@@ -159,7 +159,7 @@ curl -s http://127.0.0.1:17890/memory/ingest \
 Distill recent experiences:
 
 ```bash
-curl -s http://127.0.0.1:17890/memory/distill \
+curl -s http://127.0.0.1:17891/memory/distill \
   -H 'content-type: application/json' \
   -d '{"limit":10}'
 ```

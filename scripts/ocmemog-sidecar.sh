@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST="${OCMEMOG_HOST:-127.0.0.1}"
-PORT="${OCMEMOG_PORT:-17890}"
+PORT="${OCMEMOG_PORT:-17891}"
 PYTHON_BIN="${OCMEMOG_PYTHON_BIN:-}"
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
@@ -53,7 +53,7 @@ else
   export OCMEMOG_INGEST_BATCH_MAX="${OCMEMOG_INGEST_BATCH_MAX:-25}"
   export OCMEMOG_REINFORCE_SENTIMENT="${OCMEMOG_REINFORCE_SENTIMENT:-true}"
 fi
-export OCMEMOG_INGEST_ENDPOINT="${OCMEMOG_INGEST_ENDPOINT:-http://127.0.0.1:17890/memory/ingest_async}"
+export OCMEMOG_INGEST_ENDPOINT="${OCMEMOG_INGEST_ENDPOINT:-http://127.0.0.1:17891/memory/ingest_async}"
 export OCMEMOG_INGEST_SOURCE="${OCMEMOG_INGEST_SOURCE:-transcript}"
 export OCMEMOG_INGEST_MEMORY_TYPE="${OCMEMOG_INGEST_MEMORY_TYPE:-reflections}"
 

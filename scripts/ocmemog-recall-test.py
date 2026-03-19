@@ -6,7 +6,7 @@ import subprocess
 import time
 from urllib import request as urlrequest
 
-ENDPOINT = "http://127.0.0.1:17890"
+ENDPOINT = "http://127.0.0.1:17891"
 QUERIES = [
     "ssh key policy",
     "synology nas",

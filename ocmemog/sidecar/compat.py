@@ -64,12 +64,16 @@ def flatten_results(results: dict[str, list[dict[str, Any]]]) -> list[dict[str, 
                 {
                     "bucket": bucket,
                     "reference": reference,
+                    "memory_reference": reference,
                     "table": table or bucket,
                     "id": raw_id,
                     "content": entry.get("content", ""),
                     "score": float(entry.get("score", 0.0) or 0.0),
                     "links": entry.get("links", []),
                     "provenance": entry.get("provenance_preview") or {},
+                    "retrieval_signals": entry.get("retrieval_signals") or {},
+                    "selected_because": entry.get("selected_because"),
+                    "timestamp": entry.get("timestamp"),
                 }
             )
     flattened.sort(key=lambda item: item["score"], reverse=True)

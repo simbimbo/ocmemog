@@ -414,6 +414,36 @@ class OcmemogRegressionTests(unittest.TestCase):
         self.assertEqual(results[0]["source_type"], "knowledge")
         self.assertEqual(results[0]["source_id"], "7")
 
+    def test_retrieval_combines_lexical_and_semantic_signals_without_fallback_gate(self) -> None:
+        first = api.store_memory("knowledge", "fortigate edge baseline hardening", source="test")
+        second = api.store_memory("knowledge", "management plane lockdown and admin isolation", source="test")
+
+        with mock.patch("brain.runtime.memory.vector_index.search_memory", return_value=[
+            {"source_type": "knowledge", "source_id": str(second), "score": 0.88},
+            {"source_type": "knowledge", "source_id": str(first), "score": 0.12},
+        ]):
+            results = app.memory_search(app.SearchRequest(query="fortigate hardening", limit=5))
+
+        knowledge = [item for item in results["results"] if item.get("bucket") == "knowledge"]
+        refs = [item["memory_reference"] for item in knowledge]
+        self.assertIn(f"knowledge:{first}", refs)
+        self.assertIn(f"knowledge:{second}", refs)
+        semantic_item = next(item for item in knowledge if item["memory_reference"] == f"knowledge:{second}")
+        self.assertGreater(semantic_item["retrieval_signals"]["semantic"], 0.0)
+
+    def test_retrieval_exposes_selection_reason_and_signal_breakdown(self) -> None:
+        row_id = api.store_memory("knowledge", "checkpoint expansion should stay enabled", source="test")
+
+        with mock.patch("brain.runtime.memory.vector_index.search_memory", return_value=[
+            {"source_type": "knowledge", "source_id": str(row_id), "score": 0.91},
+        ]):
+            results = app.memory_search(app.SearchRequest(query="checkpoint expansion", limit=5))
+
+        item = next(entry for entry in results["results"] if entry.get("bucket") == "knowledge" and entry["memory_reference"] == f"knowledge:{row_id}")
+        self.assertIn(item["selected_because"], {"keyword", "semantic", "reinforcement", "promotion", "recency"})
+        self.assertIn("semantic", item["retrieval_signals"])
+        self.assertIn("keyword", item["retrieval_signals"])
+
     def test_distill_handles_sqlite_rows(self) -> None:
         conn = store.connect()
         try:

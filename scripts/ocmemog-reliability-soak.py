@@ -119,7 +119,7 @@ def _run_sequence(base_url: str, *, token: str | None, timeout: float, worker_id
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run a live reliability soak against the local ocmemog sidecar.")
-    parser.add_argument("--base-url", default="http://127.0.0.1:17890")
+    parser.add_argument("--base-url", default="http://127.0.0.1:17891")
     parser.add_argument("--iterations", type=int, default=8)
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--timeout", type=float, default=30.0)

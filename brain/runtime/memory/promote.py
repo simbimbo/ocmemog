@@ -140,6 +140,12 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
         emit_event(LOGFILE, "brain_memory_reinforcement_created", status="ok")
         if memory_id:
             vector_index.insert_memory(memory_id, candidate.get("distilled_summary", ""), confidence)
+            try:
+                from brain.runtime.memory import api as memory_api
+
+                memory_api._auto_attach_governance_candidates(promoted_reference)
+            except Exception as exc:
+                emit_event(LOGFILE, "brain_memory_promotion_governance_failed", status="error", error=str(exc), reference=promoted_reference)
 
     return {"decision": decision, "confidence": confidence, "promotion_id": promotion_id, "destination": destination}
 

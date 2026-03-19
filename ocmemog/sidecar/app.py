@@ -19,7 +19,7 @@ from ocmemog.sidecar.transcript_watcher import watch_forever
 
 DEFAULT_CATEGORIES = ("knowledge", "reflections", "directives", "tasks", "runbooks", "lessons")
 
-app = FastAPI(title="ocmemog sidecar", version="0.0.1")
+app = FastAPI(title="ocmemog sidecar", version="0.1.6")
 
 API_TOKEN = os.environ.get("OCMEMOG_API_TOKEN")
 
@@ -235,6 +235,58 @@ class SearchRequest(BaseModel):
     query: str = Field(default="")
     limit: int = Field(default=5, ge=1, le=50)
     categories: Optional[List[str]] = None
+
+
+class DuplicateCandidatesRequest(BaseModel):
+    reference: str
+    limit: int = Field(default=5, ge=1, le=25)
+    min_similarity: float = Field(default=0.72, ge=0.1, le=1.0)
+
+
+class ContradictionCandidatesRequest(BaseModel):
+    reference: str
+    limit: int = Field(default=5, ge=1, le=25)
+    min_signal: float = Field(default=0.55, ge=0.1, le=1.0)
+    use_model: bool = True
+
+
+class GovernanceCandidatesRequest(BaseModel):
+    categories: Optional[List[str]] = None
+    limit: int = Field(default=50, ge=1, le=200)
+
+
+class GovernanceDecisionRequest(BaseModel):
+    reference: str
+    relationship: str
+    target_reference: str
+    approved: bool = True
+
+
+class GovernanceSummaryRequest(BaseModel):
+    categories: Optional[List[str]] = None
+
+
+class GovernanceQueueRequest(BaseModel):
+    categories: Optional[List[str]] = None
+    limit: int = Field(default=100, ge=1, le=500)
+
+
+class GovernanceAuditRequest(BaseModel):
+    limit: int = Field(default=100, ge=1, le=500)
+    kinds: Optional[List[str]] = None
+
+
+class GovernanceAutoResolveRequest(BaseModel):
+    categories: Optional[List[str]] = None
+    limit: int = Field(default=20, ge=1, le=200)
+    dry_run: bool = True
+    profile: Optional[str] = None
+
+
+class GovernanceRollbackRequest(BaseModel):
+    reference: str
+    relationship: str
+    target_reference: str
 
 
 class GetRequest(BaseModel):
@@ -592,6 +644,152 @@ def memory_search(request: SearchRequest) -> dict[str, Any]:
         "categories": categories,
         "results": flattened,
         "usedFallback": used_fallback,
+        **runtime,
+    }
+
+
+@app.post("/memory/duplicate_candidates")
+def memory_duplicate_candidates(request: DuplicateCandidatesRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    candidates = api.find_duplicate_candidates(
+        request.reference,
+        limit=request.limit,
+        min_similarity=request.min_similarity,
+    )
+    return {
+        "ok": True,
+        "reference": request.reference,
+        "limit": request.limit,
+        "min_similarity": request.min_similarity,
+        "candidates": candidates,
+        **runtime,
+    }
+
+
+@app.post("/memory/contradiction_candidates")
+def memory_contradiction_candidates(request: ContradictionCandidatesRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    candidates = api.find_contradiction_candidates(
+        request.reference,
+        limit=request.limit,
+        min_signal=request.min_signal,
+        use_model=request.use_model,
+    )
+    return {
+        "ok": True,
+        "reference": request.reference,
+        "limit": request.limit,
+        "min_signal": request.min_signal,
+        "use_model": request.use_model,
+        "candidates": candidates,
+        **runtime,
+    }
+
+
+@app.post("/memory/governance/candidates")
+def memory_governance_candidates(request: GovernanceCandidatesRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    items = api.list_governance_candidates(categories=request.categories, limit=request.limit)
+    return {
+        "ok": True,
+        "categories": request.categories,
+        "limit": request.limit,
+        "items": items,
+        **runtime,
+    }
+
+
+@app.post("/memory/governance/decision")
+def memory_governance_decision(request: GovernanceDecisionRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    result = api.apply_governance_decision(
+        request.reference,
+        relationship=request.relationship,
+        target_reference=request.target_reference,
+        approved=request.approved,
+    )
+    return {
+        "ok": result is not None,
+        "reference": request.reference,
+        "relationship": request.relationship,
+        "target_reference": request.target_reference,
+        "approved": request.approved,
+        "result": result,
+        **runtime,
+    }
+
+
+@app.post("/memory/governance/summary")
+def memory_governance_summary(request: GovernanceSummaryRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    summary = api.governance_summary(categories=request.categories)
+    return {
+        "ok": True,
+        "categories": request.categories,
+        "summary": summary,
+        **runtime,
+    }
+
+
+@app.post("/memory/governance/queue")
+def memory_governance_queue(request: GovernanceQueueRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    items = api.governance_queue(categories=request.categories, limit=request.limit)
+    return {
+        "ok": True,
+        "categories": request.categories,
+        "limit": request.limit,
+        "items": items,
+        **runtime,
+    }
+
+
+@app.post("/memory/governance/auto_resolve")
+def memory_governance_auto_resolve(request: GovernanceAutoResolveRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    result = api.governance_auto_resolve(
+        categories=request.categories,
+        limit=request.limit,
+        dry_run=request.dry_run,
+        profile=request.profile,
+    )
+    return {
+        "ok": True,
+        "categories": request.categories,
+        "limit": request.limit,
+        "dry_run": request.dry_run,
+        "result": result,
+        **runtime,
+    }
+
+
+@app.post("/memory/governance/audit")
+def memory_governance_audit(request: GovernanceAuditRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    items = api.governance_audit(limit=request.limit, kinds=request.kinds)
+    return {
+        "ok": True,
+        "limit": request.limit,
+        "kinds": request.kinds,
+        "items": items,
+        **runtime,
+    }
+
+
+@app.post("/memory/governance/rollback")
+def memory_governance_rollback(request: GovernanceRollbackRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    result = api.rollback_governance_decision(
+        request.reference,
+        relationship=request.relationship,
+        target_reference=request.target_reference,
+    )
+    return {
+        "ok": result is not None,
+        "reference": request.reference,
+        "relationship": request.relationship,
+        "target_reference": request.target_reference,
+        "result": result,
         **runtime,
     }
 
@@ -1146,6 +1344,16 @@ def dashboard() -> HTMLResponse:
     metrics_html = "".join(
         f"<div class='card'><strong>{card['label']}</strong><br/>{card['value']}</div>" for card in metrics_cards
     )
+    local_html = "".join(
+        f"<div class='card'><strong>{card['label']}</strong><br/>{card['value']}</div>"
+        for card in metrics_cards
+        if str(card.get('label', '')).startswith('local_') or str(card.get('label', '')) in {
+            'frontier_calls_avoided_est',
+            'prompt_tokens_saved_est',
+            'completion_tokens_saved_est',
+            'cost_saved_usd_est',
+        }
+    )
     coverage_html = "".join(
         f"<div class='card'><strong>{row['table']}</strong><br/>rows: {row['rows']}<br/>vectors: {row['vectors']}<br/>missing: {row['missing']}</div>"
         for row in coverage_rows
@@ -1210,27 +1418,6 @@ def dashboard() -> HTMLResponse:
           const warnings = (data.warnings || []).join('; ');
           const mode = data.mode || 'n/a';
           ponderMetaEl.textContent = `Last update: ${{lastTs}} • Mode: ${{mode}}${{warnings ? ' • ' + warnings : ''}}`;
-          ponderEl.innerHTML = items.map((item) =>
-            `<div class="card"><strong>${{item.summary}}</strong><br/><em>${{item.recommendation || ''}}</em><br/><small>${{item.timestamp || ''}} • ${{item.reference || ''}}</small></div>`
-          ).join('');
-        }}
-
-        refreshMetrics();
-        refreshPonder();
-        setInterval(refreshMetrics, 5000);
-        setInterval(refreshPonder, 10000);
-
-        const es = new EventSource('/events');
-        es.onmessage = (ev) => {{
-          eventsEl.textContent += ev.data + "\\n";
-          eventsEl.scrollTop = eventsEl.scrollHeight;
-        }};
-      </script>
-    </body>
-    </html>
-    """
-    return HTMLResponse(html)
-� Mode: ${{mode}}${{warnings ? ' • ' + warnings : ''}}`;
           ponderEl.innerHTML = items.map((item) =>
             `<div class="card"><strong>${{item.summary}}</strong><br/><em>${{item.recommendation || ''}}</em><br/><small>${{item.timestamp || ''}} • ${{item.reference || ''}}</small></div>`
           ).join('');

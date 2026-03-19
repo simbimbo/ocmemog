@@ -55,14 +55,7 @@ def _recency_score(timestamp: str | None) -> float:
     return 0.0
 
 
-MEMORY_BUCKETS: Tuple[str, ...] = (
-    "knowledge",
-    "reflections",
-    "directives",
-    "tasks",
-    "runbooks",
-    "lessons",
-)
+MEMORY_BUCKETS: Tuple[str, ...] = tuple(store.MEMORY_TABLES)
 
 
 def _empty_results() -> Dict[str, List[Dict[str, Any]]]:

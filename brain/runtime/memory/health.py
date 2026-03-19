@@ -5,13 +5,13 @@ from typing import Dict, Any
 from brain.runtime.memory import store, integrity
 
 
-EMBED_TABLES = ("knowledge", "runbooks", "lessons", "directives", "reflections", "tasks")
+EMBED_TABLES = tuple(store.MEMORY_TABLES)
 
 
 def get_memory_health() -> Dict[str, Any]:
     conn = store.connect()
     counts: Dict[str, int] = {}
-    for table in ["experiences", "candidates", "promotions", "memory_index", "knowledge", "runbooks", "lessons", "directives", "reflections", "tasks", "vector_embeddings"]:
+    for table in ["experiences", "candidates", "promotions", "memory_index", *store.MEMORY_TABLES, "vector_embeddings"]:
         try:
             counts[table] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         except Exception:
@@ -20,7 +20,7 @@ def get_memory_health() -> Dict[str, Any]:
     vector_count = 0
     try:
         vector_count = conn.execute(
-            "SELECT COUNT(*) FROM vector_embeddings WHERE source_type IN ('knowledge','runbooks','lessons','directives','reflections','tasks')"
+            "SELECT COUNT(*) FROM vector_embeddings WHERE source_type IN ('knowledge','preferences','identity','reflections','directives','tasks','runbooks','lessons')"
         ).fetchone()[0]
     except Exception:
         vector_count = 0

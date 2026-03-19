@@ -13,7 +13,7 @@ class GovernanceAutopromotionTests(unittest.TestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         os.environ["OCMEMOG_STATE_DIR"] = self.tempdir.name
         os.environ["OCMEMOG_GOVERNANCE_AUTOPROMOTE"] = "true"
-        os.environ["OCMEMOG_GOVERNANCE_DUPLICATE_AUTOPROMOTE_SIMILARITY"] = "0.92"
+        os.environ["OCMEMOG_GOVERNANCE_DUPLICATE_AUTOPROMOTE_SIMILARITY"] = "0.98"
         store._SCHEMA_READY = False
 
     def tearDown(self) -> None:
@@ -21,6 +21,9 @@ class GovernanceAutopromotionTests(unittest.TestCase):
         os.environ.pop("OCMEMOG_STATE_DIR", None)
         os.environ.pop("OCMEMOG_GOVERNANCE_AUTOPROMOTE", None)
         os.environ.pop("OCMEMOG_GOVERNANCE_DUPLICATE_AUTOPROMOTE_SIMILARITY", None)
+        os.environ.pop("OCMEMOG_GOVERNANCE_DUPLICATE_AUTOPROMOTE_MARGIN", None)
+        os.environ.pop("OCMEMOG_GOVERNANCE_DUPLICATE_AUTOPROMOTE_REQUIRE_EXACT_TOKENS", None)
+        os.environ.pop("OCMEMOG_GOVERNANCE_AUTOPROMOTE_ALLOW_CONTRADICTIONS", None)
         store._SCHEMA_READY = False
 
     def test_auto_promotes_high_confidence_duplicate(self) -> None:
@@ -51,6 +54,18 @@ class GovernanceAutopromotionTests(unittest.TestCase):
         prov = (payload.get("metadata") or {}).get("provenance") or {}
         self.assertNotEqual(prov.get("memory_status"), "duplicate")
         self.assertIn("knowledge:1", prov.get("contradiction_candidates") or [])
+
+    def test_does_not_auto_promote_ambiguous_duplicate_candidates(self) -> None:
+        os.environ["OCMEMOG_GOVERNANCE_DUPLICATE_AUTOPROMOTE_MARGIN"] = "0.02"
+        api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
+        api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
+        with mock.patch("brain.runtime.memory.api._model_contradiction_hint", return_value=None):
+            candidate = api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
+
+        payload = provenance.fetch_reference(f"knowledge:{candidate}") or {}
+        prov = (payload.get("metadata") or {}).get("provenance") or {}
+        self.assertNotEqual(prov.get("memory_status"), "duplicate")
+        self.assertGreaterEqual(len(prov.get("duplicate_candidates") or []), 2)
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ from brain.runtime import state_store
 from brain.runtime.instrumentation import emit_event
 from brain.runtime.memory import memory_links, memory_salience, provenance, store, unresolved_state
 
-_ALLOWED_MEMORY_TABLES = {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons", "candidates", "promotions"}
+_ALLOWED_MEMORY_TABLES = {*store.MEMORY_TABLES, "candidates", "promotions"}
 LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
 _COMMITMENT_RE = re.compile(
     r"\b(i(?:'m| am)? going to|i will|i'll|let me|i can(?:\s+now)?|next,? i(?:'ll| will)|i should be able to)\b",

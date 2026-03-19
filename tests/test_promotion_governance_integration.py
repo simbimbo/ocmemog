@@ -13,7 +13,7 @@ class PromotionGovernanceIntegrationTests(unittest.TestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         os.environ["OCMEMOG_STATE_DIR"] = self.tempdir.name
         os.environ["OCMEMOG_GOVERNANCE_AUTOPROMOTE"] = "true"
-        os.environ["OCMEMOG_GOVERNANCE_DUPLICATE_AUTOPROMOTE_SIMILARITY"] = "0.92"
+        os.environ["OCMEMOG_GOVERNANCE_DUPLICATE_AUTOPROMOTE_SIMILARITY"] = "0.98"
         store._SCHEMA_READY = False
 
     def tearDown(self) -> None:

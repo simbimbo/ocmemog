@@ -7,7 +7,7 @@ from brain.runtime import state_store
 from brain.runtime.memory import store
 
 
-EMBED_TABLES = ("knowledge", "runbooks", "lessons", "directives", "reflections", "tasks")
+EMBED_TABLES = tuple(store.MEMORY_TABLES)
 
 
 def run_integrity_check() -> Dict[str, Any]:
@@ -21,6 +21,8 @@ def run_integrity_check() -> Dict[str, Any]:
     required = {
         "experiences",
         "knowledge",
+        "preferences",
+        "identity",
         "reflections",
         "tasks",
         "directives",

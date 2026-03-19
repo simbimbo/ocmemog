@@ -12,7 +12,7 @@ from brain.runtime.instrumentation import emit_event
 from brain.runtime.memory import api, integrity, memory_consolidation, memory_links, provenance, store, unresolved_state, vector_index
 
 LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
-_WRITABLE_MEMORY_TABLES = {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons"}
+_WRITABLE_MEMORY_TABLES = set(store.MEMORY_TABLES)
 _SUMMARY_PREFIX_RE = re.compile(r"^(?:insight|recommendation|lesson)\s*:\s*", re.IGNORECASE)
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 from pathlib import Path
@@ -17,9 +18,9 @@ from brain.runtime.memory import api, conversation_state, distill, health, memor
 from ocmemog.sidecar.compat import flatten_results, probe_runtime
 from ocmemog.sidecar.transcript_watcher import watch_forever
 
-DEFAULT_CATEGORIES = ("knowledge", "reflections", "directives", "tasks", "runbooks", "lessons")
+DEFAULT_CATEGORIES = tuple(store.MEMORY_TABLES)
 
-app = FastAPI(title="ocmemog sidecar", version="0.1.8")
+app = FastAPI(title="ocmemog sidecar", version="0.1.9")
 
 API_TOKEN = os.environ.get("OCMEMOG_API_TOKEN")
 
@@ -32,6 +33,35 @@ QUEUE_STATS = {
     "last_error": None,
     "last_batch": 0,
 }
+
+
+_REFLECTION_RECLASSIFY_PREFERENCE_PATTERNS = (
+    re.compile(r"\b(?:i|we)\s+(?:prefer|like|love|enjoy)\b", re.IGNORECASE),
+    re.compile(r"\b(?:i|we)\s+(?:dislike|hate|avoid)\b", re.IGNORECASE),
+    re.compile(r"\bmy favorite\b", re.IGNORECASE),
+    re.compile(r"\b(?:the )?user\s+(?:prefers|likes|loves|enjoys|dislikes|hates|avoids)\b", re.IGNORECASE),
+)
+_REFLECTION_RECLASSIFY_IDENTITY_PATTERNS = (
+    re.compile(r"\b(?:i am|i'm)\s+(?!thinking\b|trying\b|working on\b|going to\b|not\b)", re.IGNORECASE),
+    re.compile(r"\bmy name is\b", re.IGNORECASE),
+    re.compile(r"\b(?:i|we)\s+(?:live|work)\s+in\b", re.IGNORECASE),
+    re.compile(r"\b(?:i|we)\s+(?:work|study)\s+at\b", re.IGNORECASE),
+    re.compile(r"\bmy pronouns are\b", re.IGNORECASE),
+    re.compile(r"\bmy (?:time zone|timezone) is\b", re.IGNORECASE),
+    re.compile(r"\b(?:the )?user\s+(?:is|works|lives)\b", re.IGNORECASE),
+)
+_REFLECTION_RECLASSIFY_FACT_PATTERNS = (
+    re.compile(r"\b(?:i|we)\s+use\b", re.IGNORECASE),
+    re.compile(r"\b(?:i|we)\s+have\b", re.IGNORECASE),
+    re.compile(r"\b(?:i am|i'm)\s+allergic to\b", re.IGNORECASE),
+    re.compile(r"\bmy (?:birthday|email|phone number) is\b", re.IGNORECASE),
+    re.compile(r"\b(?:the )?user\s+has\b", re.IGNORECASE),
+)
+_REFLECTION_RECLASSIFY_BLOCKLIST_PATTERNS = (
+    re.compile(r"\b(?:reflect|reflection|reflections)\b", re.IGNORECASE),
+    re.compile(r"\b(?:i think|i wonder|maybe|perhaps)\b", re.IGNORECASE),
+    re.compile(r"\?$"),
+)
 
 
 def _queue_stats_path() -> Path:
@@ -255,11 +285,26 @@ class GovernanceCandidatesRequest(BaseModel):
     limit: int = Field(default=50, ge=1, le=200)
 
 
+class GovernanceReviewRequest(BaseModel):
+    categories: Optional[List[str]] = None
+    limit: int = Field(default=100, ge=1, le=500)
+    context_depth: int = Field(default=1, ge=0, le=2)
+
+
 class GovernanceDecisionRequest(BaseModel):
     reference: str
     relationship: str
     target_reference: str
     approved: bool = True
+
+
+class GovernanceReviewDecisionRequest(BaseModel):
+    reference: str
+    target_reference: str
+    approved: bool = True
+    kind: Optional[str] = None
+    relationship: Optional[str] = None
+    context_depth: int = Field(default=1, ge=0, le=2)
 
 
 class GovernanceSummaryRequest(BaseModel):
@@ -311,7 +356,7 @@ class PonderRequest(BaseModel):
 class IngestRequest(BaseModel):
     content: str
     kind: str = Field(default="experience", description="experience or memory")
-    memory_type: Optional[str] = Field(default=None, description="knowledge|reflections|directives|tasks|runbooks|lessons")
+    memory_type: Optional[str] = Field(default=None, description="knowledge|preferences|identity|reflections|directives|tasks|runbooks|lessons")
     source: Optional[str] = None
     task_id: Optional[str] = None
     conversation_id: Optional[str] = None
@@ -440,6 +485,23 @@ def _runtime_payload() -> Dict[str, Any]:
     }
 
 
+def _retune_reflection_memory_type(content: str, memory_type: str) -> str:
+    if memory_type != "reflections":
+        return memory_type
+    text = re.sub(r"\s+", " ", str(content or "")).strip()
+    if not text or len(text) > 280:
+        return memory_type
+    if any(pattern.search(text) for pattern in _REFLECTION_RECLASSIFY_BLOCKLIST_PATTERNS):
+        return memory_type
+    if any(pattern.search(text) for pattern in _REFLECTION_RECLASSIFY_PREFERENCE_PATTERNS):
+        return "preferences"
+    if any(pattern.search(text) for pattern in _REFLECTION_RECLASSIFY_IDENTITY_PATTERNS):
+        return "identity"
+    if any(pattern.search(text) for pattern in _REFLECTION_RECLASSIFY_FACT_PATTERNS):
+        return "identity"
+    return memory_type
+
+
 def _fallback_search(query: str, limit: int, categories: List[str]) -> List[Dict[str, Any]]:
     conn = store.connect()
     try:
@@ -468,12 +530,7 @@ def _fallback_search(query: str, limit: int, categories: List[str]) -> List[Dict
 
 
 _ALLOWED_MEMORY_REFERENCE_TYPES = {
-    "knowledge",
-    "reflections",
-    "directives",
-    "tasks",
-    "runbooks",
-    "lessons",
+    *store.MEMORY_TABLES,
     "conversation_turns",
     "conversation_checkpoints",
 }
@@ -497,7 +554,7 @@ def _get_row(reference: str) -> Optional[Dict[str, Any]]:
     prefix, identifier = parsed
     if prefix not in _ALLOWED_MEMORY_REFERENCE_TYPES:
         return None
-    if prefix in {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons", "conversation_turns", "conversation_checkpoints"} and not identifier.isdigit():
+    if prefix in {*store.MEMORY_TABLES, "conversation_turns", "conversation_checkpoints"} and not identifier.isdigit():
         return None
     return provenance.hydrate_reference(reference, depth=2)
 
@@ -699,6 +756,24 @@ def memory_governance_candidates(request: GovernanceCandidatesRequest) -> dict[s
     }
 
 
+@app.post("/memory/governance/review")
+def memory_governance_review(request: GovernanceReviewRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    items = api.list_governance_review_items(
+        categories=request.categories,
+        limit=request.limit,
+        context_depth=request.context_depth,
+    )
+    return {
+        "ok": True,
+        "categories": request.categories,
+        "limit": request.limit,
+        "context_depth": request.context_depth,
+        "items": items,
+        **runtime,
+    }
+
+
 @app.post("/memory/governance/decision")
 def memory_governance_decision(request: GovernanceDecisionRequest) -> dict[str, Any]:
     runtime = _runtime_payload()
@@ -714,6 +789,30 @@ def memory_governance_decision(request: GovernanceDecisionRequest) -> dict[str, 
         "relationship": request.relationship,
         "target_reference": request.target_reference,
         "approved": request.approved,
+        "result": result,
+        **runtime,
+    }
+
+
+@app.post("/memory/governance/review/decision")
+def memory_governance_review_decision(request: GovernanceReviewDecisionRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    result = api.apply_governance_review_decision(
+        request.reference,
+        target_reference=request.target_reference,
+        approved=request.approved,
+        kind=request.kind,
+        relationship=request.relationship,
+        context_depth=request.context_depth,
+    )
+    return {
+        "ok": result is not None,
+        "reference": request.reference,
+        "target_reference": request.target_reference,
+        "approved": request.approved,
+        "kind": request.kind,
+        "relationship": request.relationship,
+        "context_depth": request.context_depth,
         "result": result,
         **runtime,
     }
@@ -815,7 +914,7 @@ def memory_get(request: GetRequest) -> dict[str, Any]:
             "reference": request.reference,
             **runtime,
         }
-    if prefix in {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons", "conversation_turns", "conversation_checkpoints"} and not identifier.isdigit():
+    if prefix in {*store.MEMORY_TABLES, "conversation_turns", "conversation_checkpoints"} and not identifier.isdigit():
         return {
             "ok": False,
             "error": "invalid_reference_id",
@@ -1072,9 +1171,10 @@ def _ingest_request(request: IngestRequest) -> dict[str, Any]:
     kind = (request.kind or "experience").lower()
     if kind == "memory":
         memory_type = (request.memory_type or "knowledge").lower()
-        allowed = {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons"}
+        allowed = set(store.MEMORY_TABLES)
         if memory_type not in allowed:
             memory_type = "knowledge"
+        memory_type = _retune_reflection_memory_type(content, memory_type)
         metadata = {
             "conversation_id": request.conversation_id,
             "session_id": request.session_id,
@@ -1249,7 +1349,7 @@ def metrics() -> dict[str, Any]:
     counts["queue_processed"] = QUEUE_STATS.get("processed", 0)
     counts["queue_errors"] = QUEUE_STATS.get("errors", 0)
     payload["counts"] = counts
-    coverage_tables = ["knowledge", "runbooks", "lessons", "directives", "reflections", "tasks"]
+    coverage_tables = list(store.MEMORY_TABLES)
     conn = store.connect()
     try:
         payload["coverage"] = [
@@ -1302,7 +1402,7 @@ def _tail_events(limit: int = 50) -> str:
 def dashboard() -> HTMLResponse:
     metrics_payload = health.get_memory_health()
     counts = metrics_payload.get("counts", {})
-    coverage_tables = ["knowledge", "runbooks", "lessons", "directives", "reflections", "tasks"]
+    coverage_tables = list(store.MEMORY_TABLES)
     conn = store.connect()
     try:
         coverage_rows = []
@@ -1370,6 +1470,15 @@ def dashboard() -> HTMLResponse:
         body {{ font-family: system-ui, sans-serif; padding: 20px; }}
         .metrics {{ display: flex; gap: 12px; flex-wrap: wrap; }}
         .card {{ border: 1px solid #ddd; padding: 10px 14px; border-radius: 8px; min-width: 140px; }}
+        .panel {{ margin-top: 24px; }}
+        .controls {{ display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 8px 0; }}
+        .controls label {{ display: flex; gap: 6px; align-items: center; }}
+        table {{ width: 100%; border-collapse: collapse; margin-top: 8px; }}
+        th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: top; }}
+        th {{ background: #f7f7f7; }}
+        button {{ padding: 6px 10px; }}
+        .muted {{ color: #666; }}
+        .error {{ color: #a40000; }}
         pre {{ background: #f7f7f7; padding: 10px; height: 320px; overflow: auto; }}
       </style>
     </head>
@@ -1380,6 +1489,45 @@ def dashboard() -> HTMLResponse:
       <div class="metrics" id="local-cognition">{local_html}</div>
       <h3>Vector coverage</h3>
       <div class="metrics" id="coverage">{coverage_html}</div>
+      <div class="panel">
+        <h3>Governance review</h3>
+        <div class="controls">
+          <label>Kind
+            <select id="review-kind-filter">
+              <option value="">All</option>
+              <option value="duplicate_candidate">Duplicate</option>
+              <option value="contradiction_candidate">Contradiction</option>
+              <option value="supersession_recommendation">Supersession</option>
+            </select>
+          </label>
+          <label>Priority
+            <select id="review-priority-filter">
+              <option value="">All</option>
+              <option value="90">90</option>
+              <option value="70">70</option>
+              <option value="40">40</option>
+            </select>
+          </label>
+          <button id="review-refresh" type="button">Refresh</button>
+        </div>
+        <div id="review-note" class="muted">Loading review items...</div>
+        <div id="review-error" class="error"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>Priority</th>
+              <th>Kind</th>
+              <th>Source</th>
+              <th>Target</th>
+              <th>Summary</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="review-table-body">
+            <tr><td colspan="6" class="muted">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
       <h3>Ponder recommendations</h3>
       <div id="ponder-meta" style="margin-bottom:8px; color:#666;"></div>
       <div id="ponder"></div>
@@ -1388,9 +1536,109 @@ def dashboard() -> HTMLResponse:
       <script>
         const metricsEl = document.getElementById('metrics');
         const coverageEl = document.getElementById('coverage');
+        const reviewKindFilterEl = document.getElementById('review-kind-filter');
+        const reviewPriorityFilterEl = document.getElementById('review-priority-filter');
+        const reviewRefreshEl = document.getElementById('review-refresh');
+        const reviewNoteEl = document.getElementById('review-note');
+        const reviewErrorEl = document.getElementById('review-error');
+        const reviewTableBodyEl = document.getElementById('review-table-body');
         const ponderEl = document.getElementById('ponder');
         const ponderMetaEl = document.getElementById('ponder-meta');
         const eventsEl = document.getElementById('events');
+        let reviewItems = [];
+        let reviewLastRefresh = null;
+        const pendingReviewIds = new Set();
+
+        /**
+         * @typedef {{Object}} GovernanceReviewContext
+         * @property {{string}} reference
+         * @property {{string | undefined}} bucket
+         * @property {{number | undefined}} id
+         * @property {{string | undefined}} timestamp
+         * @property {{string | undefined}} content
+         * @property {{string | undefined}} memory_status
+         *
+         * @typedef {{Object}} GovernanceReviewItem
+         * @property {{string}} review_id
+         * @property {{string}} kind
+         * @property {{string | undefined}} kind_label
+         * @property {{string | undefined}} relationship
+         * @property {{number}} priority
+         * @property {{string | undefined}} timestamp
+         * @property {{number | undefined}} signal
+         * @property {{string | undefined}} summary
+         * @property {{string}} reference
+         * @property {{string}} target_reference
+         * @property {{GovernanceReviewContext | undefined}} source
+         * @property {{GovernanceReviewContext | undefined}} target
+         */
+
+        function escapeHtml(value) {{
+          return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+        }}
+
+        function formatTimestamp(value) {{
+          if (!value) {{
+            return 'n/a';
+          }}
+          const parsed = new Date(value);
+          return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString();
+        }}
+
+        function renderReviewTable() {{
+          const kindFilter = reviewKindFilterEl.value;
+          const priorityFilter = reviewPriorityFilterEl.value;
+          /** @type {{GovernanceReviewItem[]}} */
+          const filtered = reviewItems.filter((item) => {{
+            if (kindFilter && item.kind !== kindFilter) {{
+              return false;
+            }}
+            if (priorityFilter && String(item.priority) !== priorityFilter) {{
+              return false;
+            }}
+            return true;
+          }});
+
+          reviewNoteEl.textContent = `${{filtered.length}} items shown${{reviewItems.length !== filtered.length ? ` of ${{reviewItems.length}}` : ''}} • Last refresh: ${{reviewLastRefresh ? formatTimestamp(reviewLastRefresh) : 'n/a'}}`;
+
+          if (!filtered.length) {{
+            reviewTableBodyEl.innerHTML = '<tr><td colspan="6" class="muted">No review items match the current filters.</td></tr>';
+            return;
+          }}
+
+          reviewTableBodyEl.innerHTML = filtered.map((item) => {{
+            const disabled = pendingReviewIds.has(item.review_id) ? 'disabled' : '';
+            const sourceContent = item.source?.content || item.reference;
+            const targetContent = item.target?.content || item.target_reference;
+            return `
+              <tr>
+                <td>${{escapeHtml(item.priority)}}</td>
+                <td>${{escapeHtml(item.kind_label || item.kind)}}</td>
+                <td>
+                  <strong>${{escapeHtml(item.reference)}}</strong><br/>
+                  <span class="muted">${{escapeHtml(sourceContent)}}</span>
+                </td>
+                <td>
+                  <strong>${{escapeHtml(item.target_reference)}}</strong><br/>
+                  <span class="muted">${{escapeHtml(targetContent)}}</span>
+                </td>
+                <td>
+                  <strong>${{escapeHtml(item.summary || '')}}</strong><br/>
+                  <span class="muted">${{escapeHtml(item.relationship || '')}}${{item.signal ? ` • signal ${{item.signal}}` : ''}}</span>
+                </td>
+                <td>
+                  <button type="button" data-review-id="${{escapeHtml(item.review_id)}}" data-approved="true" ${{disabled}}>Approve</button>
+                  <button type="button" data-review-id="${{escapeHtml(item.review_id)}}" data-approved="false" ${{disabled}}>Reject</button>
+                </td>
+              </tr>
+            `;
+          }}).join('');
+        }}
 
         async function refreshMetrics() {{
           const res = await fetch('/metrics');
@@ -1423,9 +1671,81 @@ def dashboard() -> HTMLResponse:
           ).join('');
         }}
 
+        async function refreshGovernanceReview() {{
+          reviewErrorEl.textContent = '';
+          try {{
+            const res = await fetch('/memory/governance/review', {{
+              method: 'POST',
+              headers: {{ 'Content-Type': 'application/json' }},
+              body: JSON.stringify({{ limit: 100, context_depth: 1 }}),
+            }});
+            const data = await res.json();
+            if (!res.ok || !data.ok) {{
+              throw new Error(data.error || `review request failed: ${{res.status}}`);
+            }}
+            reviewItems = Array.isArray(data.items) ? data.items : [];
+            reviewLastRefresh = new Date().toISOString();
+            renderReviewTable();
+          }} catch (error) {{
+            reviewErrorEl.textContent = error instanceof Error ? error.message : String(error);
+            reviewTableBodyEl.innerHTML = '<tr><td colspan="6" class="muted">Unable to load review items.</td></tr>';
+          }}
+        }}
+
+        async function applyGovernanceReviewDecision(reviewId, approved) {{
+          const item = reviewItems.find((entry) => entry.review_id === reviewId);
+          if (!item) {{
+            return;
+          }}
+          pendingReviewIds.add(reviewId);
+          renderReviewTable();
+          reviewErrorEl.textContent = '';
+          try {{
+            const res = await fetch('/memory/governance/review/decision', {{
+              method: 'POST',
+              headers: {{ 'Content-Type': 'application/json' }},
+              body: JSON.stringify({{
+                reference: item.reference,
+                target_reference: item.target_reference,
+                approved,
+                kind: item.kind,
+                relationship: item.relationship,
+                context_depth: 1,
+              }}),
+            }});
+            const data = await res.json();
+            if (!res.ok || !data.ok) {{
+              throw new Error(data.error || `decision request failed: ${{res.status}}`);
+            }}
+            await refreshGovernanceReview();
+          }} catch (error) {{
+            reviewErrorEl.textContent = error instanceof Error ? error.message : String(error);
+          }} finally {{
+            pendingReviewIds.delete(reviewId);
+            renderReviewTable();
+          }}
+        }}
+
+        reviewKindFilterEl.addEventListener('change', renderReviewTable);
+        reviewPriorityFilterEl.addEventListener('change', renderReviewTable);
+        reviewRefreshEl.addEventListener('click', refreshGovernanceReview);
+        reviewTableBodyEl.addEventListener('click', (event) => {{
+          const target = event.target;
+          if (!(target instanceof HTMLButtonElement)) {{
+            return;
+          }}
+          const reviewId = target.dataset.reviewId;
+          if (!reviewId) {{
+            return;
+          }}
+          applyGovernanceReviewDecision(reviewId, target.dataset.approved === 'true');
+        }});
+
         refreshMetrics();
+        refreshGovernanceReview();
         refreshPonder();
         setInterval(refreshMetrics, 5000);
+        setInterval(refreshGovernanceReview, 15000);
         setInterval(refreshPonder, 10000);
 
         const es = new EventSource('/events');

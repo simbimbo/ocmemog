@@ -8,6 +8,17 @@ from brain.runtime import state_store
 
 SCHEMA_VERSION = "v1"
 
+MEMORY_TABLES = (
+    "knowledge",
+    "preferences",
+    "identity",
+    "reflections",
+    "directives",
+    "tasks",
+    "runbooks",
+    "lessons",
+)
+
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS memory_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,6 +112,26 @@ CREATE TABLE IF NOT EXISTS cold_storage (
 );
 
 CREATE TABLE IF NOT EXISTS knowledge (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+  source TEXT,
+  confidence REAL NOT NULL DEFAULT 1.0,
+  metadata_json TEXT DEFAULT '{}',
+  content TEXT NOT NULL,
+  schema_version TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS preferences (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+  source TEXT,
+  confidence REAL NOT NULL DEFAULT 1.0,
+  metadata_json TEXT DEFAULT '{}',
+  content TEXT NOT NULL,
+  schema_version TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS identity (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   timestamp TEXT NOT NULL DEFAULT (datetime('now')),
   source TEXT,

@@ -6,7 +6,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set
 
 from brain.runtime.memory import memory_links, store
 
-_MEMORY_TABLES = {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons"}
+_MEMORY_TABLES = set(store.MEMORY_TABLES)
 _FETCHABLE_TABLES = _MEMORY_TABLES | {"promotions", "experiences", "conversation_turns", "conversation_checkpoints"}
 _SYNTHETIC_PREFIXES = {"conversation", "session", "thread", "message", "label", "transcript"}
 

@@ -14,14 +14,7 @@ from brain.runtime.security import redaction
 
 LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
 
-EMBEDDING_TABLES: tuple[str, ...] = (
-    "knowledge",
-    "runbooks",
-    "lessons",
-    "directives",
-    "reflections",
-    "tasks",
-)
+EMBEDDING_TABLES: tuple[str, ...] = tuple(store.MEMORY_TABLES)
 _REBUILD_LOCK = threading.Lock()
 _WRITE_CHUNK_SIZE = 64
 _EMBEDDING_TEXT_LIMIT = 8000

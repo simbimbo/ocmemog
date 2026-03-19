@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.9 — 2026-03-19
+
+Memory quality, governance, and review release.
+
+### Highlights
+- added near-duplicate collapse for transcript/session double-ingest candidate generation
+- added conservative reflection reclassification and new durable buckets for `preferences` and `identity`
+- wired new buckets through storage, retrieval, embeddings, health, integrity, and promotion/demotion paths
+- hardened governance auto-promotion for duplicates and supersessions with stricter thresholds and guardrails
+- added governance review endpoints plus dashboard review panel with filters and approve/reject actions
+- fixed release-blocking distill fallback behavior in no-model environments and removed stale hard-coded bucket drift
+
 ## 0.1.8 — 2026-03-19
 
 Documentation and release follow-through after the llama.cpp migration and repo grooming pass.

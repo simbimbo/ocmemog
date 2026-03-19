@@ -97,7 +97,12 @@ def _reject_distilled_summary(summary: str, source: str) -> bool:
     if lowered.startswith(("good job", "be proactive", "be thorough", "always check", "always remember")):
         return True
     if source and lowered == _normalize(source):
-        return True
+        # In no-model environments the best available summary can be the
+        # original one-line experience. Keep rejecting verbose/source-equal
+        # fallbacks, but allow concise operational statements through.
+        compact_source = re.sub(r"\s+", " ", str(source or "")).strip()
+        if "\n" in compact_source or len(compact_source) > 120:
+            return True
     return False
 
 

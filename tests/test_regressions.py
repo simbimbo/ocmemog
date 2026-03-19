@@ -181,6 +181,15 @@ class OcmemogRegressionTests(unittest.TestCase):
         self.assertEqual([turn["message_id"] for turn in hydrate["recent_turns"]], ["m1", "m2"])
         self.assertEqual(hydrate["summary"]["latest_assistant_turn"]["content"], "hi there")
 
+    def test_dashboard_includes_governance_review_panel(self) -> None:
+        response = app.dashboard()
+        html = response.body.decode("utf-8")
+
+        self.assertIn("Governance review", html)
+        self.assertIn("review-kind-filter", html)
+        self.assertIn("/memory/governance/review", html)
+        self.assertIn("/memory/governance/review/decision", html)
+
     def test_conversation_checkpoint_and_unresolved_state_enrich_hydration(self) -> None:
         app.conversation_ingest_turn(
             app.ConversationTurnRequest(

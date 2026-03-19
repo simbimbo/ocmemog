@@ -9,6 +9,27 @@ from brain.runtime import inference
 from brain.runtime.instrumentation import emit_event
 from brain.runtime.security import redaction
 
+_REVIEW_KIND_METADATA: Dict[str, Dict[str, str]] = {
+    "duplicate_candidate": {
+        "relationship": "duplicate_of",
+        "label": "Duplicate candidate",
+        "approve_label": "Approve duplicate merge",
+        "reject_label": "Reject duplicate merge",
+    },
+    "contradiction_candidate": {
+        "relationship": "contradicts",
+        "label": "Contradiction candidate",
+        "approve_label": "Mark as contradiction",
+        "reject_label": "Dismiss contradiction",
+    },
+    "supersession_recommendation": {
+        "relationship": "supersedes",
+        "label": "Supersession recommendation",
+        "approve_label": "Approve supersession",
+        "reject_label": "Dismiss supersession",
+    },
+}
+
 
 def _sanitize(text: str) -> str:
     redacted, _ = redaction.redact_text(text)
@@ -72,8 +93,6 @@ def _recommend_supersession_from_contradictions(
 
     signal_threshold = float(os.environ.get("OCMEMOG_GOVERNANCE_SUPERSESSION_RECOMMEND_SIGNAL", "0.9") or 0.9)
     model_conf_threshold = float(os.environ.get("OCMEMOG_GOVERNANCE_SUPERSESSION_MODEL_CONFIDENCE", "0.9") or 0.9)
-    auto_apply = os.environ.get("OCMEMOG_GOVERNANCE_AUTOPROMOTE_SUPERSESSION", "false").strip().lower() in {"1", "true", "yes"}
-
     ranked = sorted(contradiction_candidates, key=lambda item: float(item.get("signal") or 0.0), reverse=True)
     top = ranked[0]
     signal = float(top.get("signal") or 0.0)
@@ -105,28 +124,38 @@ def _recommend_supersession_from_contradictions(
         "model_hint": model_hint,
     })
 
-    if auto_apply:
-        merged = mark_memory_relationship(reference, relationship="supersedes", target_reference=target, status="active")
-        recommendation["auto_applied"] = merged is not None
-        recommendation["reason"] = "auto_applied_supersession" if merged is not None else "auto_apply_failed"
-
     return recommendation
 
 
-def _auto_promote_governance_candidates(
+def _canonicalize_duplicate_target(reference: str) -> str:
+    payload = provenance.fetch_reference(reference) or {}
+    metadata = payload.get("metadata") or {}
+    prov = metadata.get("provenance") if isinstance(metadata.get("provenance"), dict) else {}
+    canonical = str(prov.get("canonical_reference") or prov.get("duplicate_of") or reference).strip()
+    return canonical or reference
+
+
+def _token_signature(text: str) -> frozenset[str]:
+    return frozenset(_tokenize(text))
+
+
+def _auto_promote_duplicate_candidate(
     reference: str,
     *,
     duplicate_candidates: List[Dict[str, Any]],
     contradiction_candidates: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
     auto_promote_enabled = os.environ.get("OCMEMOG_GOVERNANCE_AUTOPROMOTE", "true").strip().lower() in {"1", "true", "yes"}
-    duplicate_threshold = float(os.environ.get("OCMEMOG_GOVERNANCE_DUPLICATE_AUTOPROMOTE_SIMILARITY", "0.92") or 0.92)
+    allow_with_contradictions = os.environ.get("OCMEMOG_GOVERNANCE_AUTOPROMOTE_ALLOW_CONTRADICTIONS", "false").strip().lower() in {"1", "true", "yes"}
+    duplicate_threshold = float(os.environ.get("OCMEMOG_GOVERNANCE_DUPLICATE_AUTOPROMOTE_SIMILARITY", "0.98") or 0.98)
+    duplicate_margin = float(os.environ.get("OCMEMOG_GOVERNANCE_DUPLICATE_AUTOPROMOTE_MARGIN", "0.02") or 0.02)
+    require_exact_tokens = os.environ.get("OCMEMOG_GOVERNANCE_DUPLICATE_AUTOPROMOTE_REQUIRE_EXACT_TOKENS", "true").strip().lower() in {"1", "true", "yes"}
     promoted: Dict[str, Any] = {"duplicate_of": None, "promoted": False, "reason": "disabled" if not auto_promote_enabled else "none"}
 
     if not auto_promote_enabled:
         return promoted
 
-    if contradiction_candidates:
+    if contradiction_candidates and not allow_with_contradictions:
         promoted["reason"] = "blocked_by_contradiction_candidates"
         return promoted
 
@@ -134,11 +163,27 @@ def _auto_promote_governance_candidates(
         promoted["reason"] = "no_duplicate_candidates"
         return promoted
 
-    top = sorted(duplicate_candidates, key=lambda item: float(item.get("similarity") or 0.0), reverse=True)[0]
+    payload = provenance.fetch_reference(reference) or {}
+    reference_content = str(payload.get("content") or "")
+    reference_signature = _token_signature(reference_content)
+    ranked = sorted(duplicate_candidates, key=lambda item: float(item.get("similarity") or 0.0), reverse=True)
+    top = ranked[0]
     similarity = float(top.get("similarity") or 0.0)
-    target = str(top.get("reference") or "")
-    if not target or similarity < duplicate_threshold:
+    target = _canonicalize_duplicate_target(str(top.get("reference") or ""))
+    if not target or target == reference or similarity < duplicate_threshold:
         promoted["reason"] = "similarity_below_threshold"
+        return promoted
+
+    if len(ranked) > 1:
+        runner_up = float(ranked[1].get("similarity") or 0.0)
+        if similarity - runner_up < duplicate_margin:
+            promoted["reason"] = "ambiguous_duplicate_candidates"
+            return promoted
+
+    target_payload = provenance.fetch_reference(target) or {}
+    target_content = str(target_payload.get("content") or "")
+    if require_exact_tokens and _token_signature(target_content) != reference_signature:
+        promoted["reason"] = "token_signature_mismatch"
         return promoted
 
     merged = mark_memory_relationship(reference, relationship="duplicate_of", target_reference=target, status="duplicate")
@@ -151,17 +196,70 @@ def _auto_promote_governance_candidates(
     return promoted
 
 
+def _auto_apply_supersession_recommendation(
+    reference: str,
+    *,
+    contradiction_candidates: List[Dict[str, Any]],
+    supersession_recommendation: Dict[str, Any],
+) -> Dict[str, Any]:
+    recommendation = dict(supersession_recommendation or {})
+    if not recommendation:
+        return {"recommended": False, "auto_applied": False, "reason": "missing_recommendation", "target_reference": None, "signal": 0.0}
+
+    auto_apply = os.environ.get("OCMEMOG_GOVERNANCE_AUTOPROMOTE_SUPERSESSION", "false").strip().lower() in {"1", "true", "yes"}
+    allow_with_contradictions = os.environ.get("OCMEMOG_GOVERNANCE_AUTOPROMOTE_ALLOW_CONTRADICTIONS", "false").strip().lower() in {"1", "true", "yes"}
+    auto_apply_signal = float(os.environ.get("OCMEMOG_GOVERNANCE_SUPERSESSION_AUTOPROMOTE_SIGNAL", "0.97") or 0.97)
+    model_conf_threshold = float(os.environ.get("OCMEMOG_GOVERNANCE_SUPERSESSION_AUTOPROMOTE_MODEL_CONFIDENCE", "0.97") or 0.97)
+
+    recommendation.setdefault("auto_applied", False)
+    if not recommendation.get("recommended"):
+        recommendation["reason"] = recommendation.get("reason") or "not_recommended"
+        return recommendation
+
+    if not auto_apply:
+        return recommendation
+
+    if contradiction_candidates and not allow_with_contradictions:
+        recommendation["reason"] = "blocked_by_contradiction_candidates"
+        return recommendation
+
+    signal = float(recommendation.get("signal") or 0.0)
+    if signal < auto_apply_signal:
+        recommendation["reason"] = "signal_below_autopromote_threshold"
+        return recommendation
+
+    model_hint = recommendation.get("model_hint") if isinstance(recommendation.get("model_hint"), dict) else {}
+    if not model_hint or not model_hint.get("contradiction") or float(model_hint.get("confidence") or 0.0) < model_conf_threshold:
+        recommendation["reason"] = "model_hint_below_autopromote_threshold"
+        return recommendation
+
+    target = str(recommendation.get("target_reference") or "").strip()
+    if not target or target == reference:
+        recommendation["reason"] = "missing_target"
+        return recommendation
+
+    merged = mark_memory_relationship(reference, relationship="supersedes", target_reference=target, status="active")
+    recommendation["auto_applied"] = merged is not None
+    recommendation["reason"] = "auto_applied_supersession" if merged is not None else "auto_apply_failed"
+    return recommendation
+
+
 def _auto_attach_governance_candidates(reference: str) -> Dict[str, Any]:
     duplicate_candidates = find_duplicate_candidates(reference, limit=5, min_similarity=0.72)
     contradiction_candidates = find_contradiction_candidates(reference, limit=5, min_signal=0.55, use_model=True)
-    auto_promotion = _auto_promote_governance_candidates(
+    supersession_recommendation = _recommend_supersession_from_contradictions(
+        reference,
+        contradiction_candidates=contradiction_candidates,
+    )
+    auto_promotion = _auto_promote_duplicate_candidate(
         reference,
         duplicate_candidates=duplicate_candidates,
         contradiction_candidates=contradiction_candidates,
     )
-    supersession_recommendation = _recommend_supersession_from_contradictions(
+    supersession_recommendation = _auto_apply_supersession_recommendation(
         reference,
         contradiction_candidates=contradiction_candidates,
+        supersession_recommendation=supersession_recommendation,
     )
     payload = {
         "duplicate_candidates": [item.get("reference") for item in duplicate_candidates if item.get("reference")],
@@ -196,7 +294,7 @@ def store_memory(
 ) -> int:
     content = _sanitize(content)
     table = memory_type.strip().lower() if memory_type else "knowledge"
-    allowed = {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons"}
+    allowed = set(store.MEMORY_TABLES)
     if table not in allowed:
         table = "knowledge"
     normalized_metadata = provenance.normalize_metadata(metadata, source=source)
@@ -344,7 +442,7 @@ def find_duplicate_candidates(
     payload = provenance.fetch_reference(reference) or {}
     table = str(payload.get("table") or payload.get("type") or "")
     content = str(payload.get("content") or "")
-    if table not in {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons"}:
+    if table not in set(store.MEMORY_TABLES):
         return []
     row_id = payload.get("id")
     conn = store.connect()
@@ -395,7 +493,7 @@ def find_contradiction_candidates(
     payload = provenance.fetch_reference(reference) or {}
     table = str(payload.get("table") or payload.get("type") or "")
     content = str(payload.get("content") or "")
-    if table not in {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons"}:
+    if table not in set(store.MEMORY_TABLES):
         return []
     row_id = payload.get("id")
     conn = store.connect()
@@ -494,7 +592,7 @@ def list_governance_candidates(
     categories: Optional[List[str]] = None,
     limit: int = 50,
 ) -> List[Dict[str, Any]]:
-    allowed = {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons"}
+    allowed = set(store.MEMORY_TABLES)
     tables = [table for table in (categories or list(allowed)) if table in allowed]
     conn = store.connect()
     try:
@@ -532,6 +630,95 @@ def _remove_from_list(values: Any, target: str) -> List[str]:
     return [str(item) for item in (values or []) if str(item) and str(item) != target]
 
 
+def _review_item_context(reference: str, *, depth: int = 1) -> Dict[str, Any]:
+    payload = provenance.hydrate_reference(reference, depth=depth) or {"reference": reference}
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    prov = metadata.get("provenance") if isinstance(metadata.get("provenance"), dict) else {}
+    return {
+        "reference": reference,
+        "bucket": payload.get("table"),
+        "id": payload.get("id"),
+        "timestamp": payload.get("timestamp"),
+        "content": payload.get("content"),
+        "memory_status": prov.get("memory_status") or metadata.get("memory_status") or "active",
+        "provenance_preview": payload.get("provenance_preview") or provenance.preview_from_metadata(metadata),
+        "metadata": metadata,
+        "links": payload.get("links") or [],
+        "backlinks": payload.get("backlinks") or [],
+    }
+
+
+def _review_item_summary(kind: str, reference: str, target_reference: str) -> str:
+    if kind == "duplicate_candidate":
+        return f"{reference} may duplicate {target_reference}"
+    if kind == "contradiction_candidate":
+        return f"{reference} may contradict {target_reference}"
+    if kind == "supersession_recommendation":
+        return f"{reference} may supersede {target_reference}"
+    return f"{reference} requires review against {target_reference}"
+
+
+def _review_actions(kind: str, relationship: str) -> List[Dict[str, Any]]:
+    meta = _REVIEW_KIND_METADATA.get(kind, {})
+    return [
+        {
+            "decision": "approve",
+            "approved": True,
+            "relationship": relationship,
+            "label": meta.get("approve_label") or "Approve",
+        },
+        {
+            "decision": "reject",
+            "approved": False,
+            "relationship": relationship,
+            "label": meta.get("reject_label") or "Reject",
+        },
+    ]
+
+
+def _relationship_for_review(kind: str | None = None, relationship: str | None = None) -> str:
+    resolved = (relationship or "").strip().lower()
+    if resolved:
+        return resolved
+    kind_key = (kind or "").strip().lower()
+    return _REVIEW_KIND_METADATA.get(kind_key, {}).get("relationship", "")
+
+
+def list_governance_review_items(
+    *,
+    categories: Optional[List[str]] = None,
+    limit: int = 100,
+    context_depth: int = 1,
+) -> List[Dict[str, Any]]:
+    items = governance_queue(categories=categories, limit=limit)
+    review_items: List[Dict[str, Any]] = []
+    for item in items:
+        kind = str(item.get("kind") or "")
+        relationship = _relationship_for_review(kind=kind)
+        reference = str(item.get("reference") or "")
+        target_reference = str(item.get("target_reference") or "")
+        if not reference or not target_reference or not relationship:
+            continue
+        review_items.append({
+            "review_id": f"{kind}:{reference}->{target_reference}",
+            "kind": kind,
+            "kind_label": _REVIEW_KIND_METADATA.get(kind, {}).get("label") or kind.replace("_", " "),
+            "relationship": relationship,
+            "priority": int(item.get("priority") or 0),
+            "timestamp": item.get("timestamp"),
+            "bucket": item.get("bucket"),
+            "signal": float(item.get("signal") or 0.0),
+            "reason": item.get("reason"),
+            "reference": reference,
+            "target_reference": target_reference,
+            "summary": _review_item_summary(kind, reference, target_reference),
+            "actions": _review_actions(kind, relationship),
+            "source": _review_item_context(reference, depth=context_depth),
+            "target": _review_item_context(target_reference, depth=context_depth),
+        })
+    return review_items
+
+
 def apply_governance_decision(
     reference: str,
     *,
@@ -541,7 +728,26 @@ def apply_governance_decision(
 ) -> Dict[str, Any] | None:
     relationship = (relationship or "").strip().lower()
     if approved:
-        return mark_memory_relationship(reference, relationship=relationship, target_reference=target_reference)
+        merged = mark_memory_relationship(reference, relationship=relationship, target_reference=target_reference)
+        if merged is None:
+            return None
+        updates: Dict[str, Any] = {}
+        if relationship == "duplicate_of":
+            current = provenance.fetch_reference(reference) or {}
+            metadata = current.get("metadata") or {}
+            prov = metadata.get("provenance") if isinstance(metadata.get("provenance"), dict) else {}
+            updates["duplicate_candidates"] = _remove_from_list(prov.get("duplicate_candidates"), target_reference)
+        elif relationship == "contradicts":
+            current = provenance.fetch_reference(reference) or {}
+            metadata = current.get("metadata") or {}
+            prov = metadata.get("provenance") if isinstance(metadata.get("provenance"), dict) else {}
+            updates["contradiction_candidates"] = _remove_from_list(prov.get("contradiction_candidates"), target_reference)
+        elif relationship == "supersedes":
+            updates["supersession_recommendation"] = None
+        if updates:
+            merged = provenance.force_update_memory_metadata(reference, updates) or merged
+        _emit(f"apply_governance_decision_{relationship}_approved")
+        return merged
 
     current = provenance.fetch_reference(reference) or {}
     metadata = current.get("metadata") or {}
@@ -552,12 +758,53 @@ def apply_governance_decision(
     elif relationship == "contradicts":
         updates["contradiction_candidates"] = _remove_from_list(prov.get("contradiction_candidates"), target_reference)
     elif relationship == "supersedes":
+        recommendation = prov.get("supersession_recommendation") if isinstance(prov.get("supersession_recommendation"), dict) else {}
+        if not recommendation or str(recommendation.get("target_reference") or "") == target_reference:
+            updates["supersession_recommendation"] = None
         updates["supersedes"] = None
     else:
         return None
-    merged = provenance.update_memory_metadata(reference, updates)
+    merged = provenance.force_update_memory_metadata(reference, updates)
     _emit(f"apply_governance_decision_{relationship}_{'approved' if approved else 'rejected'}")
     return merged
+
+
+def apply_governance_review_decision(
+    reference: str,
+    *,
+    target_reference: str,
+    approved: bool = True,
+    kind: str | None = None,
+    relationship: str | None = None,
+    context_depth: int = 1,
+) -> Dict[str, Any] | None:
+    resolved_relationship = _relationship_for_review(kind=kind, relationship=relationship)
+    if not resolved_relationship:
+        return None
+    result = apply_governance_decision(
+        reference,
+        relationship=resolved_relationship,
+        target_reference=target_reference,
+        approved=approved,
+    )
+    if result is None:
+        return None
+    resolved_kind = (kind or "").strip().lower()
+    if not resolved_kind:
+        for candidate_kind, meta in _REVIEW_KIND_METADATA.items():
+            if meta.get("relationship") == resolved_relationship:
+                resolved_kind = candidate_kind
+                break
+    return {
+        "reference": reference,
+        "target_reference": target_reference,
+        "approved": bool(approved),
+        "kind": resolved_kind or None,
+        "relationship": resolved_relationship,
+        "result": result,
+        "source": _review_item_context(reference, depth=context_depth),
+        "target": _review_item_context(target_reference, depth=context_depth),
+    }
 
 
 def rollback_governance_decision(
@@ -617,7 +864,7 @@ def rollback_governance_decision(
 
 
 def governance_queue(*, categories: Optional[List[str]] = None, limit: int = 100) -> List[Dict[str, Any]]:
-    allowed = {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons"}
+    allowed = set(store.MEMORY_TABLES)
     tables = [table for table in (categories or list(allowed)) if table in allowed]
     conn = store.connect()
     try:
@@ -883,7 +1130,7 @@ def governance_audit(*, limit: int = 100, kinds: Optional[List[str]] = None) -> 
 
 
 def governance_summary(*, categories: Optional[List[str]] = None) -> Dict[str, Any]:
-    allowed = {"knowledge", "reflections", "directives", "tasks", "runbooks", "lessons"}
+    allowed = set(store.MEMORY_TABLES)
     tables = [table for table in (categories or list(allowed)) if table in allowed]
     conn = store.connect()
     try:

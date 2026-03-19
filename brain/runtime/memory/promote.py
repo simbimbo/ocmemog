@@ -11,6 +11,38 @@ from brain.runtime import config
 
 LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
 
+_PREFERENCE_PATTERNS = (
+    "prefer",
+    "preference",
+    "favorite",
+    "favourite",
+    "likes",
+    "like ",
+    "loves",
+    "enjoys",
+    "dislikes",
+    "hate ",
+    "avoids",
+)
+_IDENTITY_PATTERNS = (
+    "my name is",
+    "i am ",
+    "i'm ",
+    "my pronouns are",
+    "i live in",
+    "we live in",
+    "i work at",
+    "we work at",
+    "i study at",
+    "we study at",
+    "my timezone is",
+    "my time zone is",
+    "my email is",
+    "my phone number is",
+    "my birthday is",
+    "allergic to",
+)
+
 
 def _should_promote(confidence: float, threshold: float | None = None) -> bool:
     threshold = config.OCMEMOG_PROMOTION_THRESHOLD if threshold is None else threshold
@@ -23,6 +55,10 @@ def _destination_table(summary: str) -> str:
         return "runbooks"
     if "lesson" in lowered or "postmortem" in lowered or "learned" in lowered:
         return "lessons"
+    if any(pattern in lowered for pattern in _PREFERENCE_PATTERNS):
+        return "preferences"
+    if any(pattern in lowered for pattern in _IDENTITY_PATTERNS):
+        return "identity"
     return "knowledge"
 
 
@@ -139,7 +175,7 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
         )
         emit_event(LOGFILE, "brain_memory_reinforcement_created", status="ok")
         if memory_id:
-            vector_index.insert_memory(memory_id, candidate.get("distilled_summary", ""), confidence)
+            vector_index.insert_memory(memory_id, candidate.get("distilled_summary", ""), confidence, source_type=destination)
             try:
                 from brain.runtime.memory import api as memory_api
 
@@ -176,7 +212,7 @@ def demote_memory(reference: str, reason: str = "low_confidence", new_confidence
     table, sep, raw_id = reference.partition(":")
     if not sep or not raw_id.isdigit():
         return {"ok": False, "error": "invalid_reference"}
-    allowed = {"knowledge", "runbooks", "lessons", "directives", "reflections", "tasks"}
+    allowed = set(store.MEMORY_TABLES)
     if table not in allowed:
         return {"ok": False, "error": "unsupported_table"}
     conn = store.connect()
@@ -212,7 +248,7 @@ def demote_memory(reference: str, reason: str = "low_confidence", new_confidence
 
 def demote_by_confidence(limit: int = 20, threshold: float | None = None, force: bool = False) -> Dict[str, Any]:
     threshold = config.OCMEMOG_DEMOTION_THRESHOLD if threshold is None else threshold
-    tables = ("knowledge", "runbooks", "lessons", "directives", "reflections", "tasks")
+    tables = tuple(store.MEMORY_TABLES)
     conn = store.connect()
     rows = []
     for table in tables:

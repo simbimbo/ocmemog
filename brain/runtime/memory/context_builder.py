@@ -1,87 +1,98 @@
 from __future__ import annotations
 
-from typing import Dict, Iterable, List
+import json
+import os
+import re
+from typing import Any, Dict, List
 
 from brain.runtime.instrumentation import emit_event
-from brain.runtime import state_store
+from brain.runtime import state_store, inference
 from brain.runtime.memory import retrieval
 
+LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
 
-def build_context(
-    prompt: str,
-    max_context_blocks: int = 5,
-    *,
-    memory_queries: Iterable[str] | None = None,
-    memory_priorities: Iterable[str] | None = None,
-    role_id: str | None = None,
-) -> Dict[str, List[str]]:
-    emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_context_build_start", status="ok")
-    queries = [query for query in (memory_queries or ()) if isinstance(query, str) and query.strip()]
-    categories = [category for category in (memory_priorities or ()) if isinstance(category, str) and category.strip()]
-    role_priorities: List[str] = []
-    if role_id:
-        try:
-            from brain.runtime.roles import role_registry
-            role = role_registry.get_role(role_id)
-            role_priorities = list(role.memory_priority) if role else []
-        except Exception:
-            role_priorities = []
-    combined_priorities = [*categories, *role_priorities]
-    if queries:
-        mem = retrieval.retrieve_for_queries(queries, categories=combined_priorities or None)
-    else:
-        mem = retrieval.retrieve(prompt, categories=combined_priorities or None)
 
-    ranked_blocks: List[Dict[str, str | float]] = []
-    for item in mem.get("knowledge", []):
-        ranked_blocks.append(
-            {
-                "content": item.get("content"),
-                "source": "knowledge",
-                "score": float(item.get("score") or item.get("confidence") or 0.0),
-            }
-        )
-    for item in mem.get("tasks", []):
-        ranked_blocks.append(
-            {
-                "content": item.get("content"),
-                "source": "tasks",
-                "score": float(item.get("score") or item.get("confidence") or 0.0),
-            }
-        )
-    if role_priorities:
-        for item in ranked_blocks:
-            if item.get("source") in role_priorities:
-                item["score"] = float(item.get("score", 0.0)) + 0.2
-        emit_event(
-            state_store.reports_dir() / "brain_memory.log.jsonl",
-            "brain_role_context_weighted",
-            status="ok",
-            role_id=role_id,
-            priorities=len(role_priorities),
-        )
-    ranked_blocks.sort(key=lambda item: item.get("score", 0.0), reverse=True)
-    if len(ranked_blocks) > max_context_blocks:
-        ranked_blocks = ranked_blocks[:max_context_blocks]
-        emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_context_trim", status="ok")
+def _heuristic_queries(prompt: str, limit: int = 3) -> List[str]:
+    cleaned = re.sub(r"\s+", " ", prompt or "").strip()
+    parts = re.split(r",| and | then | also ", cleaned)
+    queries = []
+    for part in parts:
+        q = part.strip(" .")
+        if len(q) >= 8 and q.lower() not in {cleaned.lower()}:
+            queries.append(q)
+    if cleaned and cleaned not in queries:
+        queries.insert(0, cleaned)
+    deduped: List[str] = []
+    seen = set()
+    for q in queries:
+        key = q.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(q)
+        if len(deduped) >= limit:
+            break
+    return deduped
 
-    context_blocks = [item["content"] for item in ranked_blocks if item.get("content")]
-    context_scores = [item.get("score", 0.0) for item in ranked_blocks]
-    synthesis = mem.get("synthesis", []) if isinstance(mem, dict) else []
-    for item in synthesis[:2]:
-        summary = item.get("summary") if isinstance(item, dict) else None
-        if summary:
-            context_blocks.append(str(summary))
 
-    context = {
-        "context_blocks": context_blocks,
-        "context_scores": context_scores,
-        "ranked_blocks": ranked_blocks,
-        "knowledge": mem.get("knowledge", []),
-        "tasks": mem.get("tasks", []),
-        "directives": [item["content"] if isinstance(item, dict) else item for item in mem.get("directives", [])],
-        "reflections": [item["content"] if isinstance(item, dict) else item for item in mem.get("reflections", [])],
-        "used_queries": queries,
+def _groom_queries(prompt: str, limit: int = 3) -> List[str]:
+    cleaned = re.sub(r"\s+", " ", prompt or "").strip()
+    if not cleaned:
+        return []
+    model = os.environ.get("OCMEMOG_PONDER_MODEL", "qwen2.5:7b")
+    ask = (
+        "Rewrite this raw memory request into up to 3 short search queries. "
+        "Return strict JSON as {\"queries\":[\"...\"]}. "
+        "Prefer compact entity/topic phrases, not full sentences.\n\n"
+        f"Request: {cleaned}\n"
+    )
+    try:
+        result = inference.infer(ask, provider_name=model)
+    except Exception:
+        return _heuristic_queries(cleaned, limit=limit)
+    if result.get("status") != "ok":
+        return _heuristic_queries(cleaned, limit=limit)
+    output = str(result.get("output") or "").strip()
+    try:
+        payload = json.loads(output)
+        raw_queries = payload.get("queries") or []
+        queries = [str(q).strip() for q in raw_queries if str(q).strip()]
+    except Exception:
+        queries = []
+    cleaned_queries: List[str] = []
+    seen = set()
+    for q in queries:
+        key = q.lower()
+        if len(q) < 4 or key in seen:
+            continue
+        seen.add(key)
+        cleaned_queries.append(q)
+        if len(cleaned_queries) >= limit:
+            break
+    return cleaned_queries or _heuristic_queries(cleaned, limit=limit)
+
+
+def build_context(prompt: str, memory_queries: List[str] | None = None, limit: int = 5) -> Dict[str, Any]:
+    emit_event(LOGFILE, "brain_memory_context_build_start", status="ok")
+    queries = memory_queries or _groom_queries(prompt, limit=3)
+    memories: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for query in queries:
+        for item in retrieval.retrieve_memories(query, limit=limit):
+            ref = str(item.get("reference") or item.get("id") or "")
+            if ref and ref in seen:
+                continue
+            if ref:
+                seen.add(ref)
+            memories.append(item)
+            if len(memories) >= limit:
+                break
+        if len(memories) >= limit:
+            break
+
+    emit_event(LOGFILE, "brain_memory_context_build_complete", status="ok", item_count=len(memories), query_count=len(queries))
+    return {
+        "prompt": prompt,
+        "queries": queries,
+        "memories": memories,
     }
-    emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_context_build_complete", status="ok")
-    return context

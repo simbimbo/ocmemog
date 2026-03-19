@@ -154,7 +154,7 @@ launchctl bootstrap gui/$UID scripts/launchagents/com.openclaw.ocmemog.guard.pli
 
 ## Recent changes
 
-### 0.1.4 (unreleased / current main)
+### 0.1.5 (current main)
 
 Package ownership + runtime safety release:
 - Publish package under `@simbimbo/memory-ocmemog` instead of the unauthorized `@openclaw` scope
@@ -222,3 +222,4 @@ Current limitations before broader public rollout:
 - Public release/distribution metadata is still being tightened up
 
 When a richer path is unavailable, the sidecar is designed to fail soft with explicit warnings rather than crash.
+ soft with explicit warnings rather than crash.

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.5 — 2026-03-18
 
 Repair and hardening follow-up after the 0.1.4 publish.
 

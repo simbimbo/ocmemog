@@ -50,7 +50,7 @@ def demo_precision() -> dict:
         "synology nas",
         "openclaw status --deep",
         "gateway bind loopback",
-        "ollama embeddings",
+        "llama.cpp embeddings",
         "memory pipeline",
         "jira projects",
         "calix arden",

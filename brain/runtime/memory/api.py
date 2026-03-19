@@ -316,7 +316,10 @@ def _model_contradiction_hint(left: str, right: str) -> Optional[Dict[str, Any]]
         f"Statement A: {left}\n"
         f"Statement B: {right}\n"
     )
-    result = inference.infer(prompt, provider_name="qwen2.5:7b")
+    result = inference.infer(
+        prompt,
+        provider_name=os.environ.get("OCMEMOG_PONDER_MODEL", "local-openai:qwen2.5-7b-instruct"),
+    )
     if result.get("status") != "ok":
         return None
     try:

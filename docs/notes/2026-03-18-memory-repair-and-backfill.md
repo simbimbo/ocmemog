@@ -12,8 +12,8 @@ This pass focused on turning `ocmemog` from a noisy/fragile memory stack into a 
 ## Changes landed
 
 ### Embedding and rebuild behavior
-- Fixed the vector reindex entrypoint so it defaults to provider-backed Ollama embeddings instead of silently rebuilding weak hash/simple vectors.
-- Confirmed local Ollama embeddings (`nomic-embed-text:latest`) are available and produce 768-dim vectors.
+- Fixed the vector reindex entrypoint so it defaults to provider-backed local embeddings instead of silently rebuilding weak hash/simple vectors.
+- At the time this landed, the provider-backed path used Ollama-hosted `nomic-embed-text:latest`; the current repo default is the llama.cpp embedding endpoint on `127.0.0.1:18081` with `nomic-embed-text-v1.5`.
 - Added a new incremental repair path:
   - `backfill_missing_vectors()` in `brain/runtime/memory/vector_index.py`
   - `scripts/ocmemog-backfill-vectors.py`
@@ -62,7 +62,7 @@ For laptop-friendly backlog burn-down, use staged backfills in roughly this orde
 6. knowledge last
 
 ## Commits from this sweep
-- `f3d3dd9` — fix: default vector reindex to ollama embeddings
+- `f3d3dd9` — fix: default vector reindex to provider-backed embeddings
 - `759d23d` — feat: add battery-aware sidecar defaults
 - `4a102eb` — fix: clean memory freshness summaries
 - `9ee7966` — fix: report duplicate promotion counts accurately

@@ -1,8 +1,10 @@
 # Local model role matrix — 2026-03-18
 
+Historical note: this bakeoff was recorded before the local-runtime cutover from Ollama to llama.cpp. Keep the conclusions, but map them onto the current llama.cpp-served GGUF models when using this repo today.
+
 Purpose: document which installed local model is best suited for which `ocmemog` task so background cognition can be smarter without putting heavy/slow models on every path.
 
-Installed local models observed:
+Installed local models observed at the time:
 - `phi3:latest`
 - `qwen2.5:7b`
 - `llama3.1:8b`
@@ -45,6 +47,8 @@ Installed local models observed:
 - richer optional background cognition: `llama3.1:8b`
 
 ## Operational recommendation
-- Keep `OCMEMOG_OLLAMA_MODEL=phi3:latest` for lightweight local fallback behavior.
-- Set `OCMEMOG_PONDER_MODEL=qwen2.5:7b` for unresolved-state rewrite, lesson extraction, and cluster recommendation shaping.
+- Current llama.cpp-first equivalent for this repo:
+- Set `OCMEMOG_LOCAL_LLM_MODEL=qwen2.5-7b-instruct` and `OCMEMOG_PONDER_MODEL=local-openai:qwen2.5-7b-instruct` for unresolved-state rewrite, lesson extraction, and cluster recommendation shaping.
+- Set `OCMEMOG_LOCAL_EMBED_MODEL=nomic-embed-text-v1.5` for embeddings on the `18081` endpoint.
+- If you intentionally keep Ollama on another machine, prefer `OCMEMOG_OLLAMA_MODEL=qwen2.5:7b` instead of `phi3`.
 - Consider `llama3.1:8b` for optional deeper background cognition passes where latency is acceptable.

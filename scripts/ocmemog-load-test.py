@@ -17,7 +17,7 @@ QUERIES = [
     "ssh key policy",
     "synology nas",
     "openclaw status --deep",
-    "ollama embeddings",
+    "llama.cpp embeddings",
     "memory pipeline",
     "calix arden",
     "gateway bind loopback",

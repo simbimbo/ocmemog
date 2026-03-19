@@ -123,9 +123,22 @@ def _load_table_rows(table: str, *, limit: int | None = None, descending: bool =
     return [dict(row) for row in rows]
 
 
-def _embedding_input(text: str) -> str:
+def _embedding_input(text: str, *, table: str = "knowledge") -> str:
     cleaned = _HTML_TAG_RE.sub(" ", text)
     cleaned = _WHITESPACE_RE.sub(" ", cleaned).strip()
+    lowered = cleaned.lower()
+    artifactish = (
+        "| chunk " in lowered
+        or ".sql" in lowered
+        or "topology/" in lowered
+        or cleaned.count("),(") >= 8
+    )
+    if table == "knowledge" and artifactish:
+        return cleaned[:500]
+    if table == "knowledge" and len(cleaned) > 9000:
+        return cleaned[:1000]
+    if table == "reflections" and len(cleaned) > 8000:
+        return cleaned[:1200]
     if len(cleaned) > 20000:
         return cleaned[:2000]
     if len(cleaned) > 12000:
@@ -139,7 +152,7 @@ def _prepare_embedding_rows(rows: Iterable[Dict[str, Any]], *, table: str) -> Li
     for row in rows:
         content = str(row.get("content") or "")
         redacted_content, changed = redaction.redact_text(content)
-        embedding_input = _embedding_input(redacted_content)
+        embedding_input = _embedding_input(redacted_content, table=table)
         cache_key = hashlib.sha256(embedding_input.encode("utf-8", errors="ignore")).hexdigest()
         if cache_key in embedding_cache:
             embedding = embedding_cache[cache_key]

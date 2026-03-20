@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 from urllib import request as urlrequest
 
-from brain.runtime import state_store
+from ocmemog.runtime import state_store
 
 DEFAULT_ENDPOINT = "http://127.0.0.1:17891/memory/ingest_async"
 DEFAULT_GLOB = "*.log"

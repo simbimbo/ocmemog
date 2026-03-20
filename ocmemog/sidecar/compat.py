@@ -16,7 +16,7 @@ class RuntimeStatus:
 
 
 TODO_ITEMS = [
-    "Add a role registry (brain.runtime.roles) if you want role-prioritized context building.",
+    "Add a role registry (ocmemog.runtime.roles) if you want role-prioritized context building.",
     "Add non-OpenAI embedding providers if required.",
 ]
 
@@ -26,10 +26,10 @@ def probe_runtime() -> RuntimeStatus:
     warnings: list[str] = []
 
     for module_name in (
-        "brain.runtime.memory.store",
-        "brain.runtime.memory.retrieval",
-        "brain.runtime.memory.vector_index",
-        "brain.runtime.memory.memory_links",
+        "ocmemog.runtime.memory.store",
+        "ocmemog.runtime.memory.retrieval",
+        "ocmemog.runtime.memory.vector_index",
+        "ocmemog.runtime.memory.memory_links",
     ):
         try:
             importlib.import_module(module_name)
@@ -41,14 +41,14 @@ def probe_runtime() -> RuntimeStatus:
         warnings.append("Optional dependency missing: sentence-transformers; using local hash embeddings.")
 
     try:
-        from brain.runtime import inference, providers
+        from ocmemog.runtime import inference, providers
 
         if getattr(inference, "__shim__", False):
-            missing_deps.append("brain.runtime.inference (shim only)")
+            missing_deps.append("ocmemog.runtime.inference (shim only)")
         if getattr(getattr(providers, "provider_execute", None), "__shim__", False):
-            missing_deps.append("brain.runtime.providers.provider_execute (shim only)")
+            missing_deps.append("ocmemog.runtime.providers.provider_execute (shim only)")
     except Exception as exc:
-        missing_deps.append(f"brain.runtime compatibility probe failed: {exc}")
+        missing_deps.append(f"ocmemog.runtime compatibility probe failed: {exc}")
 
     mode = "degraded" if missing_deps else "ready"
     return RuntimeStatus(mode=mode, missing_deps=missing_deps, todo=list(TODO_ITEMS), warnings=warnings)

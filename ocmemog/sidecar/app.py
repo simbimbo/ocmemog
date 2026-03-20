@@ -13,8 +13,19 @@ from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 from datetime import datetime, timedelta
 
-from brain.runtime import state_store
-from brain.runtime.memory import api, conversation_state, distill, health, memory_links, pondering_engine, provenance, reinforcement, retrieval, store
+from ocmemog.runtime import state_store
+from ocmemog.runtime.memory import (
+    api,
+    conversation_state,
+    distill,
+    health,
+    memory_links,
+    pondering_engine,
+    provenance,
+    reinforcement,
+    retrieval,
+    store,
+)
 from ocmemog.sidecar.compat import flatten_results, probe_runtime
 from ocmemog.sidecar.transcript_watcher import watch_forever
 

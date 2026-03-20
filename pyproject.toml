@@ -18,4 +18,14 @@ test = [
 ]
 
 [tool.setuptools]
-packages = ["brain", "brain.runtime", "brain.runtime.memory", "brain.runtime.security", "ocmemog", "ocmemog.sidecar"]
+packages = [
+  "brain",
+  "brain.runtime",
+  "brain.runtime.memory",
+  "brain.runtime.security",
+  "ocmemog",
+  "ocmemog.runtime",
+  "ocmemog.runtime.memory",
+  "ocmemog.runtime.security",
+  "ocmemog.sidecar",
+]

@@ -110,9 +110,9 @@ Effect on behavior:
 
 - Distillation uses OpenAI when API key is set, otherwise falls back to heuristics
 - Embeddings use OpenAI when configured, otherwise fall back to local hash or sentence-transformers
-- Role-aware context selection is still partially stubbed because `brain.runtime.roles` is not present
+- Role-aware context selection is now supported via `ocmemog.runtime.roles`, with native ownership tracked in runtime compatibility reporting.
 
 ## TODO: Missing runtime dependencies
 
-- TODO: add a repo-local `brain.runtime.roles` implementation or remove role-priority logic from `context_builder`
+- DONE: add a repo-local `brain.runtime.roles` implementation.
 - TODO: decide whether to add additional provider backends beyond OpenAI

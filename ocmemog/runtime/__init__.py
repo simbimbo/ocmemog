@@ -6,6 +6,8 @@ import importlib
 import sys
 from types import ModuleType
 
+from . import identity as identity
+
 
 def _alias_module(alias: str, target: str) -> ModuleType:
     module = importlib.import_module(target)
@@ -23,6 +25,7 @@ model_router = _alias_module(__name__ + ".model_router", "brain.runtime.model_ro
 providers = _alias_module(__name__ + ".providers", "brain.runtime.providers")
 state_store = _alias_module(__name__ + ".state_store", "brain.runtime.state_store")
 storage_paths = _alias_module(__name__ + ".storage_paths", "brain.runtime.storage_paths")
+roles = importlib.import_module("ocmemog.runtime.roles")
 
 __all__ = [
     "config",
@@ -31,6 +34,8 @@ __all__ = [
     "model_roles",
     "model_router",
     "providers",
+    "identity",
+    "roles",
     "state_store",
     "storage_paths",
 ]

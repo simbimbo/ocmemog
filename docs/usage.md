@@ -191,7 +191,7 @@ Notes:
 - Model-backed distillation
   - Available when `OCMEMOG_OPENAI_API_KEY` is set; otherwise falls back to heuristic distill.
 - Role-prioritized context building
-  - `brain.runtime.roles.role_registry` is not bundled here.
+  - `brain.runtime.roles.role_registry` is now provided by `ocmemog.runtime.roles` and mirrored in compatibility probes.
 - Full brAIn memory parity
   - The repo ships only a subset of the original runtime architecture.
 
@@ -224,6 +224,6 @@ PY
 
 - TODO: wire a real inference backend before enabling distill/promote as an operator-facing workflow
 - TODO: wire real provider execution if `BRAIN_EMBED_MODEL_PROVIDER` is meant to do anything
-- TODO: add or remove role-based context selection; the current import path is absent
+- Role-based context selection now has native ownership coverage via `ocmemog.runtime.roles` with shim-aware capability reporting.
 - TODO: harden `/memory/get` with a table allow-list before exposing the sidecar outside trusted local use
 - TODO: decide whether to expose `runbooks` and `lessons` in the plugin API

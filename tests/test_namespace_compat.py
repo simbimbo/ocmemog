@@ -23,6 +23,7 @@ class NamespaceCompatTests(unittest.TestCase):
     def test_runtime_package_exports_aliases(self) -> None:
         from ocmemog.runtime import providers, state_store
         from ocmemog.runtime.memory import api, embedding_engine, memory_links, retrieval, store
+        from ocmemog.runtime import identity, roles
 
         self.assertEqual(state_store.__name__, "brain.runtime.state_store")
         self.assertEqual(providers.__name__, "brain.runtime.providers")
@@ -31,6 +32,20 @@ class NamespaceCompatTests(unittest.TestCase):
         self.assertEqual(store.__name__, "brain.runtime.memory.store")
         self.assertEqual(api.__name__, "brain.runtime.memory.api")
         self.assertEqual(retrieval.__name__, "brain.runtime.memory.retrieval")
+        self.assertEqual(identity.__name__, "ocmemog.runtime.identity")
+        self.assertEqual(roles.__name__, "ocmemog.runtime.roles")
+
+    def test_runtime_identity_reports_capability_ownership(self) -> None:
+        from ocmemog.sidecar.compat import probe_runtime
+        status = probe_runtime()
+
+        self.assertIsInstance(status.identity, dict)
+        self.assertIsInstance(status.capabilities, list)
+        self.assertGreaterEqual(len(status.capabilities), 1)
+        caps_by_surface = {cap.get("surface"): cap for cap in status.capabilities}
+        self.assertIn("ocmemog.runtime.roles", caps_by_surface)
+        self.assertEqual(caps_by_surface["ocmemog.runtime.roles"].get("owner"), "ocmemog-native")
+        self.assertEqual(status.identity.get("engine"), "ocmemog-native")
 
     def test_native_imports_expose_legacy_dependencies_inside_core_modules(self) -> None:
         native_api = importlib.import_module("ocmemog.runtime.memory.api")

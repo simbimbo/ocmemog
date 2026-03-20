@@ -492,6 +492,8 @@ def _runtime_payload() -> Dict[str, Any]:
     return {
         "mode": status.mode,
         "missingDeps": status.missing_deps,
+        "identity": status.identity,
+        "capabilities": status.capabilities,
         "todo": status.todo,
         "warnings": status.warnings,
     }

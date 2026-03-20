@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+from ocmemog.runtime import identity
+
 
 @dataclass(frozen=True)
 class RuntimeStatus:
@@ -13,15 +15,19 @@ class RuntimeStatus:
     missing_deps: list[str]
     todo: list[str]
     warnings: list[str]
+    identity: dict[str, Any]
+    capabilities: list[dict[str, Any]]
 
 
 TODO_ITEMS = [
-    "Add a role registry (ocmemog.runtime.roles) if you want role-prioritized context building.",
     "Add non-OpenAI embedding providers if required.",
 ]
 
 
 def probe_runtime() -> RuntimeStatus:
+    runtime_identity = identity.get_runtime_identity()
+    capabilities = runtime_identity.get("capabilities", [])
+
     missing_deps: list[str] = []
     warnings: list[str] = []
 
@@ -50,8 +56,19 @@ def probe_runtime() -> RuntimeStatus:
     except Exception as exc:
         missing_deps.append(f"ocmemog.runtime compatibility probe failed: {exc}")
 
+    shim_count = sum(1 for item in capabilities if item.get("owner") == "brain-runtime-shim")
+    if shim_count:
+        warnings.append(f"Runtime is bridged through {shim_count} compatibility shim surface(s).")
+
     mode = "degraded" if missing_deps else "ready"
-    return RuntimeStatus(mode=mode, missing_deps=missing_deps, todo=list(TODO_ITEMS), warnings=warnings)
+    return RuntimeStatus(
+        mode=mode,
+        missing_deps=missing_deps,
+        todo=list(TODO_ITEMS),
+        warnings=warnings,
+        identity=runtime_identity,
+        capabilities=capabilities,
+    )
 
 
 def flatten_results(results: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:

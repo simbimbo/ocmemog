@@ -13,7 +13,7 @@ Use this checklist before publishing an ocmemog release.
 - [ ] `bash -n scripts/ocmemog-install.sh`
 - [ ] `./scripts/install-ocmemog.sh --help`
 - [ ] `./scripts/install-ocmemog.sh --dry-run`
-- [ ] `python -m unittest tests.test_regressions`
+- [ ] `./.venv/bin/python -m pytest -q tests/test_regressions.py tests/test_governance_queue.py tests/test_promotion_governance_integration.py tests/test_hybrid_retrieval.py`
 - [ ] `npm pack --dry-run`
 
 ## Install flow

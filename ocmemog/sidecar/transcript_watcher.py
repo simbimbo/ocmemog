@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections import deque
 from pathlib import Path
 from typing import Optional
 from urllib import request as urlrequest
+
+from brain.runtime import state_store
 
 DEFAULT_ENDPOINT = "http://127.0.0.1:17891/memory/ingest_async"
 DEFAULT_GLOB = "*.log"
@@ -30,6 +33,23 @@ DEFAULT_REINFORCE_NEGATIVE = [
     "disappointed",
     "frustrated",
 ]
+WATCHER_ERROR_LOG = state_store.reports_dir() / "ocmemog_transcript_watcher_errors.jsonl"
+
+
+def _log_watcher_error(kind: str, endpoint: str, payload: dict, exc: Exception) -> None:
+    try:
+        WATCHER_ERROR_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with WATCHER_ERROR_LOG.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "kind": kind,
+                "endpoint": endpoint,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+                "payload_preview": str(payload)[:500],
+            }, ensure_ascii=False) + "\n")
+    except Exception:
+        return
 
 
 def _pick_latest(path: Path, pattern: str) -> Optional[Path]:
@@ -41,30 +61,42 @@ def _pick_latest(path: Path, pattern: str) -> Optional[Path]:
     return files[-1] if files else None
 
 
-def _post_ingest(endpoint: str, payload: dict) -> None:
+def _apply_auth_headers(req: urlrequest.Request) -> None:
+    token = os.environ.get("OCMEMOG_API_TOKEN", "").strip()
+    if token:
+        req.add_header("x-ocmemog-token", token)
+
+
+def _post_ingest(endpoint: str, payload: dict) -> bool:
     data = json.dumps(payload).encode("utf-8")
     req = urlrequest.Request(endpoint, data=data, method="POST")
     req.add_header("Content-Type", "application/json")
+    _apply_auth_headers(req)
     try:
         with urlrequest.urlopen(req, timeout=10) as resp:
             resp.read()
-    except Exception:
-        return
+        return True
+    except Exception as exc:
+        _log_watcher_error("ingest", endpoint, payload, exc)
+        return False
 
 
-def _post_json(endpoint: str, payload: dict) -> None:
+def _post_json(endpoint: str, payload: dict) -> bool:
     data = json.dumps(payload).encode("utf-8")
     req = urlrequest.Request(endpoint, data=data, method="POST")
     req.add_header("Content-Type", "application/json")
+    _apply_auth_headers(req)
     try:
         with urlrequest.urlopen(req, timeout=10) as resp:
             resp.read()
-    except Exception:
-        return
+        return True
+    except Exception as exc:
+        _log_watcher_error("json", endpoint, payload, exc)
+        return False
 
 
-def _post_turn(endpoint: str, payload: dict) -> None:
-    _post_json(endpoint, payload)
+def _post_turn(endpoint: str, payload: dict) -> bool:
+    return _post_json(endpoint, payload)
 
 
 def _extract_user_text(text: str) -> str:
@@ -101,6 +133,21 @@ def _extract_conversation_info(text: str) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
+def _extract_message_text(content: object) -> str:
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") != "text":
+                continue
+            text = str(item.get("text") or "").strip()
+            if text:
+                parts.append(text)
+        return "\n".join(parts)
+    return str(content or "")
+
+
 def _parse_transcript_line(text: str) -> tuple[Optional[str], str]:
     stripped = text.strip()
     if not stripped:
@@ -122,10 +169,14 @@ def _count_lines(path: Path) -> int:
 
 
 
-def _append_transcript(transcripts_dir: Path, timestamp: str, role: str, text: str) -> tuple[Path, int]:
-    date = timestamp.split("T")[0] if "T" in timestamp else time.strftime("%Y-%m-%d")
-    path = transcripts_dir / f"{date}.log"
-    transcripts_dir.mkdir(parents=True, exist_ok=True)
+def _append_transcript(transcript_target: Path, timestamp: str, role: str, text: str) -> tuple[Path, int]:
+    if transcript_target.suffix:
+        path = transcript_target
+        path.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        date = timestamp.split("T")[0] if "T" in timestamp else time.strftime("%Y-%m-%d")
+        path = transcript_target / f"{date}.log"
+        transcript_target.mkdir(parents=True, exist_ok=True)
     line_no = _count_lines(path) + 1
     with path.open("a", encoding="utf-8") as handle:
         handle.write(f"{timestamp} [{role}] {text}\n")
@@ -185,6 +236,8 @@ def watch_forever() -> None:
     transcript_end_line: Optional[int] = None
     session_start_line: Optional[int] = None
     session_end_line: Optional[int] = None
+    recent_session_transcript_lines: deque[tuple[str, int]] = deque(maxlen=max(batch_max * 8, 128))
+    pending_session_turns: dict[tuple[str, int], dict[str, object]] = {}
     last_transcript_flush = time.time()
     last_session_flush = time.time()
 
@@ -196,9 +249,9 @@ def watch_forever() -> None:
         timestamp: Optional[str],
         start_line: Optional[int],
         end_line: Optional[int],
-    ) -> None:
+    ) -> bool:
         if not buffer:
-            return
+            return True
         payload = {
             "content": "\n".join(buffer),
             "kind": kind,
@@ -213,8 +266,10 @@ def watch_forever() -> None:
             payload["transcript_end_offset"] = end_line
         if timestamp:
             payload["timestamp"] = timestamp.replace("T", " ")[:19]
-        _post_ingest(endpoint, payload)
-        buffer.clear()
+        ok = _post_ingest(endpoint, payload)
+        if ok:
+            buffer.clear()
+        return ok
 
     def _maybe_reinforce(text: str, timestamp: str) -> None:
         if not reinforce_enabled:
@@ -266,36 +321,64 @@ def watch_forever() -> None:
             try:
                 with current_file.open("r", encoding="utf-8", errors="ignore") as handle:
                     handle.seek(position)
-                    for line in handle:
+                    committed_position = position
+                    committed_line_number = current_line_number
+                    while True:
+                        line_start = handle.tell()
+                        line = handle.readline()
+                        if not line:
+                            position = committed_position
+                            current_line_number = committed_line_number
+                            break
                         text = line.rstrip("\n")
-                        current_line_number += 1
+                        next_line_number = committed_line_number + 1
                         if not text.strip():
+                            committed_position = handle.tell()
+                            committed_line_number = next_line_number
+                            position = committed_position
+                            current_line_number = committed_line_number
+                            continue
+                        current_marker = (str(current_file), next_line_number)
+                        if current_marker in recent_session_transcript_lines:
+                            committed_position = handle.tell()
+                            committed_line_number = next_line_number
+                            position = committed_position
+                            current_line_number = committed_line_number
                             continue
                         transcript_buffer.append(text)
                         transcript_last_path = current_file
                         if transcript_start_line is None:
-                            transcript_start_line = current_line_number
-                        transcript_end_line = current_line_number
+                            transcript_start_line = next_line_number
+                        transcript_end_line = next_line_number
                         timestamp_value = None
                         if text and " " in text:
                             timestamp_value = text.split(" ", 1)[0]
                             transcript_last_timestamp = timestamp_value
                         role, turn_text = _parse_transcript_line(text)
                         if role and turn_text:
-                            _post_turn(
+                            ok = _post_turn(
                                 turn_endpoint,
                                 {
                                     "role": role,
                                     "content": turn_text,
                                     "source": source,
                                     "transcript_path": str(current_file),
-                                    "transcript_offset": current_line_number,
-                                    "transcript_end_offset": current_line_number,
+                                    "transcript_offset": next_line_number,
+                                    "transcript_end_offset": next_line_number,
                                     "timestamp": timestamp_value.replace("T", " ")[:19] if timestamp_value else None,
                                 },
                             )
+                            if not ok:
+                                if transcript_buffer:
+                                    transcript_buffer.pop()
+                                if transcript_start_line == next_line_number:
+                                    transcript_start_line = None
+                                transcript_end_line = committed_line_number if transcript_start_line is not None else None
+                                position = line_start
+                                current_line_number = committed_line_number
+                                break
                         if len(transcript_buffer) >= batch_max:
-                            _flush_buffer(
+                            ok = _flush_buffer(
                                 transcript_buffer,
                                 source_label=source,
                                 transcript_path=transcript_last_path,
@@ -303,10 +386,17 @@ def watch_forever() -> None:
                                 start_line=transcript_start_line,
                                 end_line=transcript_end_line,
                             )
+                            if not ok:
+                                position = line_start
+                                current_line_number = committed_line_number
+                                break
                             transcript_start_line = None
                             transcript_end_line = None
                             last_transcript_flush = time.time()
-                    position = handle.tell()
+                        committed_position = handle.tell()
+                        committed_line_number = next_line_number
+                        position = committed_position
+                        current_line_number = committed_line_number
             except Exception:
                 pass
 
@@ -324,40 +414,52 @@ def watch_forever() -> None:
             try:
                 with session_file.open("r", encoding="utf-8", errors="ignore") as handle:
                     handle.seek(session_pos)
-                    for line in handle:
+                    committed_session_pos = session_pos
+                    while True:
+                        line_start = handle.tell()
+                        line = handle.readline()
+                        if not line:
+                            session_pos = committed_session_pos
+                            break
                         try:
                             entry = json.loads(line)
                         except Exception:
+                            committed_session_pos = handle.tell()
+                            session_pos = committed_session_pos
                             continue
                         if entry.get("type") != "message":
+                            committed_session_pos = handle.tell()
+                            session_pos = committed_session_pos
                             continue
                         msg = entry.get("message") or {}
                         role = msg.get("role")
                         if role not in {"user", "assistant"}:
+                            committed_session_pos = handle.tell()
+                            session_pos = committed_session_pos
                             continue
                         content = msg.get("content")
-                        if isinstance(content, list):
-                            text = next((c.get("text") for c in content if c.get("type") == "text"), "")
-                        else:
-                            text = content or ""
-                        text = str(text).strip()
+                        text = _extract_message_text(content).strip()
                         conversation_info = _extract_conversation_info(text)
                         if role == "user":
                             text = _extract_user_text(text)
                         text = text.replace("\n", " ").strip()
                         if not text:
+                            committed_session_pos = handle.tell()
+                            session_pos = committed_session_pos
                             continue
                         timestamp = entry.get("timestamp") or time.strftime("%Y-%m-%dT%H:%M:%S")
                         if role == "user":
                             _maybe_reinforce(text, timestamp)
-                        transcript_path, transcript_line_no = _append_transcript(transcript_target, timestamp, role, text)
                         session_id = session_file.stem if session_file is not None else None
                         message_id = entry.get("id") or conversation_info.get("message_id")
                         conversation_id = conversation_info.get("conversation_id") or session_id
                         thread_id = conversation_info.get("thread_id") or session_id
-                        _post_turn(
-                            turn_endpoint,
-                            {
+                        transcript_line = f"{timestamp} [{role}] {text}"
+                        retry_key = (str(session_file), line_start)
+                        pending = pending_session_turns.get(retry_key)
+                        if pending is None:
+                            transcript_path, transcript_line_no = _append_transcript(transcript_target, timestamp, role, text)
+                            turn_payload = {
                                 "role": role,
                                 "content": text,
                                 "conversation_id": conversation_id,
@@ -365,23 +467,38 @@ def watch_forever() -> None:
                                 "thread_id": thread_id,
                                 "message_id": message_id,
                                 "source": "session",
+                                "timestamp": timestamp.replace("T", " ")[:19],
                                 "transcript_path": str(transcript_path),
                                 "transcript_offset": transcript_line_no,
                                 "transcript_end_offset": transcript_line_no,
-                                "timestamp": timestamp.replace("T", " ")[:19],
                                 "metadata": {
                                     "parent_message_id": entry.get("parentId"),
                                 },
-                            },
-                        )
-                        session_buffer.append(f"{timestamp} [{role}] {text}")
+                            }
+                            pending_session_turns[retry_key] = {
+                                "payload": dict(turn_payload),
+                                "transcript_line": transcript_line,
+                                "transcript_path": transcript_path,
+                                "transcript_line_no": transcript_line_no,
+                            }
+                        else:
+                            turn_payload = dict(pending["payload"])
+                            transcript_line = str(pending["transcript_line"])
+                            transcript_path = Path(str(pending["transcript_path"]))
+                            transcript_line_no = int(pending["transcript_line_no"])
+                        if not _post_turn(turn_endpoint, turn_payload):
+                            session_pos = line_start
+                            break
+                        pending_session_turns.pop(retry_key, None)
+                        recent_session_transcript_lines.append((str(transcript_path), transcript_line_no))
+                        session_buffer.append(transcript_line)
                         session_last_path = transcript_path
                         session_last_timestamp = timestamp
                         if session_start_line is None:
                             session_start_line = transcript_line_no
                         session_end_line = transcript_line_no
                         if len(session_buffer) >= batch_max:
-                            _flush_buffer(
+                            ok = _flush_buffer(
                                 session_buffer,
                                 source_label="session",
                                 transcript_path=session_last_path,
@@ -389,16 +506,20 @@ def watch_forever() -> None:
                                 start_line=session_start_line,
                                 end_line=session_end_line,
                             )
+                            if not ok:
+                                session_pos = line_start
+                                break
                             session_start_line = None
                             session_end_line = None
                             last_session_flush = time.time()
-                    session_pos = handle.tell()
+                        committed_session_pos = handle.tell()
+                        session_pos = committed_session_pos
             except Exception:
                 pass
 
         now = time.time()
         if transcript_buffer and (now - last_transcript_flush) >= batch_seconds:
-            _flush_buffer(
+            ok = _flush_buffer(
                 transcript_buffer,
                 source_label=source,
                 transcript_path=transcript_last_path,
@@ -406,11 +527,12 @@ def watch_forever() -> None:
                 start_line=transcript_start_line,
                 end_line=transcript_end_line,
             )
-            transcript_start_line = None
-            transcript_end_line = None
-            last_transcript_flush = now
+            if ok:
+                transcript_start_line = None
+                transcript_end_line = None
+                last_transcript_flush = now
         if session_buffer and (now - last_session_flush) >= batch_seconds:
-            _flush_buffer(
+            ok = _flush_buffer(
                 session_buffer,
                 source_label="session",
                 transcript_path=session_last_path,
@@ -418,8 +540,9 @@ def watch_forever() -> None:
                 start_line=session_start_line,
                 end_line=session_end_line,
             )
-            session_start_line = None
-            session_end_line = None
-            last_session_flush = now
+            if ok:
+                session_start_line = None
+                session_end_line = None
+                last_session_flush = now
 
         time.sleep(poll_seconds)

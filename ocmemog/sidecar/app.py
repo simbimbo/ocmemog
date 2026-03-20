@@ -102,6 +102,7 @@ async def _auth_middleware(request: Request, call_next):
 
 @app.on_event("startup")
 def _start_transcript_watcher() -> None:
+    _load_queue_stats()
     enabled = os.environ.get("OCMEMOG_TRANSCRIPT_WATCHER", "").lower() in {"1", "true", "yes"}
     if not enabled:
         return

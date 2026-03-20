@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.11 — 2026-03-20
+
+Watcher reliability and release-quality follow-up.
+
+### Highlights
+- prevented duplicate transcript/session turn ingestion in the watcher path
+- propagated `OCMEMOG_API_TOKEN` auth headers on watcher HTTP posts
+- restored persisted queue stats on sidecar startup
+- added durable watcher error logging instead of silent failure swallowing
+- preserved multi-part text content from session message arrays
+- fixed transcript target handling for both directory mode and file mode
+- hardened retry behavior so failed delivery does not silently drop buffered content and session retries preserve transcript provenance without duplicate transcript rows
+- declared `pytest` as a test extra and refreshed release-facing docs/checklists for current validation flow
+
 ## 0.1.10 — 2026-03-19
 
 Release alignment follow-up.

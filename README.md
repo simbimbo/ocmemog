@@ -162,7 +162,7 @@ launchctl bootstrap gui/$UID scripts/launchagents/com.openclaw.ocmemog.guard.pli
 
 ## Recent changes
 
-### 0.1.10 (current main)
+### 0.1.11 (current main)
 
 Current main includes the recent memory-quality, governance, and watcher hardening work, including:
 - transcript watcher duplicate-ingest prevention

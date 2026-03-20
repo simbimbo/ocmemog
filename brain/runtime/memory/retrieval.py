@@ -5,9 +5,9 @@ from typing import Dict, List, Any, Iterable, Tuple
 
 import json
 
-from brain.runtime.instrumentation import emit_event
-from brain.runtime import state_store
-from brain.runtime.memory import memory_links, provenance, store, vector_index
+from ocmemog.runtime import state_store
+from ocmemog.runtime.instrumentation import emit_event
+from ocmemog.runtime.memory import memory_links, provenance, store, vector_index
 
 
 def _tokenize(text: str) -> List[str]:

@@ -15,22 +15,24 @@ def _alias_module(alias: str, target: str) -> ModuleType:
 
 _memory = importlib.import_module("brain.runtime.memory")
 
+store = _alias_module(__name__ + ".store", "brain.runtime.memory.store")
+memory_links = _alias_module(__name__ + ".memory_links", "brain.runtime.memory.memory_links")
+provenance = _alias_module(__name__ + ".provenance", "brain.runtime.memory.provenance")
+embedding_engine = _alias_module(__name__ + ".embedding_engine", "brain.runtime.memory.embedding_engine")
+vector_index = _alias_module(__name__ + ".vector_index", "brain.runtime.memory.vector_index")
+retrieval = _alias_module(__name__ + ".retrieval", "brain.runtime.memory.retrieval")
 api = _alias_module(__name__ + ".api", "brain.runtime.memory.api")
 conversation_state = _alias_module(__name__ + ".conversation_state", "brain.runtime.memory.conversation_state")
 distill = _alias_module(__name__ + ".distill", "brain.runtime.memory.distill")
 health = _alias_module(__name__ + ".health", "brain.runtime.memory.health")
-memory_links = _alias_module(__name__ + ".memory_links", "brain.runtime.memory.memory_links")
 pondering_engine = _alias_module(__name__ + ".pondering_engine", "brain.runtime.memory.pondering_engine")
-provenance = _alias_module(__name__ + ".provenance", "brain.runtime.memory.provenance")
 reinforcement = _alias_module(__name__ + ".reinforcement", "brain.runtime.memory.reinforcement")
-retrieval = _alias_module(__name__ + ".retrieval", "brain.runtime.memory.retrieval")
-store = _alias_module(__name__ + ".store", "brain.runtime.memory.store")
-vector_index = _alias_module(__name__ + ".vector_index", "brain.runtime.memory.vector_index")
 
 __all__ = [
     "api",
     "conversation_state",
     "distill",
+    "embedding_engine",
     "health",
     "memory_links",
     "pondering_engine",

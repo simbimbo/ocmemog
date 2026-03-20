@@ -7,10 +7,10 @@ import re
 import threading
 from typing import Any, Dict, List, Iterable
 
-from brain.runtime import state_store
-from brain.runtime.instrumentation import emit_event
-from brain.runtime.memory import embedding_engine, store, memory_links
-from brain.runtime.security import redaction
+from ocmemog.runtime import state_store
+from ocmemog.runtime.instrumentation import emit_event
+from ocmemog.runtime.memory import embedding_engine, memory_links, store
+from ocmemog.runtime.security import redaction
 
 LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
 

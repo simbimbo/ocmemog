@@ -4,10 +4,10 @@ import json
 import os
 from typing import List, Dict, Any, Optional
 
-from brain.runtime.memory import provenance, store
-from brain.runtime import inference
-from brain.runtime.instrumentation import emit_event
-from brain.runtime.security import redaction
+from ocmemog.runtime import inference
+from ocmemog.runtime.instrumentation import emit_event
+from ocmemog.runtime.memory import provenance, store
+from ocmemog.runtime.security import redaction
 
 _REVIEW_KIND_METADATA: Dict[str, Dict[str, str]] = {
     "duplicate_candidate": {
@@ -321,7 +321,7 @@ def store_memory(
     reference = f"{table}:{last_row_id}"
     provenance.apply_links(reference, normalized_metadata)
     try:
-        from brain.runtime.memory import vector_index
+        from ocmemog.runtime.memory import vector_index
 
         vector_index.insert_memory(last_row_id, content, 1.0, source_type=table)
     except Exception as exc:

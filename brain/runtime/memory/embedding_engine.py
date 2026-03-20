@@ -3,9 +3,9 @@ from __future__ import annotations
 import hashlib
 from typing import List, Any
 
-from brain.runtime import config, state_store, model_router
-from brain.runtime.instrumentation import emit_event
-from brain.runtime.providers import provider_execute
+from ocmemog.runtime import config, model_router, state_store
+from ocmemog.runtime.instrumentation import emit_event
+from ocmemog.runtime.providers import provider_execute
 
 LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
 _MODEL_CACHE: dict[str, Any] = {}

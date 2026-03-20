@@ -4,7 +4,7 @@ import sqlite3
 import queue
 import threading
 from pathlib import Path
-from brain.runtime import state_store
+from ocmemog.runtime import state_store
 
 SCHEMA_VERSION = "v1"
 

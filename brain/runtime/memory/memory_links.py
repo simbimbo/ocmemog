@@ -3,9 +3,9 @@ from __future__ import annotations
 import sqlite3
 from typing import Dict, List
 
-from brain.runtime import state_store
-from brain.runtime.instrumentation import emit_event
-from brain.runtime.memory import store
+from ocmemog.runtime import state_store
+from ocmemog.runtime.instrumentation import emit_event
+from ocmemog.runtime.memory import store
 
 LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
 

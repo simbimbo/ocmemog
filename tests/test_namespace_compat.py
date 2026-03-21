@@ -173,6 +173,12 @@ class NamespaceCompatTests(unittest.TestCase):
         self.assertEqual(status.mode, "degraded")
         self.assertTrue(any("bridged through" in warning for warning in status.warnings))
 
+    def test_sidecar_version_matches_package_version(self) -> None:
+        from ocmemog import __version__
+        from ocmemog.sidecar import app as sidecar_app
+
+        self.assertEqual(sidecar_app.app.version, __version__)
+
     def test_native_imports_expose_functional_contracts(self) -> None:
         native_api = importlib.import_module("ocmemog.runtime.memory.api")
         native_retrieval = importlib.import_module("ocmemog.runtime.memory.retrieval")

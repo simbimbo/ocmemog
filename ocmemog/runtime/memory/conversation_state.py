@@ -1725,14 +1725,20 @@ def _self_heal_legacy_continuity_artifacts(
             placeholders = ",".join("?" for _ in bad_checkpoint_ids)
             conn.execute(f"DELETE FROM conversation_checkpoints WHERE id IN ({placeholders})", tuple(bad_checkpoint_ids))
         if thread_id:
-            conn.execute("DELETE FROM conversation_checkpoints WHERE thread_id = ?", (thread_id,))
-            conn.execute("DELETE FROM conversation_state WHERE thread_id = ? OR (scope_type = 'thread' AND scope_id = ?)", (thread_id, thread_id))
+            conn.execute(
+                "DELETE FROM conversation_state WHERE thread_id = ? OR (scope_type = 'thread' AND scope_id = ?)",
+                (thread_id, thread_id),
+            )
         elif session_id:
-            conn.execute("DELETE FROM conversation_checkpoints WHERE session_id = ?", (session_id,))
-            conn.execute("DELETE FROM conversation_state WHERE session_id = ? OR (scope_type = 'session' AND scope_id = ?)", (session_id, session_id))
+            conn.execute(
+                "DELETE FROM conversation_state WHERE session_id = ? OR (scope_type = 'session' AND scope_id = ?)",
+                (session_id, session_id),
+            )
         elif conversation_id:
-            conn.execute("DELETE FROM conversation_checkpoints WHERE conversation_id = ?", (conversation_id,))
-            conn.execute("DELETE FROM conversation_state WHERE conversation_id = ? OR (scope_type = 'conversation' AND scope_id = ?)", (conversation_id, conversation_id))
+            conn.execute(
+                "DELETE FROM conversation_state WHERE conversation_id = ? OR (scope_type = 'conversation' AND scope_id = ?)",
+                (conversation_id, conversation_id),
+            )
         conn.commit()
         emit_event(
             LOGFILE,

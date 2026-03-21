@@ -17,6 +17,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 from datetime import datetime, timedelta
 
+from ocmemog import __version__
 from ocmemog.runtime import state_store
 from ocmemog.runtime.memory import (
     api,
@@ -126,7 +127,7 @@ async def _sidecar_lifespan(_: FastAPI):
             )
 
 
-app = FastAPI(title="ocmemog sidecar", version="0.1.10", lifespan=_sidecar_lifespan)
+app = FastAPI(title="ocmemog sidecar", version=__version__, lifespan=_sidecar_lifespan)
 
 _INGEST_WORKER_STOP = threading.Event()
 _INGEST_WORKER_THREAD: threading.Thread | None = None

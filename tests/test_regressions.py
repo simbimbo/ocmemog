@@ -1106,6 +1106,119 @@ class OcmemogRegressionTests(unittest.TestCase):
             conn.close()
         self.assertEqual(int(remaining), 0)
 
+    def test_refresh_state_self_heal_keeps_non_polluted_checkpoints(self) -> None:
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="Hello",
+                session_id="sess-heal-preserve",
+                thread_id="thread-heal-preserve",
+                message_id="preserve-u1",
+                timestamp="2026-03-15 15:12:07",
+            )
+        )
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="assistant",
+                content="Got it, let's continue.",
+                session_id="sess-heal-preserve",
+                thread_id="thread-heal-preserve",
+                message_id="preserve-a1",
+                timestamp="2026-03-15 15:12:08",
+            )
+        )
+        first_checkpoint = app.conversation_checkpoint(
+            app.ConversationCheckpointRequest(
+                session_id="sess-heal-preserve",
+                thread_id="thread-heal-preserve",
+                checkpoint_kind="manual",
+            )
+        )
+        self.assertTrue(first_checkpoint["ok"])
+
+        conn = store.connect()
+        try:
+            bad_turn = conn.execute(
+                "INSERT INTO conversation_turns (conversation_id, session_id, thread_id, message_id, role, content, metadata_json, schema_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    None,
+                    "sess-heal-preserve",
+                    "thread-heal-preserve",
+                    "preserve-bad-turn",
+                    "user",
+                    "- Checkpoint: polluted Latest user ask: polluted",
+                    "{}",
+                    store.SCHEMA_VERSION,
+                ),
+            )
+            bad_turn_id = int(bad_turn.lastrowid)
+            open_loops_json = json.dumps([
+                {"kind": "awaiting_user_reply", "summary": "stale", "source_reference": f"conversation_turns:{bad_turn_id}"}
+            ])
+            conn.execute(
+                "INSERT INTO conversation_checkpoints (conversation_id, session_id, thread_id, turn_start_id, turn_end_id, checkpoint_kind, summary, latest_user_ask, last_assistant_commitment, open_loops_json, pending_actions_json, parent_checkpoint_id, root_checkpoint_id, depth, metadata_json, schema_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    None,
+                    "sess-heal-preserve",
+                    "thread-heal-preserve",
+                    bad_turn_id,
+                    bad_turn_id,
+                    "manual",
+                    "24 recent turns captured | user asked: proceed | open loops: 1",
+                    "proceed",
+                    "None",
+                    open_loops_json,
+                    "[]",
+                    None,
+                    None,
+                    0,
+                    "{}",
+                    store.SCHEMA_VERSION,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="What should I do next?",
+                session_id="sess-heal-preserve",
+                thread_id="thread-heal-preserve",
+                message_id="preserve-u2",
+                timestamp="2026-03-15 15:12:09",
+            )
+        )
+        second_checkpoint = app.conversation_checkpoint(
+            app.ConversationCheckpointRequest(
+                session_id="sess-heal-preserve",
+                thread_id="thread-heal-preserve",
+                checkpoint_kind="manual",
+            )
+        )
+        self.assertTrue(second_checkpoint["ok"])
+
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(session_id="sess-heal-preserve", thread_id="thread-heal-preserve", turns_limit=10)
+        )
+        self.assertNotIn("polluted", str((hydrate["summary"].get("latest_checkpoint") or {}).get("summary", "")))
+
+        conn = store.connect()
+        try:
+            checkpoint_total = conn.execute(
+                "SELECT COUNT(*) FROM conversation_checkpoints WHERE session_id=?",
+                ("sess-heal-preserve",),
+            ).fetchone()[0]
+            polluted_checkpoints = conn.execute(
+                "SELECT COUNT(*) FROM conversation_checkpoints WHERE session_id=? AND summary LIKE '%polluted%'",
+                ("sess-heal-preserve",),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(int(checkpoint_total), 2)
+        self.assertEqual(int(polluted_checkpoints), 0)
+
     def test_vector_rebuild_does_not_break_mixed_conversation_flow(self) -> None:
         with mock.patch("ocmemog.runtime.memory.embedding_engine.generate_embedding", side_effect=lambda text: [0.1, 0.2, float(len(text) % 7)]):
             for idx in range(18):

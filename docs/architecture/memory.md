@@ -67,7 +67,7 @@ The main repo-local write paths are:
 The brAIn docs describe a richer distill/promote pipeline. In ocmemog today:
 
 - Distillation exists in `ocmemog/runtime/memory/distill.py`
-- Model-backed distillation is not available because `brain/runtime/inference.py` is still a shim
+- Model-backed distillation depends on the configured runtime inference provider and may fall back to heuristics when no usable provider is available
 - The practical fallback is a first-line heuristic summary plus generated verification prompts
 - Promotion is available locally and writes promoted summaries into `knowledge`, `runbooks`, or `lessons`
 - Successful promotion also logs a reinforcement event and attempts vector indexing
@@ -84,7 +84,7 @@ Available support paths:
 
 Known caveat:
 
-- health/integrity currently treat `memory_index` as the "vector" coverage source, even though actual embeddings live in `vector_embeddings`
+- health/integrity now use source coverage against `vector_embeddings`, but operator interpretation still depends on the active embedding backend and any compatibility-shim surfaces reported by runtime probe
 
 ## Sidecar contract
 

@@ -149,6 +149,22 @@ class NamespaceCompatTests(unittest.TestCase):
 
         self.assertTrue(any(w.startswith("Runtime is bridged through") for w in status.warnings))
 
+    def test_runtime_probe_marks_compat_mode_as_degraded(self) -> None:
+        from ocmemog.sidecar.compat import probe_runtime
+
+        capabilities = [
+            {"surface": "ocmemog.runtime.state_store", "owner": "brain-runtime-shim", "provider_module": "brain.runtime.state_store"},
+            {"surface": "ocmemog.runtime.identity", "owner": "ocmemog-native", "provider_module": "ocmemog.runtime.identity"},
+        ]
+        with patch(
+            "ocmemog.sidecar.compat.identity.get_runtime_identity",
+            return_value={"capabilities": capabilities, "engine": "ocmemog-native"},
+        ):
+            status = probe_runtime()
+
+        self.assertEqual(status.mode, "degraded")
+        self.assertTrue(any("bridged through" in warning for warning in status.warnings))
+
     def test_native_imports_expose_functional_contracts(self) -> None:
         native_api = importlib.import_module("ocmemog.runtime.memory.api")
         native_retrieval = importlib.import_module("ocmemog.runtime.memory.retrieval")

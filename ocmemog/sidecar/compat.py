@@ -71,8 +71,12 @@ def probe_runtime() -> RuntimeStatus:
     shim_count = sum(1 for item in capabilities if item.get("owner") == "brain-runtime-shim")
     if shim_count:
         warnings.append(f"Runtime is bridged through {shim_count} compatibility shim surface(s).")
+        mode = "degraded"
+    else:
+        mode = "ready"
 
-    mode = "degraded" if missing_deps else "ready"
+    if missing_deps:
+        mode = "degraded"
     return RuntimeStatus(
         mode=mode,
         missing_deps=missing_deps,

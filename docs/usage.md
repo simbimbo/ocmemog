@@ -48,7 +48,7 @@ Useful environment variables:
 export OCMEMOG_HOST=127.0.0.1
 export OCMEMOG_PORT=17891
 export OCMEMOG_STATE_DIR=/path/to/state
-export OCMEMOG_DB_PATH=/path/to/brain_memory.sqlite3
+export OCMEMOG_DB_PATH=/path/to/ocmemog_memory.sqlite3
 export OCMEMOG_MEMORY_MODEL=gpt-4o-mini
 export OCMEMOG_OPENAI_API_KEY=sk-...
 export OCMEMOG_OPENAI_API_BASE=https://api.openai.com/v1

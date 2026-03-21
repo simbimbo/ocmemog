@@ -597,6 +597,24 @@ class OcmemogRegressionTests(unittest.TestCase):
             importlib.reload(runtime_config)
             self.assertEqual(runtime_config.BRAIN_EMBED_MODEL_LOCAL, "hash")
             self.assertEqual(runtime_config.OCMEMOG_EMBED_MODEL_LOCAL, "hash")
+            self.assertEqual(runtime_config.OCMEMOG_EMBED_LOCAL_MODEL, "hash")
+        importlib.reload(runtime_config)
+
+    def test_native_embed_provider_alias_takes_precedence(self) -> None:
+        import importlib
+        from ocmemog.runtime import config as runtime_config
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                "OCMEMOG_EMBED_MODEL_PROVIDER": "local-openai",
+                "BRAIN_EMBED_MODEL_PROVIDER": "openai",
+            },
+            clear=False,
+        ):
+            importlib.reload(runtime_config)
+            self.assertEqual(runtime_config.BRAIN_EMBED_MODEL_PROVIDER, "local-openai")
+            self.assertEqual(runtime_config.OCMEMOG_EMBED_PROVIDER, "local-openai")
         importlib.reload(runtime_config)
 
     def test_ponder_cycle_uses_vector_backfill_for_vector_missing(self) -> None:

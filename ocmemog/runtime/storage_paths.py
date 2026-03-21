@@ -62,4 +62,9 @@ def memory_db_path() -> Path:
     if override:
         override.parent.mkdir(parents=True, exist_ok=True)
         return override
-    return memory_dir() / "brain_memory.sqlite3"
+    memory = memory_dir()
+    native = memory / "ocmemog_memory.sqlite3"
+    legacy = memory / "brain_memory.sqlite3"
+    if native.exists() or not legacy.exists():
+        return native
+    return legacy

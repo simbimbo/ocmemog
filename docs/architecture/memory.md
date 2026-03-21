@@ -17,8 +17,8 @@ By default, ocmemog stores state under `.ocmemog-state/` at the repo root unless
 
 Primary files:
 
-- `.ocmemog-state/memory/brain_memory.sqlite3`
-- `.ocmemog-state/reports/brain_memory.log.jsonl`
+- `.ocmemog-state/memory/ocmemog_memory.sqlite3`
+- `.ocmemog-state/reports/ocmemog_memory.log.jsonl`
 - `.ocmemog-state/data/person_memory.db`
 - `.ocmemog-state/data/interaction_memory.db`
 - `.ocmemog-state/data/sentiment_memory.db`
@@ -80,7 +80,7 @@ Available support paths:
 
 - `integrity.run_integrity_check()` checks for missing tables, orphan candidates, duplicate promotions, missing memory references, and index mismatches
 - `health.get_memory_health()` reports counts and a coarse integrity summary
-- `brain_memory.log.jsonl` captures retrieval, embedding, integrity, and promotion events
+- `ocmemog_memory.log.jsonl` captures retrieval, embedding, integrity, and promotion events
 
 Known caveat:
 

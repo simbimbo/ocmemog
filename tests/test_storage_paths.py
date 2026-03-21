@@ -30,6 +30,19 @@ class StoragePathsTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {"OCMEMOG_DB_PATH": f"  {override}  "}, clear=False):
                 self.assertEqual(storage_paths.memory_db_path(), override.resolve())
 
+    def test_memory_db_path_prefers_native_name_when_no_legacy_db_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            with mock.patch.dict(os.environ, {"OCMEMOG_STATE_DIR": root}, clear=False):
+                self.assertEqual(storage_paths.memory_db_path(), Path(root).resolve() / "memory" / "ocmemog_memory.sqlite3")
+
+    def test_memory_db_path_falls_back_to_legacy_name_when_present(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            legacy = Path(root).resolve() / "memory" / "brain_memory.sqlite3"
+            legacy.parent.mkdir(parents=True, exist_ok=True)
+            legacy.write_text("", encoding="utf-8")
+            with mock.patch.dict(os.environ, {"OCMEMOG_STATE_DIR": root}, clear=False):
+                self.assertEqual(storage_paths.memory_db_path(), legacy)
+
 
 if __name__ == "__main__":
     unittest.main()

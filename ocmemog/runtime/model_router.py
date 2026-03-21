@@ -18,7 +18,7 @@ class ModelSelection:
 def get_provider_for_role(role: str) -> ModelSelection:
     if role != "embedding":
         return ModelSelection()
-    provider = (config.BRAIN_EMBED_MODEL_PROVIDER or "").strip().lower()
+    provider = (config.OCMEMOG_EMBED_PROVIDER or config.BRAIN_EMBED_MODEL_PROVIDER or "").strip().lower()
     if provider in {"openai", "openai_compatible", "openai-compatible"}:
         return ModelSelection(provider_id="openai", model=config.OCMEMOG_OPENAI_EMBED_MODEL)
     if provider in {"local-openai", "local_openai", "llamacpp", "llama.cpp"}:

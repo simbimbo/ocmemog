@@ -60,10 +60,14 @@ def generate_embedding(text: str) -> List[float] | None:
         return None
     local_model = str(
         getattr(config, "OCMEMOG_EMBED_MODEL_LOCAL", "")
-        or getattr(config, "BRAIN_EMBED_MODEL_LOCAL", "simple")
+        or getattr(config, "BRAIN_EMBED_MODEL_LOCAL", getattr(config, "OCMEMOG_EMBED_LOCAL_MODEL", "simple"))
         or ""
     )
-    provider_model = getattr(config, "BRAIN_EMBED_MODEL_PROVIDER", "")
+    provider_model = (
+        getattr(config, "OCMEMOG_EMBED_PROVIDER", "")
+        or getattr(config, "OCMEMOG_EMBED_MODEL_PROVIDER", "")
+        or getattr(config, "BRAIN_EMBED_MODEL_PROVIDER", "")
+    )
 
     if provider_model:
         try:

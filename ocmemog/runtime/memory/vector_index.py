@@ -11,14 +11,17 @@ from ocmemog.runtime.security import redaction
 from ocmemog.runtime import state_store
 from ocmemog.runtime.instrumentation import emit_event
 from . import embedding_engine, memory_links, store
-from ocmemog.runtime.security import redaction
 
 LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
 
 EMBEDDING_TABLES: tuple[str, ...] = tuple(store.MEMORY_TABLES)
 _REBUILD_LOCK = threading.Lock()
 _WRITE_CHUNK_SIZE = 64
-_EMBEDDING_TEXT_LIMIT = 8000
+_EMBEDDING_TEXT_LIMIT = 1000
+_EMBEDDING_KNOWLEDGE_ARTIFACT_LIMIT = 500
+_EMBEDDING_REFLECTION_LIMIT = 1200
+_EMBEDDING_EXTENDED_LIMIT = 2000
+_EMBEDDING_ULTRA_LIMIT = 4000
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
 
@@ -118,8 +121,16 @@ def _load_table_rows(table: str, *, limit: int | None = None, descending: bool =
 
 
 def _embedding_input(text: str, *, table: str = "knowledge") -> str:
-    cleaned = _HTML_TAG_RE.sub(" ", text)
+    """Normalize and hard-cap embedding input text.
+
+    Keep output deterministic and bounded for embedded calls that may have
+    conservative token windows.
+    """
+    raw = _WHITESPACE_RE.sub(" ", str(text or "")).strip()
+    cleaned = _HTML_TAG_RE.sub(" ", raw)
     cleaned = _WHITESPACE_RE.sub(" ", cleaned).strip()
+    if not cleaned:
+        cleaned = raw
     lowered = cleaned.lower()
     artifactish = (
         "| chunk " in lowered
@@ -128,15 +139,18 @@ def _embedding_input(text: str, *, table: str = "knowledge") -> str:
         or cleaned.count("),(") >= 8
     )
     if table == "knowledge" and artifactish:
-        return cleaned[:500]
+        return cleaned[:_EMBEDDING_KNOWLEDGE_ARTIFACT_LIMIT]
     if table == "knowledge" and len(cleaned) > 9000:
-        return cleaned[:1000]
+        return cleaned[:_EMBEDDING_TEXT_LIMIT]
     if table == "reflections" and len(cleaned) > 8000:
-        return cleaned[:1200]
+        return cleaned[:_EMBEDDING_REFLECTION_LIMIT]
     if len(cleaned) > 20000:
-        return cleaned[:2000]
+        return cleaned[:_EMBEDDING_EXTENDED_LIMIT]
     if len(cleaned) > 12000:
-        return cleaned[:4000]
+        return cleaned[:_EMBEDDING_ULTRA_LIMIT]
+    # Local llama.cpp embedding runtime currently rejects inputs above its effective
+    # token window (~512 tokens physical batch). Keep a conservative character cap so
+    # backfill and live embedding stay deterministic instead of failing with HTTP 500s.
     return cleaned[:_EMBEDDING_TEXT_LIMIT]
 
 

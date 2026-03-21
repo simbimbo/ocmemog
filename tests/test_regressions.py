@@ -407,6 +407,97 @@ class OcmemogRegressionTests(unittest.TestCase):
         self.assertEqual(vector, [0.25, 0.5])
         provider_mock.assert_called_once()
 
+    def test_embedding_input_strips_html_and_falls_back_when_empty(self) -> None:
+        value = vector_index._embedding_input("<div> </div>")
+        self.assertEqual(value, "<div> </div>")
+
+    def test_embedding_input_applies_text_length_caps(self) -> None:
+        artifact_text = "| chunk " + ("x" * 1200)
+        shaped_artifact = vector_index._embedding_input(artifact_text, table="knowledge")
+        self.assertEqual(len(shaped_artifact), 500)
+
+        long_text = "x" * 1600
+        shaped_generic = vector_index._embedding_input(long_text, table="tasks")
+        self.assertEqual(len(shaped_generic), 1000)
+
+    def test_backfill_missing_vectors_is_non_destructive(self) -> None:
+        # Seed one indexed vector and one missing vector row in the same table.
+        indexed_row = api.store_memory("knowledge", "pre-indexed durable learning", source="test")
+        conn = store.connect()
+        try:
+            conn.execute(
+                "INSERT INTO knowledge (source, confidence, metadata_json, content, schema_version) VALUES (?, ?, ?, ?, ?)",
+                ("test", 1.0, json.dumps({}), "needs embedding", store.SCHEMA_VERSION),
+            )
+            missing_row = conn.execute("SELECT MAX(id) FROM knowledge").fetchone()[0]
+            conn.commit()
+
+            before_rows = conn.execute(
+                "SELECT id, embedding FROM vector_embeddings WHERE source_type='knowledge' ORDER BY source_id"
+            ).fetchall()
+            before_count = len(before_rows)
+            indexed_embedding = conn.execute(
+                "SELECT embedding FROM vector_embeddings WHERE source_type='knowledge' AND source_id = ?",
+                (str(indexed_row),),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+
+        vector_index.backfill_missing_vectors(tables=("knowledge",), limit_per_table=10)
+
+        conn = store.connect()
+        try:
+            after_rows = conn.execute(
+                "SELECT id, source_id, embedding FROM vector_embeddings WHERE source_type='knowledge' ORDER BY source_id"
+            ).fetchall()
+            post_indexed_embedding = conn.execute(
+                "SELECT embedding FROM vector_embeddings WHERE source_type='knowledge' AND source_id = ?",
+                (str(indexed_row),),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+
+        after_count = len(after_rows)
+        self.assertEqual(after_count, before_count + 1)
+        after_ids = [str(row["source_id"]) for row in after_rows]
+        self.assertIn(str(indexed_row), after_ids)
+        self.assertIn(str(missing_row), after_ids)
+        self.assertEqual(post_indexed_embedding, indexed_embedding)
+
+    def test_provider_timeout_propagates_to_vector_backfill_without_local_fallback(self) -> None:
+        conn = store.connect()
+        try:
+            conn.execute(
+                "INSERT INTO knowledge (source, confidence, metadata_json, content, schema_version) VALUES (?, ?, ?, ?, ?)",
+                ("test", 1.0, json.dumps({}), "missing vector", store.SCHEMA_VERSION),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        with mock.patch.object(embedding_engine.config, "BRAIN_EMBED_MODEL_PROVIDER", "openai"), \
+             mock.patch.object(embedding_engine.config, "BRAIN_EMBED_MODEL_LOCAL", ""), \
+             mock.patch("ocmemog.runtime.memory.embedding_engine._provider_embedding", side_effect=TimeoutError("provider timed out")):
+            with self.assertRaises(TimeoutError):
+                vector_index.backfill_missing_vectors(tables=("knowledge",), limit_per_table=10)
+
+    def test_ponder_cycle_uses_vector_backfill_for_vector_missing(self) -> None:
+        with mock.patch.object(pondering_engine.config, "OCMEMOG_PONDER_ENABLED", "false"), \
+             mock.patch("ocmemog.runtime.memory.pondering_engine.integrity.run_integrity_check", return_value={
+                 "issues": ["vector_missing:1"],
+                 "repairable_issues": [],
+                 "ok": True,
+             }):
+            with mock.patch("ocmemog.runtime.memory.pondering_engine._candidate_memories", return_value=[]), \
+                 mock.patch("ocmemog.runtime.memory.pondering_engine._run_with_timeout", side_effect=lambda *args, **kwargs: args[1]() if args[1] else None), \
+                 mock.patch("ocmemog.runtime.memory.pondering_engine.vector_index.backfill_missing_vectors", return_value=1) as backfill_mock, \
+                 mock.patch("ocmemog.runtime.memory.pondering_engine.vector_index.rebuild_vector_index") as rebuild_mock:
+                result = pondering_engine.run_ponder_cycle(max_items=4)
+
+        self.assertEqual(result["maintenance"].get("vector_backfill"), 1)
+        self.assertEqual(backfill_mock.call_count, 1)
+        self.assertEqual(rebuild_mock.call_count, 0)
+
     def test_vector_fallback_returns_canonical_references(self) -> None:
         conn = store.connect()
         try:

@@ -55,7 +55,29 @@ def generate_embedding(text: str) -> List[float] | None:
     if provider_model:
         try:
             embedding, provider_meta = _provider_embedding(text, provider_model)
-        except Exception:
+        except TimeoutError as exc:
+            emit_event(
+                LOGFILE,
+                "brain_embedding_failed",
+                status="error",
+                reason="provider_timeout",
+                provider="provider",
+                model=provider_model,
+                error=str(exc),
+            )
+            if not local_model:
+                raise
+            embedding, provider_meta = None, {}
+        except Exception as exc:
+            emit_event(
+                LOGFILE,
+                "brain_embedding_failed",
+                status="error",
+                reason="provider_error",
+                provider="provider",
+                model=provider_model,
+                error=str(exc),
+            )
             embedding, provider_meta = None, {}
         if embedding:
             emit_event(

@@ -120,21 +120,34 @@ class NamespaceCompatTests(unittest.TestCase):
 
     def test_runtime_probe_reports_native_ownership_for_key_surfaces(self) -> None:
         from ocmemog.sidecar.compat import probe_runtime
+        from ocmemog.runtime.identity import SURFACE_COMPAT_OWNER, SURFACE_ENGINE_OWNER
 
         status = probe_runtime()
         caps_by_surface = {cap.get("surface"): cap for cap in status.capabilities}
-        for surface in (
-            "ocmemog.runtime.config",
-            "ocmemog.runtime.inference",
-            "ocmemog.runtime.model_router",
-            "ocmemog.runtime.model_roles",
-            "ocmemog.runtime.providers",
-            "ocmemog.runtime.state_store",
-            "ocmemog.runtime.storage_paths",
-        ):
-            self.assertIn(surface, caps_by_surface)
-            self.assertEqual(caps_by_surface[surface]["owner"], "ocmemog-native")
-        self.assertFalse(any("bridged through" in warning for warning in status.warnings))
+        native_expected = {
+            "ocmemog.runtime.storage_paths": SURFACE_ENGINE_OWNER,
+            "ocmemog.runtime.roles": SURFACE_ENGINE_OWNER,
+            "ocmemog.runtime.identity": SURFACE_ENGINE_OWNER,
+        }
+        compat_expected = {
+            "ocmemog.runtime.config": SURFACE_COMPAT_OWNER,
+            "ocmemog.runtime.inference": SURFACE_COMPAT_OWNER,
+            "ocmemog.runtime.model_router": SURFACE_COMPAT_OWNER,
+            "ocmemog.runtime.model_roles": SURFACE_COMPAT_OWNER,
+            "ocmemog.runtime.providers": SURFACE_COMPAT_OWNER,
+            "ocmemog.runtime.state_store": SURFACE_COMPAT_OWNER,
+        }
+        self.assertTrue(all(surface in caps_by_surface for surface in native_expected))
+        self.assertTrue(all(surface in caps_by_surface for surface in compat_expected))
+        for surface, expected_owner in native_expected.items():
+            self.assertEqual(caps_by_surface[surface]["owner"], expected_owner)
+            self.assertEqual(caps_by_surface[surface]["provider_module"], surface)
+        for surface, expected_owner in compat_expected.items():
+            self.assertEqual(caps_by_surface[surface]["owner"], expected_owner)
+            legacy_surface = surface.replace("ocmemog.", "brain.", 1)
+            self.assertEqual(caps_by_surface[surface]["provider_module"], legacy_surface)
+
+        self.assertTrue(any(w.startswith("Runtime is bridged through") for w in status.warnings))
 
     def test_native_imports_expose_functional_contracts(self) -> None:
         native_api = importlib.import_module("ocmemog.runtime.memory.api")

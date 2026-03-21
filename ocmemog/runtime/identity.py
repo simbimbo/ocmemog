@@ -47,9 +47,20 @@ def _surface_owner(module_name: str) -> tuple[str, str, str]:
     except Exception as exc:  # pragma: no cover - defensive surface.
         return (SURFACE_MISSING, "<import-failed>", f"{type(exc).__name__}: {exc}")
 
+    wrapped_from = getattr(module, "__wrapped_from__", None)
+    wrapped_by = getattr(module, "__wrapped_by__", None)
+
     provider_module = module.__name__
-    is_native = provider_module.startswith("ocmemog.")
-    owner = SURFACE_ENGINE_OWNER if is_native else SURFACE_COMPAT_OWNER
+    owner = SURFACE_ENGINE_OWNER
+
+    if isinstance(wrapped_from, str) and wrapped_from.strip():
+        owner = SURFACE_COMPAT_OWNER
+        provider_module = wrapped_from.strip()
+    elif isinstance(wrapped_by, str) and wrapped_by.strip():
+        owner = SURFACE_COMPAT_OWNER
+    elif not provider_module.startswith("ocmemog."):
+        owner = SURFACE_COMPAT_OWNER
+
     return (owner, provider_module, "ok")
 
 

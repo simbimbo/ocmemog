@@ -40,11 +40,11 @@ API_TOKEN = os.environ.get("OCMEMOG_API_TOKEN")
 
 def _parse_bool_env(name: str, default: bool = False) -> bool:
     if default:
-        default_values = {"1", "true", "yes", "on"}
+        raw = os.environ.get(name, "true")
     else:
-        default_values = set()
-    raw = os.environ.get(name, "true" if default else "false").strip().lower()
-    return raw in default_values
+        raw = os.environ.get(name, "false")
+    raw = str(raw).strip().lower()
+    return raw in {"1", "true", "yes", "on"}
 
 
 _SHUTDOWN_TIMING = _parse_bool_env("OCMEMOG_SHUTDOWN_TIMING", default=True)

@@ -582,6 +582,23 @@ class OcmemogRegressionTests(unittest.TestCase):
             with self.assertRaises(TimeoutError):
                 vector_index.backfill_missing_vectors(tables=("knowledge",), limit_per_table=10)
 
+    def test_native_embed_env_alias_takes_precedence(self) -> None:
+        import importlib
+        from ocmemog.runtime import config as runtime_config
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                "OCMEMOG_EMBED_MODEL_LOCAL": "hash",
+                "BRAIN_EMBED_MODEL_LOCAL": "simple",
+            },
+            clear=False,
+        ):
+            importlib.reload(runtime_config)
+            self.assertEqual(runtime_config.BRAIN_EMBED_MODEL_LOCAL, "hash")
+            self.assertEqual(runtime_config.OCMEMOG_EMBED_MODEL_LOCAL, "hash")
+        importlib.reload(runtime_config)
+
     def test_ponder_cycle_uses_vector_backfill_for_vector_missing(self) -> None:
         with mock.patch.object(pondering_engine.config, "OCMEMOG_PONDER_ENABLED", "false"), \
              mock.patch("ocmemog.runtime.memory.pondering_engine.integrity.run_integrity_check", return_value={

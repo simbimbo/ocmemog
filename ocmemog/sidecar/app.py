@@ -395,12 +395,11 @@ def _stop_background_workers() -> None:
     shutdown_start = time.perf_counter()
     if _SHUTDOWN_TIMING:
         print(f"[ocmemog][shutdown] shutdown_begin", file=sys.stderr)
-    timeout = 0.35
-    try:
-        timeout = float(os.environ.get("OCMEMOG_WORKER_SHUTDOWN_TIMEOUT_SECONDS", "0.35"))
-    except Exception:
-        pass
-    timeout = max(0.0, timeout)
+    timeout = _parse_float_env(
+        "OCMEMOG_WORKER_SHUTDOWN_TIMEOUT_SECONDS",
+        default=0.35,
+        minimum=0.0,
+    )
     if _SHUTDOWN_TIMING:
         print(f"[ocmemog][shutdown] shutdown_config timeout={timeout:.3f}s", file=sys.stderr)
 

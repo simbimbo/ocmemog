@@ -112,6 +112,26 @@ class SidecarShutdownQueueLifecycleTests(unittest.TestCase):
         self.assertEqual(app._queue_depth(), 0)
         self.assertEqual(ingest_request.call_count, 1)
 
+    def test_shutdown_timeout_invalid_or_negative_uses_default(self) -> None:
+        for raw in ("not-a-number", "-5"):
+            ingest_thread = mock.Mock()
+            ingest_thread.is_alive.return_value = True
+            watcher_thread = mock.Mock()
+            watcher_thread.is_alive.return_value = True
+            app._INGEST_WORKER_THREAD = ingest_thread
+            app._WATCHER_THREAD = watcher_thread
+            with mock.patch("ocmemog.sidecar.app._ingest_request", return_value={"ok": True}):
+                with mock.patch.dict(os.environ, {
+                    "OCMEMOG_SHUTDOWN_DRAIN_QUEUE": "false",
+                    "OCMEMOG_WORKER_SHUTDOWN_TIMEOUT_SECONDS": raw,
+                    "OCMEMOG_STATE_DIR": self.tempdir.name,
+                }, clear=False):
+                    app._stop_background_workers()
+            ingest_thread.join.assert_called_once_with(timeout=0.35)
+            watcher_thread.join.assert_called_once_with(timeout=0.35)
+            app._INGEST_WORKER_STOP.clear()
+            app._WATCHER_STOP.clear()
+
 
 class SidecarIngestWorkerConfigTests(unittest.TestCase):
     def setUp(self) -> None:

@@ -604,7 +604,8 @@ def _run_runtime_probe(_: None) -> CheckResult:
     try:
         payload = health.get_memory_health()
         details["memory_health"] = payload
-        if not payload.get("ok"):
+        memory_integrity_ok = payload.get("integrity", {}).get("ok", payload.get("vector_index_integrity_status"))
+        if not memory_integrity_ok:
             status = "fail"
             messages.append("memory health reported failed integrity.")
     except Exception as exc:

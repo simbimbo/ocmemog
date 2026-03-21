@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from ocmemog import doctor
@@ -144,6 +145,35 @@ class DoctorRootAndToggleChecksTests(unittest.TestCase):
         self.assertEqual(check["details"]["toggles"]["OCMEMOG_SHUTDOWN_DRAIN_QUEUE"]["parsed"], True)
         self.assertEqual(check["details"]["toggles"]["OCMEMOG_USE_OLLAMA"]["parsed"], False)
         self.assertEqual(check["details"]["invalid"], [])
+
+
+class DoctorRuntimeProbeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.env = mock.patch.dict(os.environ, {"OCMEMOG_STATE_DIR": self.tempdir.name}, clear=False)
+        self.env.__enter__()
+
+    def tearDown(self) -> None:
+        self.env.__exit__(None, None, None)
+        self.tempdir.cleanup()
+
+    def test_runtime_probe_accepts_memory_health_integrity_ok(self) -> None:
+        runtime_status = SimpleNamespace(mode="ready", missing_deps=[], todo=[], warnings=[])
+
+        with mock.patch("ocmemog.doctor.sidecar_compat.probe_runtime", return_value=runtime_status), \
+            mock.patch("ocmemog.doctor.health.get_memory_health", return_value={"integrity": {"ok": True}}), \
+            mock.patch("ocmemog.doctor.embedding_engine.generate_embedding", return_value="vector"), \
+            mock.patch("ocmemog.doctor._check_http", return_value=None):
+            report = doctor.run_doctor_checks(
+                include_checks={"vector/runtime-probe"},
+                state_dir=self.tempdir.name,
+            )
+
+        check = next(item for item in report["checks"] if item["key"] == "vector/runtime-probe")
+        self.assertEqual(check["status"], "ok")
+        self.assertEqual(check["details"]["runtime_mode"], "ready")
+        self.assertEqual(check["details"]["sidecar_http"], "ok")
+        self.assertNotIn("memory health reported failed integrity.", check["message"])
 
 
 if __name__ == "__main__":

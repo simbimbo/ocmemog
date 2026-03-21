@@ -1628,7 +1628,8 @@ def _tail_events(limit: int = 50) -> str:
         return ""
     try:
         lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
-    except Exception:
+    except Exception as exc:
+        print(f"[ocmemog][events] tail_read_failed path={path} error={exc!r}", file=sys.stderr)
         return ""
     return "\n".join(lines[-limit:])
 

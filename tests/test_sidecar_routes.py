@@ -204,6 +204,19 @@ class SidecarRouteTests(unittest.TestCase):
         self.assertEqual(bearer_authorized.status_code, 200)
         self.assertEqual(bearer_authorized.json()["mode"], "ready")
 
+    def test_tail_events_logs_read_failures(self) -> None:
+        fake_path = mock.Mock()
+        fake_path.exists.return_value = True
+        fake_path.read_text.side_effect = OSError("boom")
+        fake_dir = mock.Mock()
+        fake_dir.__truediv__ = mock.Mock(return_value=fake_path)
+        with mock.patch("ocmemog.sidecar.app.state_store.reports_dir", return_value=fake_dir):
+            with mock.patch("sys.stderr") as stderr:
+                result = sidecar_app._tail_events()
+        self.assertEqual(result, "")
+        written = "".join(call.args[0] for call in stderr.write.call_args_list if call.args)
+        self.assertIn("tail_read_failed", written)
+
 
 if __name__ == "__main__":
     unittest.main()

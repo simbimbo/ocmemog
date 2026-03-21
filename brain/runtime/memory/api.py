@@ -36,6 +36,18 @@ def _sanitize(text: str) -> str:
     return redacted
 
 
+def _auto_attach_model_hints_enabled() -> bool:
+    return os.environ.get("OCMEMOG_AUTO_ATTACH_GOVERNANCE_USE_MODEL_HINTS", "true").strip().lower() in {"1", "true", "yes"}
+
+
+def _auto_attach_model_hint_budget() -> int:
+    raw = os.environ.get("OCMEMOG_AUTO_ATTACH_GOVERNANCE_MODEL_HINT_BUDGET", "2")
+    try:
+        return max(0, int(raw or 0))
+    except Exception:
+        return 2
+
+
 def _emit(event: str) -> None:
     emit_event(store.state_store.reports_dir() / "brain_memory.log.jsonl", event, status="ok")
 
@@ -244,9 +256,15 @@ def _auto_apply_supersession_recommendation(
     return recommendation
 
 
-def _auto_attach_governance_candidates(reference: str) -> Dict[str, Any]:
+def _auto_attach_governance_candidates(reference: str, *, use_model: bool = True) -> Dict[str, Any]:
     duplicate_candidates = find_duplicate_candidates(reference, limit=5, min_similarity=0.72)
-    contradiction_candidates = find_contradiction_candidates(reference, limit=5, min_signal=0.55, use_model=True)
+    contradiction_candidates = find_contradiction_candidates(
+        reference,
+        limit=5,
+        min_signal=0.55,
+        use_model=use_model,
+        max_model_hints=_auto_attach_model_hint_budget() if use_model else 0,
+    )
     supersession_recommendation = _recommend_supersession_from_contradictions(
         reference,
         contradiction_candidates=contradiction_candidates,
@@ -327,7 +345,7 @@ def store_memory(
     except Exception as exc:
         emit_event(store.state_store.reports_dir() / "brain_memory.log.jsonl", "store_memory_index_failed", status="error", error=str(exc), memory_type=table)
     try:
-        _auto_attach_governance_candidates(reference)
+        _auto_attach_governance_candidates(reference, use_model=_auto_attach_model_hints_enabled())
     except Exception as exc:
         emit_event(store.state_store.reports_dir() / "brain_memory.log.jsonl", "store_memory_governance_failed", status="error", error=str(exc), reference=reference)
     _emit("store_memory")
@@ -489,6 +507,7 @@ def find_contradiction_candidates(
     limit: int = 5,
     min_signal: float = 0.55,
     use_model: bool = True,
+    max_model_hints: int | None = None,
 ) -> List[Dict[str, Any]]:
     payload = provenance.fetch_reference(reference) or {}
     table = str(payload.get("table") or payload.get("type") or "")
@@ -526,16 +545,29 @@ def find_contradiction_candidates(
             "provenance_preview": preview,
             "literals": _extract_literals(candidate_content),
         }
-        if use_model:
-            hint = _model_contradiction_hint(content, candidate_content)
-            if hint:
-                item["model_hint"] = hint
-                if not hint.get("contradiction") and signal < 0.8:
-                    continue
-                item["signal"] = round(max(signal, float(hint.get("confidence") or 0.0)), 3)
         candidates.append(item)
 
     candidates.sort(key=lambda item: item["signal"], reverse=True)
+
+    if use_model:
+        hint_budget = len(candidates) if max_model_hints is None else max(0, int(max_model_hints))
+        for item in candidates[:hint_budget]:
+            candidate_content = item.get("content")
+            hint = _model_contradiction_hint(content, str(candidate_content))
+            if not hint:
+                continue
+            item["model_hint"] = hint
+            if not hint.get("contradiction") and float(item.get("signal") or 0.0) < 0.8:
+                continue
+            item["signal"] = round(max(float(item.get("signal") or 0.0), float(hint.get("confidence") or 0.0)), 3)
+
+        candidates = [
+            item
+            for item in candidates
+            if not (item.get("model_hint") is not None and not item["model_hint"].get("contradiction") and float(item.get("signal") or 0.0) < 0.8)
+        ]
+        candidates.sort(key=lambda item: item["signal"], reverse=True)
+
     top = candidates[:limit]
     if top:
         provenance.force_update_memory_metadata(reference, {"contradicts": [item["reference"] for item in top], "contradiction_status": "candidate", "contradiction_candidates": [item["reference"] for item in top]})

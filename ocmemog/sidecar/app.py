@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
+import atexit
+import faulthandler
 import os
 import re
 import threading
 import time
+import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -31,10 +35,51 @@ from ocmemog.sidecar.transcript_watcher import watch_forever
 
 DEFAULT_CATEGORIES = tuple(store.MEMORY_TABLES)
 
-app = FastAPI(title="ocmemog sidecar", version="0.1.10")
-
 API_TOKEN = os.environ.get("OCMEMOG_API_TOKEN")
 
+
+def _parse_bool_env(name: str, default: bool = False) -> bool:
+    if default:
+        default_values = {"1", "true", "yes", "on"}
+    else:
+        default_values = set()
+    raw = os.environ.get(name, "true" if default else "false").strip().lower()
+    return raw in default_values
+
+
+_SHUTDOWN_TIMING = _parse_bool_env("OCMEMOG_SHUTDOWN_TIMING", default=True)
+
+
+@asynccontextmanager
+async def _sidecar_lifespan(_: FastAPI):
+    _startup_started = time.perf_counter()
+    try:
+        _start_transcript_watcher()
+        _start_ingest_worker()
+        if _SHUTDOWN_TIMING:
+            print(
+                f"[ocmemog][shutdown] lifespan_startup elapsed={time.perf_counter()-_startup_started:.3f}s",
+                file=sys.stderr,
+            )
+        yield
+    finally:
+        shutdown_started = time.perf_counter()
+        _stop_background_workers()
+        if _SHUTDOWN_TIMING:
+            print(
+                f"[ocmemog][shutdown] lifespan_shutdown elapsed={time.perf_counter()-shutdown_started:.3f}s",
+                file=sys.stderr,
+            )
+
+
+app = FastAPI(title="ocmemog sidecar", version="0.1.10", lifespan=_sidecar_lifespan)
+
+_INGEST_WORKER_STOP = threading.Event()
+_INGEST_WORKER_THREAD: threading.Thread | None = None
+_INGEST_WORKER_LOCK = threading.Lock()
+_WATCHER_STOP = threading.Event()
+_WATCHER_THREAD: threading.Thread | None = None
+_WATCHER_LOCK = threading.Lock()
 QUEUE_LOCK = threading.Lock()
 QUEUE_PROCESS_LOCK = threading.Lock()
 QUEUE_STATS = {
@@ -111,14 +156,23 @@ async def _auth_middleware(request: Request, call_next):
     return await call_next(request)
 
 
-@app.on_event("startup")
 def _start_transcript_watcher() -> None:
+    global _WATCHER_THREAD
     _load_queue_stats()
     enabled = os.environ.get("OCMEMOG_TRANSCRIPT_WATCHER", "").lower() in {"1", "true", "yes"}
     if not enabled:
         return
-    thread = threading.Thread(target=watch_forever, daemon=True)
-    thread.start()
+    with _WATCHER_LOCK:
+        if _WATCHER_THREAD and _WATCHER_THREAD.is_alive():
+            return
+        _WATCHER_STOP.clear()
+        _WATCHER_THREAD = threading.Thread(
+            target=watch_forever,
+            args=(_WATCHER_STOP,),
+            daemon=True,
+            name="ocmemog-transcript-watcher",
+        )
+        _WATCHER_THREAD.start()
 
 
 def _queue_path() -> Path:
@@ -257,9 +311,10 @@ def _ingest_worker() -> None:
     poll_seconds = float(os.environ.get("OCMEMOG_INGEST_ASYNC_POLL_SECONDS", "5"))
     batch_max = int(os.environ.get("OCMEMOG_INGEST_ASYNC_BATCH_MAX", "25"))
 
-    while True:
+    while not _INGEST_WORKER_STOP.is_set():
         _process_queue(batch_max)
-        time.sleep(poll_seconds)
+        if _INGEST_WORKER_STOP.wait(poll_seconds):
+            break
 
 
 
@@ -267,10 +322,123 @@ def _drain_queue(limit: Optional[int] = None) -> Dict[str, Any]:
     return _process_queue(limit)
 
 
-@app.on_event("startup")
 def _start_ingest_worker() -> None:
-    thread = threading.Thread(target=_ingest_worker, daemon=True)
-    thread.start()
+    global _INGEST_WORKER_THREAD
+    with _INGEST_WORKER_LOCK:
+        if _INGEST_WORKER_THREAD and _INGEST_WORKER_THREAD.is_alive():
+            return
+        _INGEST_WORKER_STOP.clear()
+        _INGEST_WORKER_THREAD = threading.Thread(
+            target=_ingest_worker,
+            daemon=True,
+            name="ocmemog-ingest-worker",
+        )
+        _INGEST_WORKER_THREAD.start()
+
+
+def _stop_background_workers() -> None:
+    global _INGEST_WORKER_THREAD, _WATCHER_THREAD
+    shutdown_start = time.perf_counter()
+    if _SHUTDOWN_TIMING:
+        print(f"[ocmemog][shutdown] shutdown_begin", file=sys.stderr)
+    timeout = 0.35
+    try:
+        timeout = float(os.environ.get("OCMEMOG_WORKER_SHUTDOWN_TIMEOUT_SECONDS", "0.35"))
+    except Exception:
+        pass
+    timeout = max(0.0, timeout)
+    if _SHUTDOWN_TIMING:
+        print(f"[ocmemog][shutdown] shutdown_config timeout={timeout:.3f}s", file=sys.stderr)
+
+    queue_drain_requested = _parse_bool_env("OCMEMOG_SHUTDOWN_DRAIN_QUEUE")
+    if queue_drain_requested and _queue_depth() > 0:
+        _queue_drain_start = time.perf_counter()
+        drain_stats = _drain_queue()
+        if _SHUTDOWN_TIMING:
+            print(
+                f"[ocmemog][shutdown] queue_drain elapsed={time.perf_counter()-_queue_drain_start:.3f}s processed={drain_stats.get('processed', 0)} errors={drain_stats.get('errors', 0)}",
+                file=sys.stderr,
+            )
+    _INGEST_WORKER_STOP.set()
+    _WATCHER_STOP.set()
+    if _SHUTDOWN_TIMING:
+        print(
+            f"[ocmemog][shutdown] stop_signals_set elapsed={time.perf_counter()-shutdown_start:.3f}s",
+            file=sys.stderr,
+        )
+
+    if os.environ.get("OCMEMOG_SHUTDOWN_DUMP_THREADS", "").lower() in {"1", "true", "yes"}:
+        _dump_thread_dump("post-stop requested")
+
+    with _INGEST_WORKER_LOCK:
+        ingest_worker = _INGEST_WORKER_THREAD
+    if ingest_worker is not None and ingest_worker.is_alive():
+        ingest_join_start = time.perf_counter()
+        ingest_worker.join(timeout=timeout)
+        if _SHUTDOWN_TIMING:
+            print(
+                f"[ocmemog][shutdown] ingest_worker_join elapsed={time.perf_counter()-ingest_join_start:.3f}s alive={ingest_worker.is_alive()}",
+                file=sys.stderr,
+            )
+        if os.environ.get("OCMEMOG_SHUTDOWN_DUMP_THREADS", "").lower() in {"1", "true", "yes"}:
+            _dump_join_result("ingest-worker", ingest_worker, timeout)
+        if not ingest_worker.is_alive():
+            with _INGEST_WORKER_LOCK:
+                if _INGEST_WORKER_THREAD is ingest_worker:
+                    _INGEST_WORKER_THREAD = None
+
+    with _WATCHER_LOCK:
+        watcher_thread = _WATCHER_THREAD
+    if watcher_thread is not None and watcher_thread.is_alive():
+        watcher_join_start = time.perf_counter()
+        watcher_thread.join(timeout=timeout)
+        if _SHUTDOWN_TIMING:
+            print(
+                f"[ocmemog][shutdown] transcript_watcher_join elapsed={time.perf_counter()-watcher_join_start:.3f}s alive={watcher_thread.is_alive()}",
+                file=sys.stderr,
+            )
+        if os.environ.get("OCMEMOG_SHUTDOWN_DUMP_THREADS", "").lower() in {"1", "true", "yes"}:
+            _dump_join_result("transcript-watcher", watcher_thread, timeout)
+        if not watcher_thread.is_alive():
+            with _WATCHER_LOCK:
+                if _WATCHER_THREAD is watcher_thread:
+                    _WATCHER_THREAD = None
+    if _SHUTDOWN_TIMING:
+        print(
+            f"[ocmemog][shutdown] shutdown_complete elapsed={time.perf_counter()-shutdown_start:.3f}s",
+            file=sys.stderr,
+        )
+
+
+def _dump_thread_dump(context: str) -> None:
+    print(f"[ocmemog][thread-dump:{context}]", file=sys.stderr)
+    _dump_thread_states()
+    faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
+
+
+def _dump_join_result(thread_label: str, thread: threading.Thread, timeout: float) -> None:
+    if thread.is_alive():
+        print(
+            f"[ocmemog][shutdown] {thread_label} still alive after join timeout={timeout:.3f}s",
+            file=sys.stderr,
+        )
+        _dump_thread_dump(thread_label)
+    else:
+        print(
+            f"[ocmemog][shutdown] {thread_label} joined cleanly",
+            file=sys.stderr,
+        )
+
+
+def _dump_thread_states() -> None:
+    for thread in threading.enumerate():
+        print(
+            f"[ocmemog][thread-state] name={thread.name} alive={thread.is_alive()} daemon={thread.daemon} ident={thread.ident}",
+            file=sys.stderr,
+        )
+
+
+atexit.register(_stop_background_workers)
 
 
 class SearchRequest(BaseModel):

@@ -18,7 +18,9 @@ class DoctorRegistryTests(unittest.TestCase):
             "state/path-writable",
             "sqlite/schema-access",
             "queue/health",
+            "sidecar/http-auth",
             "sidecar/transcript-roots",
+            "sidecar/transcript-watcher",
             "sidecar/env-toggles",
             "sidecar/app-import",
             "vector/runtime-probe",
@@ -63,6 +65,22 @@ class DoctorQueueFixTests(unittest.TestCase):
 
         lines = [line for line in queue_path.read_text(encoding="utf-8").splitlines() if line.strip()]
         self.assertEqual(len(lines), 1)
+
+    def test_queue_health_includes_severity_and_hints(self) -> None:
+        from ocmemog.sidecar import app
+
+        queue_path = app._queue_path()
+        queue_path.write_text('{"kind":"memory","content":"ok"}\n' * 60, encoding="utf-8")
+
+        report = doctor.run_doctor_checks(
+            include_checks={"queue/health"},
+            fix_actions=[],
+            state_dir=self.tempdir.name,
+        )
+        check = next(item for item in report["checks"] if item["key"] == "queue/health")
+        self.assertEqual(check["status"], "warn")
+        self.assertIn(check["details"]["queue_backlog_severity"], ("medium", "high"))
+        self.assertIn("queue_hints", check["details"])
 
 
 class DoctorInvocationTests(unittest.TestCase):
@@ -147,6 +165,93 @@ class DoctorRootAndToggleChecksTests(unittest.TestCase):
         self.assertEqual(check["details"]["invalid"], [])
 
 
+class DoctorSchemaAndWatcherTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.env = mock.patch.dict(os.environ, {"OCMEMOG_STATE_DIR": self.tempdir.name}, clear=False)
+        self.env.__enter__()
+
+    def tearDown(self) -> None:
+        self.env.__exit__(None, None, None)
+        self.tempdir.cleanup()
+
+    def test_sqlite_schema_check_reports_unexpected_schema_versions(self) -> None:
+        from ocmemog.runtime import state_store
+        import sqlite3
+
+        report_init = doctor.run_doctor_checks(
+            include_checks={"sqlite/schema-access"},
+            state_dir=self.tempdir.name,
+        )
+        self.assertEqual(report_init["status"], "ok")
+
+        conn = sqlite3.connect(str(state_store.memory_db_path()))
+        try:
+            conn.execute(
+                "INSERT INTO knowledge (source, content, schema_version) VALUES (?, ?, ?)",
+                ("unit-test", "legacy-row", "legacy-v0"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        report = doctor.run_doctor_checks(
+            include_checks={"sqlite/schema-access"},
+            state_dir=self.tempdir.name,
+        )
+        check = next(item for item in report["checks"] if item["key"] == "sqlite/schema-access")
+        self.assertEqual(check["status"], "warn")
+        versions = check["details"]["schema_versions"]["knowledge"]
+        self.assertIn("legacy-v0", versions)
+
+    def test_sidecar_http_auth_check_without_token(self) -> None:
+        with mock.patch("ocmemog.doctor._probe_health_json", return_value=(200, {"ok": True}, None)):
+            report = doctor.run_doctor_checks(
+                include_checks={"sidecar/http-auth"},
+                state_dir=self.tempdir.name,
+            )
+
+        check = next(item for item in report["checks"] if item["key"] == "sidecar/http-auth")
+        self.assertEqual(check["status"], "ok")
+        self.assertFalse(check["details"]["token_required"])
+
+    def test_sidecar_http_auth_check_with_token(self) -> None:
+        with mock.patch.dict(os.environ, {"OCMEMOG_API_TOKEN": "op-secret"}, clear=False), \
+            mock.patch("ocmemog.doctor._probe_health_json", side_effect=[
+                (401, {"ok": False, "error": "unauthorized"}, None),
+                (200, {"ok": True}, None),
+                (200, {"ok": True}, None),
+            ]):
+            report = doctor.run_doctor_checks(
+                include_checks={"sidecar/http-auth"},
+                state_dir=self.tempdir.name,
+            )
+
+        check = next(item for item in report["checks"] if item["key"] == "sidecar/http-auth")
+        self.assertEqual(check["status"], "ok")
+        self.assertTrue(check["details"]["token_required"])
+        self.assertIn("x-token", check["details"]["token_probe_headers"])
+
+    def test_sidecar_transcript_watcher_check_warns_invalid_config(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "OCMEMOG_TRANSCRIPT_WATCHER": "true",
+                "OCMEMOG_TRANSCRIPT_POLL_SECONDS": "0",
+                "OCMEMOG_INGEST_BATCH_SECONDS": "-1",
+                "OCMEMOG_INGEST_BATCH_MAX": "0",
+            },
+            clear=False,
+        ):
+            report = doctor.run_doctor_checks(
+                include_checks={"sidecar/transcript-watcher"},
+                state_dir=self.tempdir.name,
+            )
+
+        check = next(item for item in report["checks"] if item["key"] == "sidecar/transcript-watcher")
+        self.assertEqual(check["status"], "warn")
+        self.assertTrue(check["details"]["enabled"])
+        self.assertTrue(check["details"]["issues"])
 class DoctorRuntimeProbeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -174,6 +279,25 @@ class DoctorRuntimeProbeTests(unittest.TestCase):
         self.assertEqual(check["details"]["runtime_mode"], "ready")
         self.assertEqual(check["details"]["sidecar_http"], "ok")
         self.assertNotIn("memory health reported failed integrity.", check["message"])
+
+    def test_runtime_probe_reports_degraded_runtime_and_vector_backlog(self) -> None:
+        runtime_status = SimpleNamespace(mode="degraded", missing_deps=["mock-missing"], todo=[], warnings=[])
+
+        with mock.patch("ocmemog.doctor.sidecar_compat.probe_runtime", return_value=runtime_status), \
+            mock.patch("ocmemog.doctor.health.get_memory_health", return_value={"integrity": {"ok": True}}), \
+            mock.patch("ocmemog.doctor.embedding_engine.generate_embedding", return_value="vector"), \
+            mock.patch("ocmemog.doctor._check_http", return_value=None), \
+            mock.patch("ocmemog.doctor._collect_vector_backlog", return_value={"per_table": {"knowledge": 25}, "total_missing": 25, "severity": "low"}):
+            report = doctor.run_doctor_checks(
+                include_checks={"vector/runtime-probe"},
+                state_dir=self.tempdir.name,
+            )
+
+        check = next(item for item in report["checks"] if item["key"] == "vector/runtime-probe")
+        self.assertEqual(check["status"], "warn")
+        self.assertEqual(check["details"]["runtime_mode"], "degraded")
+        self.assertEqual(check["details"]["vector_backlog"]["total_missing"], 25)
+        self.assertIn("runtime mode is degraded", check["message"])
 
 
 if __name__ == "__main__":

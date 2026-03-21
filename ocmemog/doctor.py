@@ -6,10 +6,12 @@ import argparse
 import importlib
 import json
 import os
+from pathlib import Path
 from collections.abc import Iterable
 from dataclasses import dataclass, asdict
 from typing import Any, Callable
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 import contextlib
 
 from ocmemog.runtime import state_store
@@ -61,6 +63,70 @@ _ENV_TOGGLE_KEYS = (
     "OCMEMOG_USE_OLLAMA",
     "OCMEMOG_REINFORCE_SENTIMENT",
 )
+_SCHEMA_VERSION_NON_STANDARD_TABLES = {"artifacts", "vector_embeddings"}
+_HTTP_TIMEOUT_SECONDS = 2.0
+
+
+def _queue_backlog_severity(depth: int) -> str:
+    if depth <= 0:
+        return "none"
+    if depth <= 25:
+        return "low"
+    if depth <= 250:
+        return "medium"
+    if depth <= 1000:
+        return "high"
+    return "critical"
+
+
+def _vector_backlog_severity(missing: int) -> str:
+    if missing <= 0:
+        return "none"
+    if missing <= 200:
+        return "low"
+    if missing <= 2000:
+        return "medium"
+    if missing <= 10000:
+        return "high"
+    return "critical"
+
+
+def _parse_float_env(name: str, default: float, *, minimum: float | None = None) -> tuple[float, str | None]:
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default, None
+    try:
+        value = float(raw)
+    except Exception:
+        return default, f"{name} must be numeric"
+    if minimum is not None and value < minimum:
+        return default, f"{name} must be >= {minimum}"
+    return value, None
+
+
+def _parse_int_env(name: str, default: int, *, minimum: int | None = None) -> tuple[int, str | None]:
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default, None
+    try:
+        value = int(raw)
+    except Exception:
+        return default, f"{name} must be integer"
+    if minimum is not None and value < minimum:
+        return default, f"{name} must be >= {minimum}"
+    return value, None
+
+
+def _parse_bool_env(name: str, default: bool = False) -> tuple[bool, str | None]:
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default, None
+    lowered = raw.strip().lower()
+    if lowered in {"1", "true", "yes", "on", "y", "t"}:
+        return True, None
+    if lowered in {"0", "false", "no", "off", "n", "f"}:
+        return False, None
+    return default, f"{name} must be a boolean value"
 
 
 def _queue_status_to_icon(status: str) -> str:
@@ -203,6 +269,9 @@ def _run_sqlite_schema(_: None) -> CheckResult:
         "conversation_state",
     } | set(store.MEMORY_TABLES)
 
+    counts: dict[str, int] = {table: 0 for table in required}
+    version_map: dict[str, dict[str, int]] = {}
+    version_issues: list[str] = []
     try:
         store.init_db()
         conn = store.connect()
@@ -210,12 +279,27 @@ def _run_sqlite_schema(_: None) -> CheckResult:
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
             missing = sorted(required - tables)
             quick = str(conn.execute("PRAGMA quick_check(1)").fetchone()[0] or "unknown")
-            counts: dict[str, int] = {}
             for table in sorted(required):
+                if table in missing:
+                    continue
                 try:
                     counts[table] = int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] or 0)
-                except Exception:
-                    counts[table] = 0
+                except Exception as exc:
+                    version_issues.append(f"{table} row count query failed: {exc}")
+
+                try:
+                    columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+                    if "schema_version" not in columns:
+                        if table not in _SCHEMA_VERSION_NON_STANDARD_TABLES:
+                            version_issues.append(f"{table} missing schema_version column")
+                        continue
+                    rows = conn.execute(
+                        f"SELECT COALESCE(schema_version, '<null>') AS schema_version, COUNT(*) AS count "
+                        f"FROM {table} GROUP BY COALESCE(schema_version, '<null>')"
+                    ).fetchall()
+                    version_map[table] = {str(item[0]): int(item[1]) for item in rows}
+                except Exception as exc:
+                    version_issues.append(f"{table} schema query failed: {exc}")
         finally:
             conn.close()
     except Exception as exc:
@@ -226,13 +310,32 @@ def _run_sqlite_schema(_: None) -> CheckResult:
             message=f"SQLite schema check failed: {exc}",
             details={"error": str(exc)},
         )
-
-    details = {
-        "required_tables": sorted(required),
-        "missing_tables": missing,
-        "sqlite_quick_check": quick,
-        "row_counts": {key: counts[key] for key in sorted(counts)} ,
-    }
+    if not missing:
+        details = {
+            "required_tables": sorted(required),
+            "missing_tables": [],
+            "sqlite_quick_check": quick,
+            "row_counts": {key: counts[key] for key in sorted(counts)},
+            "schema_version_expected": store.SCHEMA_VERSION,
+            "schema_versions": version_map,
+            "schema_version_issues": version_issues,
+        }
+    else:
+        details = {
+            "required_tables": sorted(required),
+            "missing_tables": missing,
+            "sqlite_quick_check": quick,
+            "row_counts": {key: counts[key] for key in sorted(counts)},
+            "schema_version_expected": store.SCHEMA_VERSION,
+            "schema_versions": version_map,
+            "schema_version_issues": version_issues,
+        }
+    if version_issues:
+        details["schema_version_issues"] = version_issues
+    for table, versions in version_map.items():
+        unexpected = [item for item in versions if item != store.SCHEMA_VERSION]
+        if unexpected and table not in ("memory_events", "environment_cognition"):
+            version_issues.extend([f"{table} has unexpected schema_version value(s): {', '.join(sorted(unexpected))}"])
 
     if missing:
         return CheckResult(
@@ -248,6 +351,14 @@ def _run_sqlite_schema(_: None) -> CheckResult:
             label="sqlite and schema",
             status="fail",
             message="SQLite quick check failed.",
+            details=details,
+        )
+    if version_issues:
+        return CheckResult(
+            key="sqlite/schema-access",
+            label="sqlite and schema",
+            status="warn",
+            message="Schema metadata includes unexpected versions or schema column issues.",
             details=details,
         )
     return CheckResult(
@@ -319,9 +430,12 @@ def _run_queue_health(_: None) -> CheckResult:
         if invalid:
             status = "warn"
             messages.append(f"Queue has {invalid} invalid line(s).")
-        if depth > 250:
+        if depth > 25:
             status = "warn"
             messages.append(f"Queue backlog is elevated ({depth}).")
+        backlog_severity = _queue_backlog_severity(depth)
+        if invalid or backlog_severity in {"medium", "high", "critical"}:
+            status = "warn"
         if queue_config:
             status = "warn"
             messages.append("Queue config has invalid values: " + ", ".join(sorted(set(queue_config))))
@@ -331,7 +445,20 @@ def _run_queue_health(_: None) -> CheckResult:
         if depth > 0 and worker_enabled and app._INGEST_WORKER_THREAD is not None and not app._INGEST_WORKER_THREAD.is_alive():
             status = "warn"
             messages.append("Ingest worker thread exists but is not currently alive.")
+        hints: list[str] = []
+        if invalid > 0:
+            hints.append("Run --fix repair-queue to drop invalid queue entries.")
+        if depth > 0 and not worker_enabled:
+            hints.append("Enable OCMEMOG_INGEST_ASYNC_WORKER or flush with POST /memory/ingest_flush.")
+        if depth > 1000:
+            hints.append("Queue depth is very high; inspect upstream ingest failures and sidecar reachability.")
+        worker_config_issues = queue_config
+        if not worker_config_issues:
+            if worker_batch_max and worker_batch_max > 40:
+                hints.append("Ingest batch size is large; reduce OCMEMOG_INGEST_ASYNC_BATCH_MAX if queue consumers lag.")
         message = "; ".join(messages) if messages else "Queue state is healthy."
+        if backlog_severity in {"medium", "high", "critical"} and "Queue state is healthy." in message:
+            message = f"Queue backlog severity is {backlog_severity} ({depth})."
     except Exception as exc:
         return CheckResult(
             key="queue/health",
@@ -361,10 +488,167 @@ def _run_queue_health(_: None) -> CheckResult:
             "queue_config_issues": queue_config,
             "invalid_payload_samples": invalid_samples,
             "ingest_worker_running": bool(app._INGEST_WORKER_THREAD and app._INGEST_WORKER_THREAD.is_alive()),
+            "queue_backlog_severity": backlog_severity,
+            "queue_hints": hints,
         },
         fixable=True,
         fix_action="repair-queue",
     )
+
+
+def _run_transcript_watcher_sanity(_: None) -> CheckResult:
+    try:
+        app = _import_sidecar_app()
+    except Exception as exc:
+        return CheckResult(
+            key="sidecar/transcript-watcher",
+            label="sidecar transcript watcher",
+            status="fail",
+            message=f"Failed to import sidecar app for transcript watcher checks: {exc}",
+            details={"error": str(exc)},
+        )
+
+    enabled, valid_toggle = app._parse_bool_env_value(os.environ.get("OCMEMOG_TRANSCRIPT_WATCHER"), default=False)
+    issues: list[str] = []
+    hints: list[str] = []
+    config: dict[str, Any] = {
+        "enabled": enabled,
+        "watcher_thread_running": bool(app._WATCHER_THREAD and app._WATCHER_THREAD.is_alive()),
+    }
+
+    if not valid_toggle:
+        config["watcher_toggle_parse_valid"] = False
+        return CheckResult(
+            key="sidecar/transcript-watcher",
+            label="sidecar transcript watcher",
+            status="warn",
+            message="Transcript watcher env toggle is not valid boolean syntax.",
+            details={"config": config, "issues": ["OCMEMOG_TRANSCRIPT_WATCHER must be a boolean value"], "hints": []},
+        )
+
+    if not enabled:
+        return CheckResult(
+            key="sidecar/transcript-watcher",
+            label="sidecar transcript watcher",
+            status="ok",
+            message="Transcript watcher is disabled.",
+            details={"enabled": False, "issues": [], "hints": [], "config": config},
+        )
+    if enabled:
+        transcript_path = os.environ.get("OCMEMOG_TRANSCRIPT_PATH", "").strip()
+        transcript_dir = os.environ.get("OCMEMOG_TRANSCRIPT_DIR", "").strip()
+        session_dir = os.environ.get("OCMEMOG_SESSION_DIR", "").strip()
+        config.update(
+            {
+                "transcript_path": transcript_path or None,
+                "transcript_dir": transcript_dir or None,
+                "session_dir": session_dir or None,
+                "transcript_glob": os.environ.get("OCMEMOG_TRANSCRIPT_GLOB", "*.log"),
+                "session_glob": os.environ.get("OCMEMOG_SESSION_GLOB", "*.jsonl"),
+                "batch_seconds": os.environ.get("OCMEMOG_INGEST_BATCH_SECONDS", "30"),
+                "batch_max": os.environ.get("OCMEMOG_INGEST_BATCH_MAX", "25"),
+                "poll_seconds": os.environ.get("OCMEMOG_TRANSCRIPT_POLL_SECONDS", "30"),
+                "start_at_end": os.environ.get("OCMEMOG_TRANSCRIPT_START_AT_END", "true"),
+                "watcher_toggle_parse_valid": True,
+            }
+        )
+        poll_seconds, issue = _parse_float_env("OCMEMOG_TRANSCRIPT_POLL_SECONDS", 30.0, minimum=1)
+        if issue:
+            issues.append(issue)
+            hints.append("Set OCMEMOG_TRANSCRIPT_POLL_SECONDS to a positive number.")
+        batch_seconds, issue = _parse_float_env("OCMEMOG_INGEST_BATCH_SECONDS", 30.0, minimum=1)
+        if issue:
+            issues.append(issue)
+            hints.append("Set OCMEMOG_INGEST_BATCH_SECONDS to a positive number.")
+        batch_max, issue = _parse_int_env("OCMEMOG_INGEST_BATCH_MAX", 25, minimum=1)
+        if issue:
+            issues.append(issue)
+            hints.append("Set OCMEMOG_INGEST_BATCH_MAX to an integer >= 1.")
+        reinforce_enabled, issue = _parse_bool_env("OCMEMOG_REINFORCE_SENTIMENT", True)
+        if issue:
+            issues.append(issue)
+            hints.append("Set OCMEMOG_REINFORCE_SENTIMENT to true/false.")
+        config.update(
+            {
+                "poll_seconds": poll_seconds,
+                "batch_seconds": batch_seconds,
+                "batch_max": batch_max,
+                "reinforce_sentiment": reinforce_enabled,
+            }
+        )
+
+        for raw_value in (transcript_path, transcript_dir, session_dir):
+            if raw_value:
+                target = Path(raw_value).expanduser().resolve()
+                if not target.exists():
+                    hints.append(f"Configured path '{target}' does not currently exist; watcher will create as needed.")
+                elif target.is_file() and target.suffix == "":
+                    issues.append(f"Configured path '{target}' looks like a directory but is a file path.")
+
+        ingest_endpoint = os.environ.get("OCMEMOG_INGEST_ENDPOINT", "http://127.0.0.1:17891/memory/ingest_async")
+        turn_ingest_endpoint = os.environ.get("OCMEMOG_TURN_INGEST_ENDPOINT", "")
+        config["ingest_endpoint"] = ingest_endpoint
+        config["turn_ingest_endpoint"] = turn_ingest_endpoint or ingest_endpoint.replace("/memory/ingest_async", "/conversation/ingest_turn")
+        if not config["turn_ingest_endpoint"].startswith("http"):
+            issues.append("OCMEMOG_TURN_INGEST_ENDPOINT must be an absolute HTTP(S) URL when overridden.")
+        config["watcher_thread_running"] = bool(app._WATCHER_THREAD and app._WATCHER_THREAD.is_alive())
+
+    status = "ok"
+    message = "Transcript watcher config is healthy."
+    if issues:
+        status = "warn"
+        message = "Transcript watcher config has issues."
+
+    return CheckResult(
+        key="sidecar/transcript-watcher",
+        label="sidecar transcript watcher",
+        status=status,
+        message=message,
+        details={
+            "config": config,
+            "issues": issues,
+            "hints": hints,
+            "enabled": enabled,
+            "watcher_running": bool(app._WATCHER_THREAD and app._WATCHER_THREAD.is_alive()),
+            "watcher_toggle_parse_valid": valid_toggle,
+        },
+    )
+
+
+def _collect_vector_backlog() -> dict[str, Any]:
+    try:
+        store.init_db()
+    except Exception:
+        pass
+    backlog: dict[str, int] = {}
+    conn = store.connect()
+    total_missing = 0
+    query_errors: list[str] = []
+    try:
+        for table in store.MEMORY_TABLES:
+            try:
+                total = int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] or 0)
+                indexed = int(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM vector_embeddings WHERE source_type = ?",
+                        (table,),
+                    ).fetchone()[0]
+                    or 0
+                )
+                missing = max(total - indexed, 0)
+                backlog[table] = missing
+                total_missing += missing
+            except Exception as exc:
+                query_errors.append(f"{table}: {exc}")
+                backlog[table] = 0
+    finally:
+        conn.close()
+    return {
+        "per_table": backlog,
+        "total_missing": total_missing,
+        "severity": _vector_backlog_severity(total_missing),
+        "errors": query_errors,
+    }
 
 
 def _run_transcript_root_readability(_: None) -> CheckResult:
@@ -476,6 +760,137 @@ def _run_sidecar_toggle_sanity(_: None) -> CheckResult:
     )
 
 
+def _run_sidecar_http_auth(_: None) -> CheckResult:
+    endpoint = os.environ.get("OCMEMOG_ENDPOINT", "http://127.0.0.1:17891")
+    token = os.environ.get("OCMEMOG_API_TOKEN")
+    probes: list[dict[str, Any]] = []
+    issues: list[str] = []
+    hints: list[str] = []
+    status = "ok"
+    message = "Sidecar HTTP auth configuration is healthy."
+
+    if token:
+        unauth_status, unauth_payload, unauth_error = _probe_health_json(endpoint)
+        probes.append({
+            "label": "unauthenticated",
+            "status": unauth_status,
+            "error": unauth_error,
+            "ok": bool(unauth_payload.get("ok")) if isinstance(unauth_payload, dict) else None,
+        })
+        if unauth_error:
+            status = "warn"
+            message = "Sidecar health endpoint is not currently reachable."
+            issues.append(unauth_error)
+        elif unauth_status == 200:
+            status = "warn"
+            issues.append("Token configured, but authenticated endpoints are accepting unauthenticated access.")
+            hints.append("Verify OCMEMOG_API_TOKEN is exported in both sidecar and operator processes.")
+        elif unauth_status != 401:
+            status = "warn"
+            issues.append(f"Expected 401 for unauthenticated access, got {unauth_status}.")
+
+        token_ok: list[str] = []
+        for label, headers in (
+            ("x-token", {"x-ocmemog-token": token}),
+            ("bearer", {"authorization": f"Bearer {token}"}),
+        ):
+            auth_status, auth_payload, auth_error = _probe_health_json(endpoint, headers=headers)
+            probes.append(
+                {
+                    "label": label,
+                    "status": auth_status,
+                    "error": auth_error,
+                    "ok": bool(auth_payload.get("ok")) if isinstance(auth_payload, dict) else None,
+                }
+            )
+            if not auth_error and auth_status == 200:
+                token_ok.append(label)
+
+        if not token_ok:
+            status = "warn"
+            issues.append("Token-based authenticated health check failed.")
+            hints.append("Verify the token on operator and sidecar match and the expected header is supported.")
+
+        details = {
+            "token_required": True,
+            "token_probe_headers": token_ok,
+            "probes": probes,
+            "hints": hints,
+        }
+    else:
+        health_status, health_payload, health_error = _probe_health_json(endpoint)
+        probes.append({
+            "label": "unauthenticated",
+            "status": health_status,
+            "error": health_error,
+            "ok": bool(health_payload.get("ok")) if isinstance(health_payload, dict) else None,
+        })
+        if health_error:
+            status = "warn"
+            message = "Sidecar health endpoint is not currently reachable."
+            issues.append(health_error)
+        elif health_status != 200 or not isinstance(health_payload, dict) or not health_payload.get("ok", False):
+            status = "warn"
+            issues.append("Sidecar health endpoint returned a non-OK response.")
+        details = {
+            "token_required": False,
+            "probes": probes,
+            "hints": hints,
+        }
+
+    if not issues:
+        if message == "Sidecar HTTP auth configuration is healthy." and status == "ok":
+            details["token_required"] = bool(token)
+    else:
+        message = "; ".join(issues)
+
+    details["endpoint"] = endpoint
+    return CheckResult(
+        key="sidecar/http-auth",
+        label="sidecar HTTP auth",
+        status=status,
+        message=message,
+        details=details,
+    )
+
+
+def _probe_health_json(endpoint: str, headers: dict[str, str] | None = None, *, timeout: float = _HTTP_TIMEOUT_SECONDS) -> tuple[int | None, dict[str, Any] | None, str | None]:
+    request_headers = {
+        "Accept": "application/json",
+    }
+    if headers:
+        request_headers.update(headers)
+    request = Request(f"{endpoint.rstrip('/')}/healthz", method="GET")
+    for key, value in request_headers.items():
+        request.add_header(key, value)
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            status = getattr(response, "status", 200)
+            raw = response.read(256).decode("utf-8", errors="ignore")
+            payload: dict[str, Any] | None = None
+            if raw:
+                payload = json.loads(raw)
+                if not isinstance(payload, dict):
+                    return status, None, "non-dict JSON payload"
+            return status, payload, None
+    except HTTPError as exc:
+        raw = ""
+        try:
+            raw = exc.read(256).decode("utf-8", errors="ignore")
+        except Exception:
+            raw = ""
+        payload: dict[str, Any] | None = None
+        if raw:
+            try:
+                loaded = json.loads(raw)
+                payload = loaded if isinstance(loaded, dict) else None
+            except Exception:
+                payload = None
+        return getattr(exc, "code", None), payload, None
+    except Exception as exc:
+        return None, None, str(exc)
+
+
 def _fix_create_paths(_: None) -> FixResult:
     try:
         created = []
@@ -569,10 +984,15 @@ def _run_sidecar_import(_: None) -> CheckResult:
 
 def _check_http(endpoint: str) -> str | None:
     try:
-        with urlopen(Request(f"{endpoint.rstrip('/')}/healthz"), timeout=2) as response:
-            body = response.read(256).decode("utf-8", errors="ignore")
-            if not body:
-                return "empty response"
+        status, payload, error = _probe_health_json(endpoint)
+        if error:
+            return error
+        if not status or status >= 400:
+            return f"health endpoint status {status}"
+        if not payload:
+            return "empty response"
+        if not isinstance(payload, dict) or not payload.get("ok"):
+            return "health endpoint returned non-ok payload"
     except Exception as exc:
         return str(exc)
     return None
@@ -604,10 +1024,21 @@ def _run_runtime_probe(_: None) -> CheckResult:
     try:
         payload = health.get_memory_health()
         details["memory_health"] = payload
+        vector_backlog = _collect_vector_backlog()
+        details["vector_backlog"] = vector_backlog
         memory_integrity_ok = payload.get("integrity", {}).get("ok", payload.get("vector_index_integrity_status"))
         if not memory_integrity_ok:
             status = "fail"
             messages.append("memory health reported failed integrity.")
+        if vector_backlog.get("errors"):
+            status = max(status, "warn", key=lambda s: _STATUS_PRECEDENCE[s]) if isinstance(status, str) else "warn"
+            messages.append("Vector backlog probe reported query warnings: " + "; ".join(vector_backlog["errors"][:3]))
+        if vector_backlog["total_missing"] > 0:
+            status = max(status, "warn", key=lambda s: _STATUS_PRECEDENCE[s]) if isinstance(status, str) else "warn"
+            messages.append(
+                f"Vector backlog is elevated ({vector_backlog['total_missing']} rows, severity={vector_backlog['severity']})."
+            )
+            details["vector_backlog_hint"] = "Run scripts/ocmemog-backfill-vectors.py to reduce missing vector debt."
     except Exception as exc:
         status = "fail"
         details["memory_health_error"] = str(exc)
@@ -615,7 +1046,10 @@ def _run_runtime_probe(_: None) -> CheckResult:
 
     if runtime_status.mode != "ready":
         status = max(status, "warn", key=lambda s: _STATUS_PRECEDENCE[s]) if isinstance(status, str) else "warn"
-        messages.append("runtime mode is degraded.")
+        messages.append(
+            f"runtime mode is degraded ({len(runtime_status.missing_deps)} missing item(s): "
+            f"{', '.join(runtime_status.missing_deps) or 'none'})."
+        )
 
     try:
         if not embedding_engine.generate_embedding("ocmemog doctor probe"):
@@ -664,7 +1098,9 @@ DOCTOR_CHECKS: tuple[DoctorCheck, ...] = (
     DoctorCheck(key="state/path-writable", label="state path writability", check=_run_state_paths, fix_key="create-missing-paths", fix=_fix_create_paths),
     DoctorCheck(key="sqlite/schema-access", label="sqlite schema access", check=_run_sqlite_schema),
     DoctorCheck(key="queue/health", label="queue health", check=_run_queue_health, fix_key="repair-queue", fix=_fix_repair_queue),
+    DoctorCheck(key="sidecar/http-auth", label="sidecar HTTP auth", check=_run_sidecar_http_auth),
     DoctorCheck(key="sidecar/transcript-roots", label="sidecar transcript roots", check=_run_transcript_root_readability),
+    DoctorCheck(key="sidecar/transcript-watcher", label="sidecar transcript watcher", check=_run_transcript_watcher_sanity),
     DoctorCheck(key="sidecar/env-toggles", label="sidecar environment toggles", check=_run_sidecar_toggle_sanity),
     DoctorCheck(key="sidecar/app-import", label="sidecar app import", check=_run_sidecar_import),
     DoctorCheck(key="vector/runtime-probe", label="vector/runtime probe", check=_run_runtime_probe),

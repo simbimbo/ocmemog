@@ -60,8 +60,12 @@ The doctor command currently checks:
 - runtime/imports
 - state/path-writable
 - sqlite/schema-access
+- sidecar/http-auth
 - queue/health
+- sidecar/transcript-watcher
 - sidecar/app-import
+- sidecar/transcript-roots
+- sidecar/env-toggles
 - vector/runtime-probe
 
 ## Optional: transcript watcher (auto-ingest)

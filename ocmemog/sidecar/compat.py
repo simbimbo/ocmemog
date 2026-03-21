@@ -54,7 +54,10 @@ def probe_runtime() -> RuntimeStatus:
         except Exception as exc:
             missing_deps.append(f"{module_name}: {exc}")
 
-    provider = os.environ.get("BRAIN_EMBED_MODEL_PROVIDER", "").strip().lower()
+    provider = (
+        os.environ.get("OCMEMOG_EMBED_MODEL_PROVIDER")
+        or os.environ.get("BRAIN_EMBED_MODEL_PROVIDER", "")
+    ).strip().lower()
     if importlib.util.find_spec("sentence_transformers") is None and provider not in _EMBEDDING_PROVIDER_BACKEND_HINTS:
         warnings.append("Optional dependency missing: sentence-transformers; using local hash embeddings.")
 

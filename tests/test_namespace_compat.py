@@ -112,7 +112,7 @@ class NamespaceCompatTests(unittest.TestCase):
     def test_runtime_probe_keeps_startup_warning_clean_for_local_openai_provider(self) -> None:
         from ocmemog.sidecar.compat import probe_runtime
 
-        with patch.dict("os.environ", {"BRAIN_EMBED_MODEL_PROVIDER": "local-openai"}, clear=False):
+        with patch.dict("os.environ", {"OCMEMOG_EMBED_MODEL_PROVIDER": "local-openai"}, clear=False):
             with patch("ocmemog.sidecar.compat.importlib.util.find_spec", return_value=None):
                 status = probe_runtime()
 

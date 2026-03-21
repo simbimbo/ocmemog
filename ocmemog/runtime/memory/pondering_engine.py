@@ -43,6 +43,27 @@ def _run_with_timeout(name: str, fn: Callable[[], Any], timeout_s: float, defaul
     return payload
 
 
+def _normalize_maintenance_payload(payload: Any) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        emit_event(
+            LOGFILE,
+            "brain_ponder_maintenance_payload_invalid",
+            status="warn",
+            payload_type=type(payload).__name__,
+        )
+        return {
+            "issues": [],
+            "repairable_issues": [],
+            "ok": False,
+        }
+    normalized = dict(payload)
+    issues = payload.get("issues") or []
+    repairable = payload.get("repairable_issues") or []
+    normalized["issues"] = [str(item) for item in issues if isinstance(item, str)]
+    normalized["repairable_issues"] = [str(item) for item in repairable if isinstance(item, str)]
+    return normalized
+
+
 def _infer_with_timeout(prompt: str, timeout_s: float = 20.0) -> Dict[str, str]:
     return _run_with_timeout(
         "infer",
@@ -614,8 +635,9 @@ def run_ponder_cycle(max_items: int = 5) -> Dict[str, object]:
         10.0,
         {"issues": []},
     )
+    maintenance = _normalize_maintenance_payload(maintenance)
     if "vector_orphan" in set(maintenance.get("repairable_issues") or []):
-        maintenance["repair"] = _run_with_timeout(
+        repair_result = _run_with_timeout(
             "integrity_repair",
             integrity.repair_integrity,
             10.0,
@@ -627,14 +649,17 @@ def run_ponder_cycle(max_items: int = 5) -> Dict[str, object]:
             10.0,
             maintenance,
         )
-    if any(item.startswith("vector_missing") or item.startswith("vector_orphan") for item in maintenance.get("issues", [])):
-        rebuild_count = _run_with_timeout(
-            "vector_rebuild",
-            vector_index.rebuild_vector_index,
+        repair_result = _normalize_maintenance_payload(repair_result)
+        maintenance = _normalize_maintenance_payload(maintenance)
+        maintenance["repair"] = repair_result
+    if any(item.startswith("vector_missing") for item in maintenance.get("issues", [])):
+        backfill_count = _run_with_timeout(
+            "vector_backfill",
+            vector_index.backfill_missing_vectors,
             30.0,
             0,
         )
-        maintenance["vector_rebuild"] = rebuild_count
+        maintenance["vector_backfill"] = backfill_count
 
     emit_event(
         LOGFILE,

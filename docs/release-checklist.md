@@ -15,11 +15,14 @@ The release gate is now codified by:
 - [ ] Confirm README examples reference the current version where applicable
 
 ## Validation
+- [ ] Install test deps for sidecar route tests: `python3 -m pip install -e ".[test]"`
 - [ ] `./scripts/ocmemog-release-check.sh`
+- [ ] `tests/test_sidecar_routes.py` route-level sidecar confidence checks (healthz, search, get, ingest, hydrate, dashboard, auth)
 - [ ] `npm pack --dry-run`
 
 The `ocmemog-release-check` command enforces strict doctor mode for repo-locally safe checks and runs a focused pytest subset.
 It also emits a non-blocking runtime probe as an optional signal; review its output for sidecar/HTTP readiness.
+GitHub CI also runs `tests/test_sidecar_routes.py` directly with test extras (`.[test]`).
 
 ## Install flow
 - [ ] Verify default installer path still works: `./scripts/install-ocmemog.sh`

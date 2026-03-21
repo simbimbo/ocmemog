@@ -18,6 +18,7 @@ if [[ -z "${PYTHON_BIN}" ]] || ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; the
 fi
 
 TEST_FILE_ARGS=(
+  tests/test_sidecar_routes.py
   tests/test_regressions.py
   tests/test_governance_queue.py
   tests/test_promotion_governance_integration.py
@@ -69,6 +70,24 @@ else
   else
     echo "WARN: runtime probe exited with unexpected status ${status}."
   fi
+fi
+
+run_step "Verifying test dependencies for route tests"
+if ! "$PYTHON_BIN" - <<'PY'
+import importlib.util
+
+missing = [
+    name
+    for name in ("pytest", "httpx")
+    if importlib.util.find_spec(name) is None
+]
+if missing:
+    raise SystemExit("missing test dependencies: " + ", ".join(missing))
+PY
+then
+  echo "ERROR: pytest and/or httpx missing. Install with:"
+  echo "  $PYTHON_BIN -m pip install -e \".[test]\""
+  exit 1
 fi
 
 run_step "Running pytest release subset"

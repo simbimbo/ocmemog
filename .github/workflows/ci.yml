@@ -33,12 +33,17 @@ jobs:
           python -m venv .venv
           . .venv/bin/activate
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          python -m pip install -e ".[test]"
 
       - name: Run regression tests
         run: |
           . .venv/bin/activate
           python -m unittest tests.test_regressions
+
+      - name: Run route-level sidecar tests
+        run: |
+          . .venv/bin/activate
+          python -m pytest -q tests/test_sidecar_routes.py
 
       - name: Check installer help output
         run: |

@@ -1114,6 +1114,12 @@ _KNOWN_FIXES = {
 
 
 def run_doctor_checks(*, fix_actions: list[str] | None = None, include_checks: set[str] | None = None, state_dir: str | None = None, strict: bool = False):
+    include_checks = set(include_checks or [])
+    known_check_keys = {check.key for check in DOCTOR_CHECKS}
+    if include_checks and (unknown_checks := (set(include_checks) - known_check_keys)):
+        unknown = ", ".join(sorted(unknown_checks))
+        raise ValueError(f"unknown --check key(s): {unknown}")
+
     selected = [check for check in DOCTOR_CHECKS if not include_checks or check.key in include_checks]
     fix_actions = _normalize_fixes(fix_actions)
     if any(item not in _KNOWN_FIXES for item in fix_actions):

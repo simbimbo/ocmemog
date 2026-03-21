@@ -112,6 +112,13 @@ class DoctorInvocationTests(unittest.TestCase):
                 state_dir=self.tempdir.name,
             )
 
+    def test_unknown_check_key_errors(self) -> None:
+        with self.assertRaises(ValueError):
+            doctor.run_doctor_checks(
+                include_checks={"not-a-check"},
+                state_dir=self.tempdir.name,
+            )
+
 
 class DoctorRootAndToggleChecksTests(unittest.TestCase):
     def setUp(self) -> None:

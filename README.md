@@ -21,8 +21,9 @@ Current local runtime architecture note:
 
 - `openclaw.plugin.json`, `index.ts`, `package.json`: OpenClaw plugin package and manifest.
 - `ocmemog/sidecar/`: FastAPI sidecar with `/memory/search` and `/memory/get`.
-- `ocmemog/runtime/memory/`: local runtime package used by the sidecar.
-- `brain/runtime/`: compatibility shims for state store, instrumentation, redaction, storage paths, and a few placeholder runtime modules needed for importability.
+- `ocmemog/runtime/`: native runtime surfaces used by the sidecar and memory engine.
+- `ocmemog/runtime/memory/`: local memory/runtime package used by the sidecar.
+- `brain/`: internal compatibility residue retained for transitional shim paths; not the primary runtime surface.
 - `scripts/ocmemog-sidecar.sh`: convenience launcher.
 
 ## Run the sidecar

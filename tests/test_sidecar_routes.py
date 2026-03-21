@@ -49,9 +49,28 @@ class SidecarRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload["ok"])
+        self.assertTrue(payload["ready"])
         self.assertEqual(payload["mode"], "ready")
         self.assertIn("identity", payload)
         self.assertEqual(payload["identity"]["engine"], "ocmemog-native")
+
+    def test_healthz_route_marks_non_ready_runtime(self) -> None:
+        degraded = SimpleNamespace(
+            mode="degraded",
+            missing_deps=[],
+            todo=[],
+            warnings=["Runtime is bridged through compatibility shims."],
+            identity={"engine": "ocmemog-native"},
+            capabilities=[],
+        )
+        with self._client(runtime_status=degraded) as client:
+            response = client.get("/healthz")
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["ok"])
+        self.assertFalse(payload["ready"])
+        self.assertEqual(payload["mode"], "degraded")
 
     def test_memory_search_route_flattens_results(self) -> None:
         with self._client() as client, mock.patch(

@@ -913,6 +913,7 @@ def _read_transcript_snippet(path: Path, line_start: Optional[int], line_end: Op
 def healthz() -> dict[str, Any]:
     payload = _runtime_payload()
     payload["ok"] = True
+    payload["ready"] = payload.get("mode") == "ready"
     return payload
 
 

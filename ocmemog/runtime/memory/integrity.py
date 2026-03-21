@@ -73,7 +73,15 @@ def run_integrity_check() -> Dict[str, Any]:
     try:
         for table in EMBED_TABLES:
             missing_vectors += conn.execute(
-                f"SELECT COUNT(*) FROM {table} WHERE id NOT IN (SELECT CAST(source_id AS INTEGER) FROM vector_embeddings WHERE source_type=?)",
+                f"""
+                SELECT COUNT(*) FROM {table} AS source
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM vector_embeddings AS embeddings
+                    WHERE embeddings.source_type = ?
+                      AND CAST(embeddings.source_id AS TEXT) = CAST(source.id AS TEXT)
+                )
+                """,
                 (table,),
             ).fetchone()[0]
     except Exception:
@@ -82,8 +90,14 @@ def run_integrity_check() -> Dict[str, Any]:
     try:
         for table in EMBED_TABLES:
             orphan_vectors += conn.execute(
-                "SELECT COUNT(*) FROM vector_embeddings WHERE source_type=? AND CAST(source_id AS INTEGER) NOT IN (SELECT id FROM %s)"
-                % table,
+                """
+                SELECT COUNT(*) FROM vector_embeddings AS embeddings
+                WHERE embeddings.source_type = ?
+                  AND NOT EXISTS (
+                    SELECT 1 FROM %s AS source
+                    WHERE CAST(source.id AS TEXT) = CAST(embeddings.source_id AS TEXT)
+                  )
+                """ % table,
                 (table,),
             ).fetchone()[0]
     except Exception:
@@ -150,8 +164,8 @@ def repair_integrity() -> Dict[str, Any]:
                         DELETE FROM vector_embeddings
                         WHERE source_type = ?
                           AND NOT EXISTS (
-                            SELECT 1 FROM {table} source
-                            WHERE source.id = CAST(vector_embeddings.source_id AS INTEGER)
+                            SELECT 1 FROM {table} AS source
+                            WHERE CAST(source.id AS TEXT) = CAST(vector_embeddings.source_id AS TEXT)
                           )
                         """,
                         (table,),

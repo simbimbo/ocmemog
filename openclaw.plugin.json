@@ -15,7 +15,7 @@
       },
       "token": {
         "type": "string",
-        "description": "Optional auth token for protected ocmemog sidecar endpoints."
+        "description": "Optional auth token for protected ocmemog sidecar endpoints; sent as x-ocmemog-token and should match OCMEMOG_API_TOKEN."
       }
     }
   }

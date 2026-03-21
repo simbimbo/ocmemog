@@ -13,7 +13,7 @@ Unlike brAIn, this repo does not ship the full cognition/runtime stack. Several 
 
 ## Storage layout
 
-By default, ocmemog stores state under `.ocmemog-state/` at the repo root unless `OCMEMOG_STATE_DIR` or `BRAIN_STATE_DIR` overrides it.
+By default, ocmemog stores state under `.ocmemog-state/` at the repo root unless `OCMEMOG_STATE_DIR` overrides it. `BRAIN_STATE_DIR` remains as a legacy compatibility alias and should not be used for new deployments.
 
 Primary files:
 

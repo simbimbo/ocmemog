@@ -133,7 +133,7 @@ Optional environment variables:
 - `OCMEMOG_WORKER_SHUTDOWN_TIMEOUT_SECONDS` (`0.35` by default)
 - `OCMEMOG_SHUTDOWN_DUMP_THREADS` (`true` to include worker thread dump output during shutdown joins; defaults to `false`)
 - `OCMEMOG_SHUTDOWN_TIMING` (`true` enables shutdown timing logs; defaults to `true`)
-- `OCMEMOG_API_TOKEN` (optional; if set, requests must include `x-ocmemog-token` or `Authorization: Bearer ...`)
+- `OCMEMOG_API_TOKEN` (optional; if set, requests must include `x-ocmemog-token` or `Authorization: Bearer ...`; OpenClaw plugin users should also set the plugin `config.token` field)
 - `OCMEMOG_AUTO_HYDRATION` (`true` to re-enable prompt-time continuity prepending; defaults to `false` as a safety guard until the host runtime is verified not to persist prepended context into session history)
 - `OCMEMOG_LAPTOP_MODE` (`auto` by default; on macOS battery power this slows watcher polling, reduces ingest batch size, and disables sentiment reinforcement unless explicitly overridden)
 - `OCMEMOG_LOCAL_LLM_BASE_URL` (default: `http://127.0.0.1:18080/v1`; local OpenAI-compatible text endpoint, e.g. llama.cpp)

@@ -2,6 +2,12 @@
 
 Use this checklist before publishing an ocmemog release.
 
+The release gate is now codified by:
+
+```bash
+./scripts/ocmemog-release-check.sh
+```
+
 ## Versioning
 - [ ] Update `package.json` version
 - [ ] Ensure release tag matches package version
@@ -9,12 +15,11 @@ Use this checklist before publishing an ocmemog release.
 - [ ] Confirm README examples reference the current version where applicable
 
 ## Validation
-- [ ] `bash -n scripts/install-ocmemog.sh`
-- [ ] `bash -n scripts/ocmemog-install.sh`
-- [ ] `./scripts/install-ocmemog.sh --help`
-- [ ] `./scripts/install-ocmemog.sh --dry-run`
-- [ ] `./.venv/bin/python -m pytest -q tests/test_regressions.py tests/test_governance_queue.py tests/test_promotion_governance_integration.py tests/test_hybrid_retrieval.py`
+- [ ] `./scripts/ocmemog-release-check.sh`
 - [ ] `npm pack --dry-run`
+
+The `ocmemog-release-check` command enforces strict doctor mode for repo-locally safe checks and runs a focused pytest subset.
+It also emits a non-blocking runtime probe as an optional signal; review its output for sidecar/HTTP readiness.
 
 ## Install flow
 - [ ] Verify default installer path still works: `./scripts/install-ocmemog.sh`

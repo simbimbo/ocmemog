@@ -676,7 +676,7 @@ _KNOWN_FIXES = {
 }
 
 
-def run_doctor_checks(*, fix_actions: list[str] | None = None, include_checks: set[str] | None = None, state_dir: str | None = None):
+def run_doctor_checks(*, fix_actions: list[str] | None = None, include_checks: set[str] | None = None, state_dir: str | None = None, strict: bool = False):
     selected = [check for check in DOCTOR_CHECKS if not include_checks or check.key in include_checks]
     fix_actions = _normalize_fixes(fix_actions)
     if any(item not in _KNOWN_FIXES for item in fix_actions):
@@ -707,10 +707,15 @@ def run_doctor_checks(*, fix_actions: list[str] | None = None, include_checks: s
                 applied_fixes.append(fix)
             results.append(result)
 
+    status = _overall_status(results)
+    if strict and status == "warn":
+        status = "fail"
+
     return {
-        "status": _overall_status(results),
+        "status": status,
         "checks": [asdict(item) for item in results],
         "fixes": [asdict(item) for item in applied_fixes],
+        "strict": strict,
     }
 
 
@@ -775,6 +780,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=[],
         help="Run only selected check key(s) (repeatable or comma-separated).",
     )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Treat warn results as failures to hard-gate release checks.",
+    )
     return parser.parse_args(argv)
 
 
@@ -785,6 +795,7 @@ def main(argv: list[str] | None = None) -> int:
         fix_actions=args.fix,
         include_checks=checks,
         state_dir=args.state_dir,
+        strict=args.strict,
     )
     if args.json:
         _render_json(report)

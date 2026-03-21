@@ -52,7 +52,8 @@ Before creating a release:
 - update `CHANGELOG.md`
 - verify `README.md` install examples are still correct
 - run local validation checks
-- verify `npm pack --dry-run` contents
+- run the release gate and review output:
+  - `./scripts/ocmemog-release-check.sh`
 - create/push the Git tag and GitHub release
 
 ## Scope

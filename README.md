@@ -44,6 +44,7 @@ pip install -r requirements.txt
 ./.venv/bin/python3 scripts/ocmemog-doctor.py
 ./.venv/bin/python3 scripts/ocmemog-doctor.py --json
 ./.venv/bin/python3 scripts/ocmemog-doctor.py --fix create-missing-paths --fix repair-queue
+./.venv/bin/python3 scripts/ocmemog-doctor.py --strict --check runtime/imports --check sqlite/schema-access
 ```
 
 The doctor command currently checks:
@@ -198,6 +199,12 @@ Current main includes the recent memory-quality, governance, and watcher hardeni
 - pytest declared as a repo test extra and available in the local project venv
 
 ## Release prep / publish
+
+Run the release gate first:
+
+```bash
+./scripts/ocmemog-release-check.sh
+```
 
 Example ClawHub publish command (update version + changelog first; do not reuse stale release text blindly):
 

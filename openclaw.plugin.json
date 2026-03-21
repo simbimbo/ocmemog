@@ -12,6 +12,10 @@
       "timeoutMs": {
         "type": "number",
         "description": "Request timeout in milliseconds."
+      },
+      "token": {
+        "type": "string",
+        "description": "Optional auth token for protected ocmemog sidecar endpoints."
       }
     }
   }

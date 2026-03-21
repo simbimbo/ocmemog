@@ -6,6 +6,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 type PluginConfig = {
   endpoint: string;
   timeoutMs: number;
+  token?: string;
 };
 
 const AUTO_HYDRATION_ENABLED = ["1", "true", "yes"].includes(
@@ -80,6 +81,7 @@ function readConfig(raw: unknown): PluginConfig {
       typeof cfg.timeoutMs === "number" && Number.isFinite(cfg.timeoutMs) && cfg.timeoutMs > 0
         ? cfg.timeoutMs
         : DEFAULT_TIMEOUT_MS,
+    token: typeof cfg.token === "string" && cfg.token.trim() ? cfg.token.trim() : undefined,
   };
 }
 
@@ -88,9 +90,14 @@ async function postJson<T>(config: PluginConfig, path: string, body: Record<stri
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
 
   try {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (config.token) {
+      headers["x-ocmemog-token"] = config.token;
+    }
+
     const response = await fetch(new URL(path, config.endpoint).toString(), {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify(body),
       signal: controller.signal,
     });

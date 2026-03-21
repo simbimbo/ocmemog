@@ -14,8 +14,10 @@ os.environ.setdefault("OCMEMOG_LOCAL_LLM_BASE_URL", "http://127.0.0.1:18080/v1")
 os.environ.setdefault("OCMEMOG_LOCAL_LLM_MODEL", "qwen2.5-7b-instruct")
 os.environ.setdefault("OCMEMOG_LOCAL_EMBED_BASE_URL", "http://127.0.0.1:18081/v1")
 os.environ.setdefault("OCMEMOG_LOCAL_EMBED_MODEL", "nomic-embed-text-v1.5")
-os.environ.setdefault("BRAIN_EMBED_MODEL_PROVIDER", "local-openai")
-os.environ.setdefault("BRAIN_EMBED_MODEL_LOCAL", "")
+os.environ.setdefault("OCMEMOG_EMBED_MODEL_PROVIDER", "local-openai")
+os.environ.setdefault("OCMEMOG_EMBED_MODEL_LOCAL", "")
+os.environ.setdefault("BRAIN_EMBED_MODEL_PROVIDER", os.environ["OCMEMOG_EMBED_MODEL_PROVIDER"])
+os.environ.setdefault("BRAIN_EMBED_MODEL_LOCAL", os.environ["OCMEMOG_EMBED_MODEL_LOCAL"])
 os.environ.setdefault("OCMEMOG_STATE_DIR", str(REPO_ROOT / ".ocmemog-state"))
 
 from ocmemog.runtime.memory import vector_index

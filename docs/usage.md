@@ -201,11 +201,9 @@ Notes:
 
 ## What is not safe to rely on yet
 
-- `ocmemog/runtime/memory/api.py`
-  - It targets missing/legacy tables and columns.
 - Provider-backed embeddings
-  - Available when `BRAIN_EMBED_MODEL_PROVIDER=local-openai` and the local embedding endpoint is reachable.
-  - Legacy OpenAI-hosted embeddings remain available when `BRAIN_EMBED_MODEL_PROVIDER=openai` and `OCMEMOG_OPENAI_API_KEY` is set.
+  - Available when `OCMEMOG_EMBED_MODEL_PROVIDER=local-openai` and the local embedding endpoint is reachable.
+  - Legacy OpenAI-hosted embeddings remain available when `OCMEMOG_EMBED_MODEL_PROVIDER=openai` and `OCMEMOG_OPENAI_API_KEY` is set.
 - Model-backed distillation
   - Available when `OCMEMOG_OPENAI_API_KEY` is set; otherwise falls back to heuristic distill.
 - Role-prioritized context building
@@ -241,7 +239,7 @@ PY
 ## TODO: Missing runtime dependencies
 
 - TODO: wire a real inference backend before enabling distill/promote as an operator-facing workflow
-- TODO: wire real provider execution if `BRAIN_EMBED_MODEL_PROVIDER` is meant to do anything
+- Provider execution is now native-first through `OCMEMOG_EMBED_MODEL_PROVIDER`; `BRAIN_EMBED_MODEL_PROVIDER` remains as a compatibility alias.
 - Role-based context selection now has native ownership coverage via `ocmemog.runtime.roles` with shim-aware capability reporting.
 - TODO: harden `/memory/get` with a table allow-list before exposing the sidecar outside trusted local use
 - TODO: decide whether to expose `runbooks` and `lessons` in the plugin API

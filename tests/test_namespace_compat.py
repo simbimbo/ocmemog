@@ -155,7 +155,7 @@ class NamespaceCompatTests(unittest.TestCase):
             legacy_surface = surface.replace("ocmemog.", "brain.", 1)
             self.assertEqual(caps_by_surface[surface]["provider_module"], legacy_surface)
 
-        self.assertTrue(any(w.startswith("Runtime is bridged through") for w in status.warnings))
+        self.assertTrue(any(w.startswith("Runtime still relies on") for w in status.warnings))
 
     def test_runtime_probe_marks_compat_mode_as_degraded(self) -> None:
         from ocmemog.sidecar.compat import probe_runtime
@@ -171,7 +171,7 @@ class NamespaceCompatTests(unittest.TestCase):
             status = probe_runtime()
 
         self.assertEqual(status.mode, "degraded")
-        self.assertTrue(any("bridged through" in warning for warning in status.warnings))
+        self.assertTrue(any("legacy compatibility surface" in warning for warning in status.warnings))
 
     def test_sidecar_version_matches_package_version(self) -> None:
         from ocmemog import __version__

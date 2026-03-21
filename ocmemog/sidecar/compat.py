@@ -56,6 +56,7 @@ def probe_runtime() -> RuntimeStatus:
 
     provider = (
         os.environ.get("OCMEMOG_EMBED_MODEL_PROVIDER")
+        or os.environ.get("OCMEMOG_EMBED_PROVIDER", "")
         or os.environ.get("BRAIN_EMBED_MODEL_PROVIDER", "")
     ).strip().lower()
     if importlib.util.find_spec("sentence_transformers") is None and provider not in _EMBEDDING_PROVIDER_BACKEND_HINTS:
@@ -73,7 +74,7 @@ def probe_runtime() -> RuntimeStatus:
 
     shim_count = sum(1 for item in capabilities if item.get("owner") == "brain-runtime-shim")
     if shim_count:
-        warnings.append(f"Runtime is bridged through {shim_count} compatibility shim surface(s).")
+        warnings.append(f"Runtime still relies on {shim_count} legacy compatibility surface(s).")
         mode = "degraded"
     else:
         mode = "ready"

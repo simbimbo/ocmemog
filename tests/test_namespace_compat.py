@@ -118,6 +118,14 @@ class NamespaceCompatTests(unittest.TestCase):
 
         self.assertFalse(any("sentence-transformers" in warning for warning in status.warnings))
 
+    def test_runtime_probe_honors_native_local_embed_alias(self) -> None:
+        from ocmemog.sidecar.compat import probe_runtime
+
+        with patch.dict("os.environ", {"OCMEMOG_EMBED_MODEL_LOCAL": "simple"}, clear=False):
+            status = probe_runtime()
+
+        self.assertIn(status.mode, {"ready", "degraded"})
+
     def test_runtime_probe_reports_native_ownership_for_key_surfaces(self) -> None:
         from ocmemog.sidecar.compat import probe_runtime
         from ocmemog.runtime.identity import SURFACE_COMPAT_OWNER, SURFACE_ENGINE_OWNER

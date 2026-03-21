@@ -4,12 +4,12 @@
 
 ocmemog vendors a subset of brAIn's memory package and wraps it with a small FastAPI sidecar. The authoritative local implementation lives in:
 
-- `brain/runtime/memory/store.py` for the main SQLite schema
-- `brain/runtime/memory/retrieval.py` for keyword-first retrieval
-- `brain/runtime/memory/vector_index.py` for embeddings and fallback semantic lookup
+- `ocmemog/runtime/memory/store.py` for the main SQLite schema
+- `ocmemog/runtime/memory/retrieval.py` for keyword-first retrieval
+- `ocmemog/runtime/memory/vector_index.py` for embeddings and fallback semantic lookup
 - `ocmemog/sidecar/app.py` for the plugin-facing HTTP API
 
-Unlike brAIn, this repo does not ship the full cognition/runtime stack. Several modules under `brain/runtime/*` are compatibility shims so the copied memory package can import cleanly.
+Unlike brAIn, this repo does not ship the full cognition/runtime stack. Several modules under `brain/runtime/*` are compatibility shims so `ocmemog/runtime/*` can import cleanly.
 
 ## Storage layout
 
@@ -66,7 +66,7 @@ The main repo-local write paths are:
 
 The brAIn docs describe a richer distill/promote pipeline. In ocmemog today:
 
-- Distillation exists in `brain/runtime/memory/distill.py`
+- Distillation exists in `ocmemog/runtime/memory/distill.py`
 - Model-backed distillation is not available because `brain/runtime/inference.py` is still a shim
 - The practical fallback is a first-line heuristic summary plus generated verification prompts
 - Promotion is available locally and writes promoted summaries into `knowledge`, `runbooks`, or `lessons`

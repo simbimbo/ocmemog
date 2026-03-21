@@ -113,5 +113,26 @@ class SidecarShutdownQueueLifecycleTests(unittest.TestCase):
         self.assertEqual(ingest_request.call_count, 1)
 
 
+class SidecarIngestWorkerConfigTests(unittest.TestCase):
+    def setUp(self) -> None:
+        app._INGEST_WORKER_STOP.clear()
+
+    def tearDown(self) -> None:
+        app._INGEST_WORKER_STOP.clear()
+
+    def test_ingest_worker_rejects_invalid_config_and_uses_defaults(self) -> None:
+        with mock.patch("ocmemog.sidecar.app._parse_bool_env", return_value=True):
+            with mock.patch("ocmemog.sidecar.app._process_queue") as process_queue, \
+                    mock.patch.object(app._INGEST_WORKER_STOP, "wait", return_value=True) as wait:
+                with mock.patch.dict(os.environ, {
+                    "OCMEMOG_INGEST_ASYNC_POLL_SECONDS": "not-a-number",
+                    "OCMEMOG_INGEST_ASYNC_BATCH_MAX": "0",
+                }, clear=False):
+                    app._ingest_worker()
+
+        process_queue.assert_called_once_with(25)
+        wait.assert_called_once_with(5.0)
+
+
 if __name__ == "__main__":
     unittest.main()

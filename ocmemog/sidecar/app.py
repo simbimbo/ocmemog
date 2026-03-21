@@ -63,6 +63,44 @@ def _parse_bool_env(name: str, default: bool = False) -> bool:
     return value
 
 
+def _parse_float_env(name: str, default: float, minimum: float | None = None) -> float:
+    raw = os.environ.get(name)
+    try:
+        value = float(raw if raw is not None else default)
+    except Exception:
+        print(
+            f"[ocmemog][config] invalid float env value: {name}={raw!r}; using default {default}",
+            file=sys.stderr,
+        )
+        return default
+    if minimum is not None and value < minimum:
+        print(
+            f"[ocmemog][config] env value below minimum: {name}={value}; using default {default}",
+            file=sys.stderr,
+        )
+        return default
+    return value
+
+
+def _parse_int_env(name: str, default: int, minimum: int | None = None) -> int:
+    raw = os.environ.get(name)
+    try:
+        value = int(raw if raw is not None else default)
+    except Exception:
+        print(
+            f"[ocmemog][config] invalid int env value: {name}={raw!r}; using default {default}",
+            file=sys.stderr,
+        )
+        return default
+    if minimum is not None and value < minimum:
+        print(
+            f"[ocmemog][config] env value below minimum: {name}={value}; using default {default}",
+            file=sys.stderr,
+        )
+        return default
+    return value
+
+
 _SHUTDOWN_TIMING = _parse_bool_env("OCMEMOG_SHUTDOWN_TIMING", default=True)
 
 
@@ -324,8 +362,8 @@ def _ingest_worker() -> None:
     enabled = _parse_bool_env("OCMEMOG_INGEST_ASYNC_WORKER", default=True)
     if not enabled:
         return
-    poll_seconds = float(os.environ.get("OCMEMOG_INGEST_ASYNC_POLL_SECONDS", "5"))
-    batch_max = int(os.environ.get("OCMEMOG_INGEST_ASYNC_BATCH_MAX", "25"))
+    poll_seconds = _parse_float_env("OCMEMOG_INGEST_ASYNC_POLL_SECONDS", default=5.0, minimum=0.0)
+    batch_max = _parse_int_env("OCMEMOG_INGEST_ASYNC_BATCH_MAX", default=25, minimum=1)
 
     while not _INGEST_WORKER_STOP.is_set():
         _process_queue(batch_max)

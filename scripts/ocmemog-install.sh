@@ -34,6 +34,10 @@ wait_for_label_unloaded() {
   return 1
 }
 
+is_label_loaded() {
+  launchctl print "gui/$UID/$1" >/dev/null 2>&1
+}
+
 bootstrap_label() {
   local label="$1"
   local rendered="$2"
@@ -55,14 +59,32 @@ bootstrap_label() {
 
 for plist in "$ROOT_DIR"/scripts/launchagents/com.openclaw.ocmemog.{sidecar,ponder,guard}.plist; do
   rendered="$LA_DIR/$(basename "$plist")"
-  render_plist "$plist" "$rendered"
-  plutil -lint "$rendered" >/dev/null
+  rendered_tmp="${rendered}.tmp"
+  render_plist "$plist" "$rendered_tmp"
+  plutil -lint "$rendered_tmp" >/dev/null
   label=$(basename "$plist" .plist)
-  launchctl bootout "gui/$UID/$label" 2>/dev/null || true
-  wait_for_label_unloaded "$label" || true
-  bootstrap_label "$label" "$rendered"
-  launchctl enable "gui/$UID/$label" 2>/dev/null || true
-  launchctl kickstart -kp "gui/$UID/$label"
+  plist_changed="false"
+  if [[ -f "$rendered" ]] && cmp -s "$rendered" "$rendered_tmp"; then
+    plist_changed="false"
+  else
+    mv "$rendered_tmp" "$rendered"
+    plist_changed="true"
+  fi
+  rm -f "$rendered_tmp"
+
+  if is_label_loaded "$label"; then
+    if [[ "$plist_changed" == "true" ]]; then
+      launchctl bootout "gui/$UID/$label" 2>/dev/null || true
+      wait_for_label_unloaded "$label" || true
+      bootstrap_label "$label" "$rendered"
+      launchctl enable "gui/$UID/$label" 2>/dev/null || true
+      launchctl kickstart -kp "gui/$UID/$label"
+    fi
+  else
+    bootstrap_label "$label" "$rendered"
+    launchctl enable "gui/$UID/$label" 2>/dev/null || true
+    launchctl kickstart -kp "gui/$UID/$label"
+  fi
   echo "Loaded $label"
 done
 

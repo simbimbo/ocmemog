@@ -100,11 +100,11 @@ The sidecar also reports runtime readiness through `mode`, `missingDeps`, `todo`
 
 ## Runtime adapters
 
-ocmemog ships lightweight runtime adapters for inference + embeddings. They require environment configuration:
+ocmemog now uses repo-local runtime adapters for inference + embeddings, with some compatibility residue still present behind the runtime boundary. The primary active surfaces are under `ocmemog/runtime/*` and require environment configuration:
 
-- `brain/runtime/inference.py` → OpenAI chat completions (requires `OCMEMOG_OPENAI_API_KEY`)
-- `brain/runtime/providers.py` → OpenAI embeddings (requires `BRAIN_EMBED_MODEL_PROVIDER=openai` + API key)
-- `brain/runtime/model_roles.py` + `model_router.py` → role-to-model and provider routing
+- `ocmemog/runtime/inference.py` → chat/inference routing (OpenAI or local-openai depending on configured provider)
+- `ocmemog/runtime/providers.py` → embedding provider routing
+- `ocmemog/runtime/model_roles.py` + `model_router.py` → role-to-model and provider routing
 
 Effect on behavior:
 

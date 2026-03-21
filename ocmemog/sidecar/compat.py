@@ -23,6 +23,18 @@ TODO_ITEMS = [
     "Add non-OpenAI embedding providers if required.",
 ]
 
+_EMBEDDING_PROVIDER_BACKEND_HINTS = {
+    "openai",
+    "openai_compatible",
+    "openai-compatible",
+    "local-openai",
+    "local_openai",
+    "llamacpp",
+    "llama.cpp",
+    "ollama",
+    "local-ollama",
+}
+
 
 def probe_runtime() -> RuntimeStatus:
     runtime_identity = identity.get_runtime_identity()
@@ -43,7 +55,7 @@ def probe_runtime() -> RuntimeStatus:
             missing_deps.append(f"{module_name}: {exc}")
 
     provider = os.environ.get("BRAIN_EMBED_MODEL_PROVIDER", "").strip().lower()
-    if importlib.util.find_spec("sentence_transformers") is None and provider not in {"ollama", "openai", "openai_compatible", "openai-compatible", "local-ollama"}:
+    if importlib.util.find_spec("sentence_transformers") is None and provider not in _EMBEDDING_PROVIDER_BACKEND_HINTS:
         warnings.append("Optional dependency missing: sentence-transformers; using local hash embeddings.")
 
     try:

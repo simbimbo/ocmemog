@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import unittest
+from unittest.mock import patch
 
 
 class NamespaceCompatTests(unittest.TestCase):
@@ -46,6 +47,15 @@ class NamespaceCompatTests(unittest.TestCase):
         self.assertIn("ocmemog.runtime.roles", caps_by_surface)
         self.assertEqual(caps_by_surface["ocmemog.runtime.roles"].get("owner"), "ocmemog-native")
         self.assertEqual(status.identity.get("engine"), "ocmemog-native")
+
+    def test_runtime_probe_keeps_startup_warning_clean_for_local_openai_provider(self) -> None:
+        from ocmemog.sidecar.compat import probe_runtime
+
+        with patch.dict("os.environ", {"BRAIN_EMBED_MODEL_PROVIDER": "local-openai"}, clear=False):
+            with patch("ocmemog.sidecar.compat.importlib.util.find_spec", return_value=None):
+                status = probe_runtime()
+
+        self.assertFalse(any("sentence-transformers" in warning for warning in status.warnings))
 
     def test_native_imports_expose_legacy_dependencies_inside_core_modules(self) -> None:
         native_api = importlib.import_module("ocmemog.runtime.memory.api")

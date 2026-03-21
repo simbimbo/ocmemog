@@ -6,10 +6,20 @@ import os
 from pathlib import Path
 
 
+def _env_path(name: str) -> Path | None:
+    raw = os.environ.get(name)
+    if not raw:
+        return None
+    trimmed = raw.strip()
+    if not trimmed:
+        return None
+    return Path(trimmed).expanduser().resolve()
+
+
 def root_dir() -> Path:
-    configured = os.environ.get("OCMEMOG_STATE_DIR") or os.environ.get("BRAIN_STATE_DIR")
+    configured = _env_path("OCMEMOG_STATE_DIR") or _env_path("BRAIN_STATE_DIR")
     if configured:
-        base = Path(configured).expanduser()
+        base = configured
     else:
         base = Path(__file__).resolve().parents[2] / ".ocmemog-state"
     base.mkdir(parents=True, exist_ok=True)
@@ -35,10 +45,8 @@ def reports_dir() -> Path:
 
 
 def memory_db_path() -> Path:
-    override = os.environ.get("OCMEMOG_DB_PATH")
+    override = _env_path("OCMEMOG_DB_PATH")
     if override:
-        path = Path(override).expanduser()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        return path
+        override.parent.mkdir(parents=True, exist_ok=True)
+        return override
     return memory_dir() / "brain_memory.sqlite3"
-

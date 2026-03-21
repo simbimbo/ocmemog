@@ -48,7 +48,7 @@ The current sidecar behavior is simpler than brAIn's full memory architecture:
 Operational limits:
 
 - Semantic fallback now rehydrates any embedded bucket (`knowledge`, `runbooks`, `lessons`) when there are no keyword hits.
-- Default embeddings are local hash vectors (`BRAIN_EMBED_MODEL_LOCAL=simple`), which are deterministic but weak.
+- Default embeddings are local hash vectors (`OCMEMOG_EMBED_MODEL_LOCAL=simple`; legacy alias: `BRAIN_EMBED_MODEL_LOCAL`), which are deterministic but weak.
 - `runbooks`, `lessons`, `directives`, `reflections`, and `tasks` are now included in the default searchable categories and embedding index.
 
 ## Write paths

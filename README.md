@@ -264,6 +264,8 @@ plugins:
       config:
         endpoint: http://127.0.0.1:17891
         timeoutMs: 30000
+        # Optional if the sidecar is protected by OCMEMOG_API_TOKEN
+        token: your-ocmemog-token
 ```
 
 Development install:

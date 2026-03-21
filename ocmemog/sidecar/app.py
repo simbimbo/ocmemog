@@ -38,13 +38,29 @@ DEFAULT_CATEGORIES = tuple(store.MEMORY_TABLES)
 API_TOKEN = os.environ.get("OCMEMOG_API_TOKEN")
 
 
+_BOOL_TRUE_VALUES = {"1", "true", "yes", "on", "y", "t"}
+_BOOL_FALSE_VALUES = {"0", "false", "no", "off", "n", "f"}
+
+
+def _parse_bool_env_value(raw: Any | None, default: bool = False) -> tuple[bool, bool]:
+    """Return ``(value, valid)``, where ``valid`` indicates parser confidence."""
+    if raw is None:
+        return default, True
+
+    raw_value = str(raw).strip().lower()
+    if raw_value in _BOOL_TRUE_VALUES:
+        return True, True
+    if raw_value in _BOOL_FALSE_VALUES:
+        return False, True
+    if not raw_value:
+        return default, False
+    return default, False
+
+
 def _parse_bool_env(name: str, default: bool = False) -> bool:
-    if default:
-        raw = os.environ.get(name, "true")
-    else:
-        raw = os.environ.get(name, "false")
-    raw = str(raw).strip().lower()
-    return raw in {"1", "true", "yes", "on"}
+    raw = os.environ.get(name)
+    value, _ = _parse_bool_env_value(raw, default=default)
+    return value
 
 
 _SHUTDOWN_TIMING = _parse_bool_env("OCMEMOG_SHUTDOWN_TIMING", default=True)
@@ -159,7 +175,7 @@ async def _auth_middleware(request: Request, call_next):
 def _start_transcript_watcher() -> None:
     global _WATCHER_THREAD
     _load_queue_stats()
-    enabled = os.environ.get("OCMEMOG_TRANSCRIPT_WATCHER", "").lower() in {"1", "true", "yes"}
+    enabled = _parse_bool_env("OCMEMOG_TRANSCRIPT_WATCHER")
     if not enabled:
         return
     with _WATCHER_LOCK:
@@ -305,7 +321,7 @@ def _process_queue(limit: Optional[int] = None) -> Dict[str, Any]:
 
 
 def _ingest_worker() -> None:
-    enabled = os.environ.get("OCMEMOG_INGEST_ASYNC_WORKER", "true").lower() in {"1", "true", "yes"}
+    enabled = _parse_bool_env("OCMEMOG_INGEST_ASYNC_WORKER", default=True)
     if not enabled:
         return
     poll_seconds = float(os.environ.get("OCMEMOG_INGEST_ASYNC_POLL_SECONDS", "5"))
@@ -367,7 +383,7 @@ def _stop_background_workers() -> None:
             file=sys.stderr,
         )
 
-    if os.environ.get("OCMEMOG_SHUTDOWN_DUMP_THREADS", "").lower() in {"1", "true", "yes"}:
+    if _parse_bool_env("OCMEMOG_SHUTDOWN_DUMP_THREADS"):
         _dump_thread_dump("post-stop requested")
 
     with _INGEST_WORKER_LOCK:
@@ -380,7 +396,7 @@ def _stop_background_workers() -> None:
                 f"[ocmemog][shutdown] ingest_worker_join elapsed={time.perf_counter()-ingest_join_start:.3f}s alive={ingest_worker.is_alive()}",
                 file=sys.stderr,
             )
-        if os.environ.get("OCMEMOG_SHUTDOWN_DUMP_THREADS", "").lower() in {"1", "true", "yes"}:
+        if _parse_bool_env("OCMEMOG_SHUTDOWN_DUMP_THREADS"):
             _dump_join_result("ingest-worker", ingest_worker, timeout)
         if not ingest_worker.is_alive():
             with _INGEST_WORKER_LOCK:
@@ -397,8 +413,8 @@ def _stop_background_workers() -> None:
                 f"[ocmemog][shutdown] transcript_watcher_join elapsed={time.perf_counter()-watcher_join_start:.3f}s alive={watcher_thread.is_alive()}",
                 file=sys.stderr,
             )
-        if os.environ.get("OCMEMOG_SHUTDOWN_DUMP_THREADS", "").lower() in {"1", "true", "yes"}:
-            _dump_join_result("transcript-watcher", watcher_thread, timeout)
+    if _parse_bool_env("OCMEMOG_SHUTDOWN_DUMP_THREADS"):
+        _dump_join_result("transcript-watcher", watcher_thread, timeout)
         if not watcher_thread.is_alive():
             with _WATCHER_LOCK:
                 if _WATCHER_THREAD is watcher_thread:

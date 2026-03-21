@@ -12,7 +12,7 @@ It is designed to go beyond simple memory search by providing:
 Architecture at a glance:
 - **OpenClaw plugin (`index.ts`)** handles tools and hook integration
 - **FastAPI sidecar (`ocmemog/sidecar/`)** exposes memory and continuity APIs
-- **SQLite-backed runtime (`brain/runtime/memory/`)** powers storage, hydration, checkpoints, salience ranking, and pondering
+- **SQLite-backed runtime (`ocmemog/runtime/memory/`)** powers storage, hydration, checkpoints, salience ranking, and pondering
 
 Current local runtime architecture note:
 - `docs/architecture/local-runtime-2026-03-19.md`
@@ -21,7 +21,7 @@ Current local runtime architecture note:
 
 - `openclaw.plugin.json`, `index.ts`, `package.json`: OpenClaw plugin package and manifest.
 - `ocmemog/sidecar/`: FastAPI sidecar with `/memory/search` and `/memory/get`.
-- `brain/runtime/memory/`: copied brAIn memory package.
+- `ocmemog/runtime/memory/`: local runtime package used by the sidecar.
 - `brain/runtime/`: compatibility shims for state store, instrumentation, redaction, storage paths, and a few placeholder runtime modules needed for importability.
 - `scripts/ocmemog-sidecar.sh`: convenience launcher.
 
@@ -37,6 +37,22 @@ pip install -r requirements.txt
 # then open
 # http://127.0.0.1:17891/dashboard
 ```
+
+### Run the doctor check
+
+```bash
+./.venv/bin/python3 scripts/ocmemog-doctor.py
+./.venv/bin/python3 scripts/ocmemog-doctor.py --json
+./.venv/bin/python3 scripts/ocmemog-doctor.py --fix create-missing-paths --fix repair-queue
+```
+
+The doctor command currently checks:
+- runtime/imports
+- state/path-writable
+- sqlite/schema-access
+- queue/health
+- sidecar/app-import
+- vector/runtime-probe
 
 ## Optional: transcript watcher (auto-ingest)
 
@@ -84,6 +100,12 @@ Optional environment variables:
 - `BRAIN_EMBED_MODEL_PROVIDER` (`local-openai` to use the local llama.cpp embedding endpoint; `openai` remains available for hosted embeddings)
 - `OCMEMOG_TRANSCRIPT_WATCHER` (`true` to auto-start transcript watcher inside the sidecar)
 - `OCMEMOG_TRANSCRIPT_ROOTS` (comma-separated allowed roots for transcript context retrieval; default: `~/.openclaw/workspace/memory`)
+- `OCMEMOG_INGEST_ASYNC_WORKER` (`true` to keep async ingest queue processing enabled; defaults to `true`)
+- `OCMEMOG_INGEST_ASYNC_POLL_SECONDS` (`5` by default)
+- `OCMEMOG_INGEST_ASYNC_BATCH_MAX` (`25` by default)
+- `OCMEMOG_SHUTDOWN_DRAIN_QUEUE` (`true` to drain remaining queue entries during shutdown; defaults to `false`)
+- `OCMEMOG_WORKER_SHUTDOWN_TIMEOUT_SECONDS` (`0.35` by default)
+- `OCMEMOG_SHUTDOWN_DUMP_THREADS` (`true` to include worker thread dump output during shutdown joins; defaults to `false`)
 - `OCMEMOG_API_TOKEN` (optional; if set, requests must include `x-ocmemog-token` or `Authorization: Bearer ...`)
 - `OCMEMOG_AUTO_HYDRATION` (`true` to re-enable prompt-time continuity prepending; defaults to `false` as a safety guard until the host runtime is verified not to persist prepended context into session history)
 - `OCMEMOG_LAPTOP_MODE` (`auto` by default; on macOS battery power this slows watcher polling, reduces ingest batch size, and disables sentiment reinforcement unless explicitly overridden)
@@ -100,6 +122,8 @@ Optional environment variables:
 - `OCMEMOG_PONDER_ENABLED` (default: `true`)
 - `OCMEMOG_PONDER_MODEL` (default via launcher: `local-openai:qwen2.5-7b-instruct`; recommended for structured local memory refinement)
 - `OCMEMOG_LESSON_MINING_ENABLED` (default: `true`)
+
+Boolean env values are parsed case-insensitively and support `1/0`, `true/false`, `yes/no`, `on/off`, `y/n`, and `t/f`.
 
 ## Security
 

@@ -59,9 +59,16 @@ export OCMEMOG_TRANSCRIPT_POLL_SECONDS=1
 export OCMEMOG_INGEST_KIND=memory
 export OCMEMOG_INGEST_SOURCE=transcript
 export OCMEMOG_TRANSCRIPT_WATCHER=true
+export OCMEMOG_INGEST_ASYNC_WORKER=true
+export OCMEMOG_INGEST_ASYNC_POLL_SECONDS=5
+export OCMEMOG_INGEST_ASYNC_BATCH_MAX=25
+export OCMEMOG_SHUTDOWN_DRAIN_QUEUE=false
+export OCMEMOG_WORKER_SHUTDOWN_TIMEOUT_SECONDS=0.35
 ```
 
 Default state location in this repo is `.ocmemog-state/`.
+
+On shutdown, set `OCMEMOG_SHUTDOWN_DRAIN_QUEUE=true` to synchronously flush queued ingest entries before exit. This is useful for short-running deployments and tests that expect strong delivery guarantees.
 
 ## Plugin API
 
@@ -183,7 +190,7 @@ Notes:
 
 ## What is not safe to rely on yet
 
-- `brain/runtime/memory/api.py`
+- `ocmemog/runtime/memory/api.py`
   - It targets missing/legacy tables and columns.
 - Provider-backed embeddings
   - Available when `BRAIN_EMBED_MODEL_PROVIDER=local-openai` and the local embedding endpoint is reachable.
@@ -201,7 +208,7 @@ To inspect memory state quickly:
 
 ```bash
 python3 - <<'PY'
-from brain.runtime.memory import store
+from ocmemog.runtime.memory import store
 store.init_db()
 conn = store.connect()
 for table in ("knowledge", "reflections", "directives", "tasks", "candidates", "promotions"):
@@ -215,7 +222,7 @@ To rebuild embeddings for recent knowledge rows:
 
 ```bash
 python3 - <<'PY'
-from brain.runtime.memory import vector_index
+from ocmemog.runtime.memory import vector_index
 print(vector_index.index_memory())
 PY
 ```

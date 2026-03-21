@@ -12,12 +12,13 @@ The release gate is now codified by:
 - [ ] Update `package.json` version
 - [ ] Ensure release tag matches package version
 - [ ] Update `CHANGELOG.md`
-- [ ] Confirm README examples reference the current version where applicable
+- [ ] Confirm README/release docs reflect current versioned package identity and release workflow
 
 ## Validation
 - [ ] Install test deps for sidecar route tests: `python3 -m pip install -r requirements-test.txt`
 - [ ] `./scripts/ocmemog-release-check.sh`
 - [ ] `tests/test_sidecar_routes.py` route-level sidecar confidence checks (healthz, search, get, ingest, hydrate, dashboard, auth)
+- [ ] Verify `tests/test_doctor.py` still passes for doctor health surfaces if you changed check coverage
 - [ ] `npm pack --dry-run`
 
 The `ocmemog-release-check` command enforces strict doctor mode for repo-locally safe checks and runs a focused pytest subset.

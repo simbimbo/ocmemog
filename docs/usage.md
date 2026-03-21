@@ -21,9 +21,15 @@ scripts/ocmemog-sidecar.sh
 Manual watcher:
 
 ```bash
-# defaults to ~/.openclaw/workspace/memory/transcripts if not set
+# if you set OCMEMOG_TRANSCRIPT_DIR, that path is watched; otherwise defaults to
+# ~/.openclaw/workspace/memory/transcripts (or ~/.openclaw/agents/main/sessions when
+# OCMEMOG_SESSION_DIR is set and no transcript path is given)
 export OCMEMOG_TRANSCRIPT_DIR="$HOME/.openclaw/workspace/memory/transcripts"
-export OCMEMOG_INGEST_ENDPOINT="http://127.0.0.1:17891/memory/ingest"
+export OCMEMOG_SESSION_DIR="$HOME/.openclaw/agents/main/sessions"
+export OCMEMOG_INGEST_ENDPOINT="http://127.0.0.1:17891/memory/ingest_async"
+export OCMEMOG_TRANSCRIPT_POLL_SECONDS=30
+export OCMEMOG_INGEST_BATCH_SECONDS=30
+export OCMEMOG_INGEST_BATCH_MAX=25
 ./scripts/ocmemog-transcript-watcher.sh
 ```
 
@@ -62,8 +68,15 @@ export OCMEMOG_TRANSCRIPT_WATCHER=true
 export OCMEMOG_INGEST_ASYNC_WORKER=true
 export OCMEMOG_INGEST_ASYNC_POLL_SECONDS=5
 export OCMEMOG_INGEST_ASYNC_BATCH_MAX=25
+export OCMEMOG_SESSION_DIR=$HOME/.openclaw/agents/main/sessions
+export OCMEMOG_TRANSCRIPT_DIR=$HOME/.openclaw/workspace/memory/transcripts
+export OCMEMOG_TRANSCRIPT_POLL_SECONDS=30
+export OCMEMOG_INGEST_BATCH_SECONDS=30
+export OCMEMOG_INGEST_BATCH_MAX=25
 export OCMEMOG_SHUTDOWN_DRAIN_QUEUE=false
 export OCMEMOG_WORKER_SHUTDOWN_TIMEOUT_SECONDS=0.35
+export OCMEMOG_SHUTDOWN_TIMING=true
+export OCMEMOG_SHUTDOWN_DUMP_THREADS=false
 ```
 
 Default state location in this repo is `.ocmemog-state/`.

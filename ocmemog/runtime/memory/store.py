@@ -334,14 +334,16 @@ def db_path() -> Path:
 
 
 _SCHEMA_READY = False
+_SCHEMA_DB_PATH: Path | None = None
 
 
 def connect(*, ensure_schema: bool = True) -> sqlite3.Connection:
-    global _SCHEMA_READY
-    if ensure_schema and not _SCHEMA_READY:
+    global _SCHEMA_READY, _SCHEMA_DB_PATH
+    path = db_path()
+    if ensure_schema and (not _SCHEMA_READY or _SCHEMA_DB_PATH != path):
         init_db()
         _SCHEMA_READY = True
-    path = db_path()
+        _SCHEMA_DB_PATH = path
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), timeout=30)
     conn.row_factory = sqlite3.Row

@@ -6,7 +6,7 @@ ocmemog is a repo-local OpenClaw memory sidecar backed by SQLite with llama.cpp-
 
 - search/get over local memory are supported
 - provider-backed local embeddings are the primary path
-- several advanced brAIn memory flows are copied in but still degraded by missing runtime dependencies
+- some advanced memory flows still depend on compatibility-shimmed runtime surfaces and may run in degraded mode depending on the configured provider/runtime
 
 ## Running the sidecar
 

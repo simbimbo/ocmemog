@@ -476,6 +476,51 @@ class OcmemogRegressionTests(unittest.TestCase):
         shaped_generic = vector_index._embedding_input(long_text, table="tasks")
         self.assertEqual(len(shaped_generic), 1000)
 
+        very_long_text = "x" * 25000
+        shaped_very_long = vector_index._embedding_input(very_long_text, table="tasks")
+        self.assertEqual(len(shaped_very_long), 4000)
+
+    def test_rebuild_vector_index_skips_invalid_table_requests(self) -> None:
+        with mock.patch("ocmemog.runtime.memory.vector_index.emit_event") as emit_mock:
+            result = vector_index.rebuild_vector_index(tables=("bogus",))
+
+        self.assertEqual(result, 0)
+        self.assertTrue(any(
+            call.args[1] == "brain_memory_vector_rebuild_complete" and call.kwargs.get("status") == "skipped" and call.kwargs.get("reason") == "no_valid_tables"
+            for call in emit_mock.call_args_list
+        ))
+
+    def test_backfill_missing_vectors_skips_invalid_table_requests(self) -> None:
+        with mock.patch("ocmemog.runtime.memory.vector_index.emit_event") as emit_mock:
+            result = vector_index.backfill_missing_vectors(tables=("bogus",), limit_per_table=10)
+
+        self.assertEqual(result, 0)
+        self.assertTrue(any(
+            call.args[1] == "brain_memory_vector_backfill_complete" and call.kwargs.get("status") == "skipped" and call.kwargs.get("reason") == "no_valid_tables"
+            for call in emit_mock.call_args_list
+        ))
+
+    def test_backfill_missing_vectors_skips_already_running(self) -> None:
+        self.assertTrue(vector_index._REBUILD_LOCK.acquire(blocking=False))
+        try:
+            with mock.patch("ocmemog.runtime.memory.vector_index.emit_event") as emit_mock:
+                result = vector_index.backfill_missing_vectors(tables=("knowledge",), limit_per_table=10)
+        finally:
+            vector_index._REBUILD_LOCK.release()
+
+        self.assertEqual(result, 0)
+        self.assertTrue(any(
+            call.args[1] == "brain_memory_vector_backfill_complete" and call.kwargs.get("status") == "skipped" and call.kwargs.get("reason") == "already_running"
+            for call in emit_mock.call_args_list
+        ))
+
+    def test_backfill_missing_vectors_rejects_non_positive_limit(self) -> None:
+        with mock.patch("ocmemog.runtime.memory.vector_index._load_table_rows") as load_rows:
+            result = vector_index.backfill_missing_vectors(tables=("knowledge",), limit_per_table=0)
+
+        self.assertEqual(result, 0)
+        load_rows.assert_not_called()
+
     def test_backfill_missing_vectors_is_non_destructive(self) -> None:
         # Seed one indexed vector and one missing vector row in the same table.
         indexed_row = api.store_memory("knowledge", "pre-indexed durable learning", source="test")

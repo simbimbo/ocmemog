@@ -59,6 +59,17 @@ def _cosine_similarity(a: List[float], b: List[float]) -> float:
     return dot / (mag_a * mag_b)
 
 
+def _normalized_tables(tables: Iterable[str] | None) -> List[str]:
+    source = EMBEDDING_TABLES if tables is None else tables
+    seen: set[str] = set()
+    normalized: List[str] = []
+    for table in source:
+        if table in EMBEDDING_TABLES and table not in seen:
+            normalized.append(table)
+            seen.add(table)
+    return normalized
+
+
 def insert_memory(memory_id: int, content: str, confidence: float, *, source_type: str = "knowledge") -> None:
     source_type = source_type if source_type in EMBEDDING_TABLES else "knowledge"
     redacted_content, changed = redaction.redact_text(content)
@@ -103,16 +114,21 @@ def _load_table_rows(table: str, *, limit: int | None = None, descending: bool =
         where = ""
         params: list[Any] = []
         if missing_only:
-            where = " WHERE CAST(id AS TEXT) NOT IN (SELECT source_id FROM vector_embeddings WHERE source_type = ?)"
+            where = (
+                " WHERE NOT EXISTS ("
+                "SELECT 1 FROM vector_embeddings AS ve "
+                "WHERE ve.source_type = ? AND ve.source_id = CAST(tbl.id AS TEXT)"
+                ")"
+            )
             params.append(table)
         if limit is None:
             rows = conn.execute(
-                f"SELECT id, content, confidence, metadata_json FROM {table}{where} ORDER BY id {order}",
+                f"SELECT tbl.id, tbl.content, tbl.confidence, tbl.metadata_json FROM {table} AS tbl{where} ORDER BY tbl.id {order}",
                 tuple(params),
             ).fetchall()
         else:
             rows = conn.execute(
-                f"SELECT id, content, confidence, metadata_json FROM {table}{where} ORDER BY id {order} LIMIT ?",
+                f"SELECT tbl.id, tbl.content, tbl.confidence, tbl.metadata_json FROM {table} AS tbl{where} ORDER BY tbl.id {order} LIMIT ?",
                 tuple(params + [limit]),
             ).fetchall()
     finally:
@@ -145,9 +161,9 @@ def _embedding_input(text: str, *, table: str = "knowledge") -> str:
     if table == "reflections" and len(cleaned) > 8000:
         return cleaned[:_EMBEDDING_REFLECTION_LIMIT]
     if len(cleaned) > 20000:
-        return cleaned[:_EMBEDDING_EXTENDED_LIMIT]
-    if len(cleaned) > 12000:
         return cleaned[:_EMBEDDING_ULTRA_LIMIT]
+    if len(cleaned) > 12000:
+        return cleaned[:_EMBEDDING_EXTENDED_LIMIT]
     # Local llama.cpp embedding runtime currently rejects inputs above its effective
     # token window (~512 tokens physical batch). Keep a conservative character cap so
     # backfill and live embedding stay deterministic instead of failing with HTTP 500s.
@@ -231,13 +247,15 @@ def index_memory(limit: int = 100, *, tables: Iterable[str] | None = None) -> in
 
 def rebuild_vector_index(*, tables: Iterable[str] | None = None) -> int:
     emit_event(LOGFILE, "brain_memory_vector_rebuild_start", status="ok")
+    requested_tables = _normalized_tables(tables)
+    if not requested_tables:
+        emit_event(LOGFILE, "brain_memory_vector_rebuild_complete", status="skipped", reason="no_valid_tables")
+        return 0
     if not _REBUILD_LOCK.acquire(blocking=False):
         emit_event(LOGFILE, "brain_memory_vector_rebuild_complete", status="skipped", reason="already_running")
         return 0
     count = 0
     try:
-        requested_tables = [table for table in (tables or EMBEDDING_TABLES) if table in EMBEDDING_TABLES]
-
         def _clear() -> None:
             conn = store.connect()
             try:
@@ -264,12 +282,18 @@ def rebuild_vector_index(*, tables: Iterable[str] | None = None) -> int:
 
 def backfill_missing_vectors(*, tables: Iterable[str] | None = None, limit_per_table: int | None = None) -> int:
     emit_event(LOGFILE, "brain_memory_vector_backfill_start", status="ok")
+    requested_tables = _normalized_tables(tables)
+    if not requested_tables:
+        emit_event(LOGFILE, "brain_memory_vector_backfill_complete", status="skipped", reason="no_valid_tables")
+        return 0
+    if limit_per_table is not None and limit_per_table <= 0:
+        emit_event(LOGFILE, "brain_memory_vector_backfill_complete", status="skipped", reason="invalid_limit")
+        return 0
     if not _REBUILD_LOCK.acquire(blocking=False):
         emit_event(LOGFILE, "brain_memory_vector_backfill_complete", status="skipped", reason="already_running")
         return 0
     count = 0
     try:
-        requested_tables = [table for table in (tables or EMBEDDING_TABLES) if table in EMBEDDING_TABLES]
         for table in requested_tables:
             prepared = _prepare_embedding_rows(
                 _load_table_rows(table, limit=limit_per_table, missing_only=True),

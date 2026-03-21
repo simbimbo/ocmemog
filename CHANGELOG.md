@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.12 — 2026-03-21
+
+Release hardening and native-ownership cleanup.
+
+### Highlights
+- fixed conversation-state self-healing so polluted continuity cleanup preserves valid checkpoints instead of deleting the entire checkpoint history for a thread/session/conversation
+- aligned FastAPI sidecar version reporting with the package version and added regression coverage for version drift
+- moved runtime defaults toward native `ocmemog` ownership for report-log and SQLite DB naming while preserving legacy `brain_*` file fallback for existing installs
+- made embedding configuration native-first (`OCMEMOG_*`) while keeping `BRAIN_*` aliases for compatibility
+- cleaned release docs, compat wording, and helper scripts so new deployments follow native `ocmemog` naming by default
+- removed stray invalid transcript-watcher drift assertions from the test suite
+
 ## 0.1.11 — 2026-03-20
 
 Watcher reliability and release-quality follow-up.

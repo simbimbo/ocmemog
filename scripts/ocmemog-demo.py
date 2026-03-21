@@ -13,7 +13,7 @@ import sys
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from brain.runtime.memory import store
+from ocmemog.runtime.memory import store
 
 ENDPOINT = "http://127.0.0.1:17891"
 

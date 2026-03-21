@@ -268,7 +268,7 @@ def main() -> int:
     ponder_summary = {}
     research_summary = {}
     try:
-        from brain.runtime.memory import promote, store, pondering_engine, memory_synthesis, semantic_search
+        from ocmemog.runtime.memory import promote, store, pondering_engine, memory_synthesis, semantic_search
 
         conn = store.connect()
         rows = conn.execute(

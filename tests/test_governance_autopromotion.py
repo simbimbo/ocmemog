@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from brain.runtime.memory import api, provenance, retrieval, store
+from ocmemog.runtime.memory import api, provenance, retrieval, store
 
 
 class GovernanceAutopromotionTests(unittest.TestCase):
@@ -28,7 +28,7 @@ class GovernanceAutopromotionTests(unittest.TestCase):
 
     def test_auto_promotes_high_confidence_duplicate(self) -> None:
         canonical = api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
-        with mock.patch("brain.runtime.memory.api._model_contradiction_hint", return_value=None):
+        with mock.patch("ocmemog.runtime.memory.api._model_contradiction_hint", return_value=None):
             duplicate = api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
 
         payload = provenance.fetch_reference(f"knowledge:{duplicate}") or {}
@@ -36,7 +36,7 @@ class GovernanceAutopromotionTests(unittest.TestCase):
         self.assertEqual(prov.get("memory_status"), "duplicate")
         self.assertEqual(prov.get("duplicate_of"), f"knowledge:{canonical}")
 
-        with mock.patch("brain.runtime.memory.vector_index.search_memory", return_value=[]):
+        with mock.patch("ocmemog.runtime.memory.vector_index.search_memory", return_value=[]):
             search = retrieval.retrieve("FortiGate admin access", limit=10, categories=["knowledge"])
         refs = [item["memory_reference"] for item in search["knowledge"]]
         self.assertIn(f"knowledge:{canonical}", refs)
@@ -45,7 +45,7 @@ class GovernanceAutopromotionTests(unittest.TestCase):
     def test_does_not_auto_promote_when_contradiction_candidates_exist(self) -> None:
         api.store_memory("knowledge", "Gateway should run on port 18789", source="test")
         with mock.patch(
-            "brain.runtime.memory.api._model_contradiction_hint",
+            "ocmemog.runtime.memory.api._model_contradiction_hint",
             return_value={"contradiction": True, "confidence": 0.95, "rationale": "same subject different port"},
         ):
             changed = api.store_memory("knowledge", "Gateway should run on port 17890", source="test")
@@ -59,7 +59,7 @@ class GovernanceAutopromotionTests(unittest.TestCase):
         os.environ["OCMEMOG_GOVERNANCE_DUPLICATE_AUTOPROMOTE_MARGIN"] = "0.02"
         api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
         api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
-        with mock.patch("brain.runtime.memory.api._model_contradiction_hint", return_value=None):
+        with mock.patch("ocmemog.runtime.memory.api._model_contradiction_hint", return_value=None):
             candidate = api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
 
         payload = provenance.fetch_reference(f"knowledge:{candidate}") or {}

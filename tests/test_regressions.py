@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from unittest import mock
 
-from brain.runtime.memory import api, conversation_state, distill, embedding_engine, pondering_engine, promote, store, vector_index, unresolved_state
+from ocmemog.runtime.memory import api, conversation_state, distill, embedding_engine, pondering_engine, promote, store, vector_index, unresolved_state
 from ocmemog.sidecar import app
 
 
@@ -401,7 +401,7 @@ class OcmemogRegressionTests(unittest.TestCase):
     def test_provider_embedding_takes_precedence_when_configured(self) -> None:
         with mock.patch.object(embedding_engine.config, "BRAIN_EMBED_MODEL_PROVIDER", "openai"), \
              mock.patch.object(embedding_engine.config, "BRAIN_EMBED_MODEL_LOCAL", "simple"), \
-             mock.patch("brain.runtime.memory.embedding_engine._provider_embedding", return_value=([0.25, 0.5], {"provider_id": "openai", "model": "test-model"})) as provider_mock:
+             mock.patch("ocmemog.runtime.memory.embedding_engine._provider_embedding", return_value=([0.25, 0.5], {"provider_id": "openai", "model": "test-model"})) as provider_mock:
             vector = embedding_engine.generate_embedding("hello world")
 
         self.assertEqual(vector, [0.25, 0.5])
@@ -427,7 +427,7 @@ class OcmemogRegressionTests(unittest.TestCase):
         first = api.store_memory("knowledge", "fortigate edge baseline hardening", source="test")
         second = api.store_memory("knowledge", "management plane lockdown and admin isolation", source="test")
 
-        with mock.patch("brain.runtime.memory.vector_index.search_memory", return_value=[
+        with mock.patch("ocmemog.runtime.memory.vector_index.search_memory", return_value=[
             {"source_type": "knowledge", "source_id": str(second), "score": 0.88},
             {"source_type": "knowledge", "source_id": str(first), "score": 0.12},
         ]):
@@ -443,7 +443,7 @@ class OcmemogRegressionTests(unittest.TestCase):
     def test_retrieval_exposes_selection_reason_and_signal_breakdown(self) -> None:
         row_id = api.store_memory("knowledge", "checkpoint expansion should stay enabled", source="test")
 
-        with mock.patch("brain.runtime.memory.vector_index.search_memory", return_value=[
+        with mock.patch("ocmemog.runtime.memory.vector_index.search_memory", return_value=[
             {"source_type": "knowledge", "source_id": str(row_id), "score": 0.91},
         ]):
             results = app.memory_search(app.SearchRequest(query="checkpoint expansion", limit=5))
@@ -629,7 +629,7 @@ class OcmemogRegressionTests(unittest.TestCase):
         self.assertTrue(checkpoint["ok"])
         api.store_memory("knowledge", "Continuity hydration should survive restarts.", source="test")
 
-        with mock.patch("brain.runtime.memory.pondering_engine._infer_with_timeout", return_value={"status": "timeout", "output": ""}), \
+        with mock.patch("ocmemog.runtime.memory.pondering_engine._infer_with_timeout", return_value={"status": "timeout", "output": ""}), \
              mock.patch.object(pondering_engine.config, "OCMEMOG_PONDER_ENABLED", "true"), \
              mock.patch.object(pondering_engine.config, "OCMEMOG_LESSON_MINING_ENABLED", "false"):
             result = pondering_engine.run_ponder_cycle(max_items=6)
@@ -665,7 +665,7 @@ class OcmemogRegressionTests(unittest.TestCase):
             )
         )
         with mock.patch(
-            "brain.runtime.memory.conversation_state._upsert_state",
+            "ocmemog.runtime.memory.conversation_state._upsert_state",
             side_effect=TimeoutError("write queue timeout"),
         ):
             hydrate = app.conversation_hydrate(
@@ -898,7 +898,7 @@ class OcmemogRegressionTests(unittest.TestCase):
         self.assertEqual(int(remaining), 0)
 
     def test_vector_rebuild_does_not_break_mixed_conversation_flow(self) -> None:
-        with mock.patch("brain.runtime.memory.embedding_engine.generate_embedding", side_effect=lambda text: [0.1, 0.2, float(len(text) % 7)]):
+        with mock.patch("ocmemog.runtime.memory.embedding_engine.generate_embedding", side_effect=lambda text: [0.1, 0.2, float(len(text) % 7)]):
             for idx in range(18):
                 api.store_memory("knowledge", f"vector rebuild seed {idx}", source="test")
 
@@ -953,7 +953,7 @@ class OcmemogRegressionTests(unittest.TestCase):
                     raise AssertionError("checkpoint_expand returned not ok")
 
             def ponder_task() -> None:
-                with mock.patch("brain.runtime.memory.pondering_engine._infer_with_timeout", return_value={"status": "timeout", "output": ""}), \
+                with mock.patch("ocmemog.runtime.memory.pondering_engine._infer_with_timeout", return_value={"status": "timeout", "output": ""}), \
                      mock.patch.object(pondering_engine.config, "OCMEMOG_PONDER_ENABLED", "true"), \
                      mock.patch.object(pondering_engine.config, "OCMEMOG_LESSON_MINING_ENABLED", "false"):
                     result = app.memory_ponder(app.PonderRequest(max_items=4))
@@ -1212,7 +1212,7 @@ class OcmemogRegressionTests(unittest.TestCase):
         )
         self.assertTrue(memory_response["ok"])
 
-        with mock.patch("brain.runtime.memory.pondering_engine._infer_with_timeout", return_value={"status": "ok", "output": "Insight: Preserve lineage\nRecommendation: Keep source anchors"}), \
+        with mock.patch("ocmemog.runtime.memory.pondering_engine._infer_with_timeout", return_value={"status": "ok", "output": "Insight: Preserve lineage\nRecommendation: Keep source anchors"}), \
              mock.patch.object(pondering_engine.config, "OCMEMOG_PONDER_ENABLED", "true"), \
              mock.patch.object(pondering_engine.config, "OCMEMOG_LESSON_MINING_ENABLED", "false"):
             result = pondering_engine.run_ponder_cycle(max_items=4)

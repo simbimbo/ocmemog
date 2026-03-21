@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 import sys
 sys.path.insert(0, str(REPO_ROOT))
 
-from brain.runtime.memory import store  # noqa: E402
+from ocmemog.runtime.memory import store  # noqa: E402
 from ocmemog.sidecar import app  # noqa: E402
 
 

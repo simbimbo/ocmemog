@@ -6,7 +6,7 @@ import unittest
 from unittest import mock
 
 from ocmemog.sidecar import app
-from brain.runtime.memory import api, provenance, retrieval, store
+from ocmemog.runtime.memory import api, provenance, retrieval, store
 
 
 class GovernanceAutoResolveTests(unittest.TestCase):
@@ -26,7 +26,7 @@ class GovernanceAutoResolveTests(unittest.TestCase):
     def test_auto_resolve_dry_run_reports_actions_without_applying(self) -> None:
         api.store_memory("knowledge", "Gateway should run on port 18789", source="test")
         with mock.patch(
-            "brain.runtime.memory.api._model_contradiction_hint",
+            "ocmemog.runtime.memory.api._model_contradiction_hint",
             return_value={"contradiction": True, "confidence": 0.99, "rationale": "same subject different port"},
         ):
             api.store_memory("knowledge", "Gateway should run on port 17890", source="test")
@@ -46,7 +46,7 @@ class GovernanceAutoResolveTests(unittest.TestCase):
     def test_auto_resolve_apply_can_promote_supersession(self) -> None:
         api.store_memory("knowledge", "Gateway should run on port 18789", source="test")
         with mock.patch(
-            "brain.runtime.memory.api._model_contradiction_hint",
+            "ocmemog.runtime.memory.api._model_contradiction_hint",
             return_value={"contradiction": True, "confidence": 0.99, "rationale": "same subject different port"},
         ):
             api.store_memory("knowledge", "Gateway should run on port 17890", source="test")
@@ -61,7 +61,7 @@ class GovernanceAutoResolveTests(unittest.TestCase):
         old_prov = (old_payload.get("metadata") or {}).get("provenance") or {}
         self.assertEqual(old_prov.get("memory_status"), "superseded")
 
-        with mock.patch("brain.runtime.memory.vector_index.search_memory", return_value=[]):
+        with mock.patch("ocmemog.runtime.memory.vector_index.search_memory", return_value=[]):
             search = retrieval.retrieve("Gateway port", limit=10, categories=["knowledge"])
         refs = [item["memory_reference"] for item in search["knowledge"]]
         self.assertIn("knowledge:2", refs)

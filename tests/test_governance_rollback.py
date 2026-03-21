@@ -6,7 +6,7 @@ import unittest
 from unittest import mock
 
 from ocmemog.sidecar import app
-from brain.runtime.memory import api, provenance, retrieval, store
+from ocmemog.runtime.memory import api, provenance, retrieval, store
 
 
 class GovernanceRollbackTests(unittest.TestCase):
@@ -34,7 +34,7 @@ class GovernanceRollbackTests(unittest.TestCase):
         )
         self.assertTrue(rollback["ok"])
 
-        with mock.patch("brain.runtime.memory.vector_index.search_memory", return_value=[]):
+        with mock.patch("ocmemog.runtime.memory.vector_index.search_memory", return_value=[]):
             results = retrieval.retrieve("FortiGate admin access", limit=10, categories=["knowledge"])
         refs = [item["memory_reference"] for item in results["knowledge"]]
         self.assertIn(f"knowledge:{canonical}", refs)

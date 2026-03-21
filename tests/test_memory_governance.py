@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from brain.runtime.memory import api, retrieval, store
+from ocmemog.runtime.memory import api, retrieval, store
 
 
 class MemoryGovernanceTests(unittest.TestCase):
@@ -24,7 +24,7 @@ class MemoryGovernanceTests(unittest.TestCase):
         new_id = api.store_memory("knowledge", "Steven's phone number is 508-361-2323", source="test")
         api.mark_memory_relationship(f"knowledge:{new_id}", relationship="supersedes", target_reference=f"knowledge:{old_id}")
 
-        with mock.patch("brain.runtime.memory.vector_index.search_memory", return_value=[]):
+        with mock.patch("ocmemog.runtime.memory.vector_index.search_memory", return_value=[]):
             results = retrieval.retrieve("Steven phone number", limit=10, categories=["knowledge"])
 
         refs = [item["memory_reference"] for item in results["knowledge"]]
@@ -36,7 +36,7 @@ class MemoryGovernanceTests(unittest.TestCase):
         dup_id = api.store_memory("knowledge", "FortiGate admin access should stay restricted", source="test")
         api.mark_memory_relationship(f"knowledge:{dup_id}", relationship="duplicate_of", target_reference=f"knowledge:{canonical_id}")
 
-        with mock.patch("brain.runtime.memory.vector_index.search_memory", return_value=[]):
+        with mock.patch("ocmemog.runtime.memory.vector_index.search_memory", return_value=[]):
             results = retrieval.retrieve("FortiGate admin access", limit=10, categories=["knowledge"])
 
         refs = [item["memory_reference"] for item in results["knowledge"]]
@@ -48,7 +48,7 @@ class MemoryGovernanceTests(unittest.TestCase):
         second_id = api.store_memory("knowledge", "Gateway should run on port 17890", source="test")
         api.mark_memory_relationship(f"knowledge:{second_id}", relationship="contradicts", target_reference=f"knowledge:{first_id}")
 
-        with mock.patch("brain.runtime.memory.vector_index.search_memory", return_value=[]):
+        with mock.patch("ocmemog.runtime.memory.vector_index.search_memory", return_value=[]):
             results = retrieval.retrieve("Gateway port", limit=10, categories=["knowledge"])
 
         contested = next(item for item in results["knowledge"] if item["memory_reference"] == f"knowledge:{second_id}")

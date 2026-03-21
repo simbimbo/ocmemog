@@ -6,7 +6,7 @@ import unittest
 from unittest import mock
 
 from ocmemog.sidecar import app
-from brain.runtime.memory import api, provenance, retrieval, store
+from ocmemog.runtime.memory import api, provenance, retrieval, store
 
 
 class GovernanceReviewTests(unittest.TestCase):
@@ -27,7 +27,7 @@ class GovernanceReviewTests(unittest.TestCase):
     def test_governance_candidates_endpoint_lists_pending_candidates(self) -> None:
         first = api.store_memory("knowledge", "Gateway should run on port 18789", source="test")
         with mock.patch(
-            "brain.runtime.memory.api._model_contradiction_hint",
+            "ocmemog.runtime.memory.api._model_contradiction_hint",
             return_value={"contradiction": True, "confidence": 0.9, "rationale": "same subject, different port"},
         ):
             api.store_memory("knowledge", "Gateway should run on port 17890", source="test")
@@ -40,11 +40,11 @@ class GovernanceReviewTests(unittest.TestCase):
 
     def test_governance_review_endpoint_lists_pending_items_with_context(self) -> None:
         canonical = api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
-        with mock.patch("brain.runtime.memory.api._model_contradiction_hint", return_value=None):
+        with mock.patch("ocmemog.runtime.memory.api._model_contradiction_hint", return_value=None):
             api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
         first = api.store_memory("knowledge", "Gateway should run on port 18789", source="test")
         with mock.patch(
-            "brain.runtime.memory.api._model_contradiction_hint",
+            "ocmemog.runtime.memory.api._model_contradiction_hint",
             return_value={"contradiction": True, "confidence": 0.99, "rationale": "same subject, different port"},
         ):
             api.store_memory("knowledge", "Gateway should run on port 17890", source="test")
@@ -72,7 +72,7 @@ class GovernanceReviewTests(unittest.TestCase):
 
     def test_governance_decision_endpoint_can_promote_duplicate(self) -> None:
         canonical = api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
-        with mock.patch("brain.runtime.memory.api._model_contradiction_hint", return_value=None):
+        with mock.patch("ocmemog.runtime.memory.api._model_contradiction_hint", return_value=None):
             duplicate = api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
 
         result = app.memory_governance_decision(
@@ -85,7 +85,7 @@ class GovernanceReviewTests(unittest.TestCase):
         )
         self.assertTrue(result["ok"])
 
-        with mock.patch("brain.runtime.memory.vector_index.search_memory", return_value=[]):
+        with mock.patch("ocmemog.runtime.memory.vector_index.search_memory", return_value=[]):
             search = retrieval.retrieve("FortiGate admin access", limit=10, categories=["knowledge"])
         refs = [item["memory_reference"] for item in search["knowledge"]]
         self.assertIn(f"knowledge:{canonical}", refs)
@@ -93,7 +93,7 @@ class GovernanceReviewTests(unittest.TestCase):
 
     def test_governance_review_decision_endpoint_applies_and_clears_pending_item(self) -> None:
         canonical = api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
-        with mock.patch("brain.runtime.memory.api._model_contradiction_hint", return_value=None):
+        with mock.patch("ocmemog.runtime.memory.api._model_contradiction_hint", return_value=None):
             duplicate = api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
 
         result = app.memory_governance_review_decision(
@@ -120,7 +120,7 @@ class GovernanceReviewTests(unittest.TestCase):
     def test_governance_review_decision_endpoint_can_reject_supersession_recommendation(self) -> None:
         first = api.store_memory("knowledge", "Gateway should run on port 18789", source="test")
         with mock.patch(
-            "brain.runtime.memory.api._model_contradiction_hint",
+            "ocmemog.runtime.memory.api._model_contradiction_hint",
             return_value={"contradiction": True, "confidence": 0.99, "rationale": "same subject, different port"},
         ):
             second = api.store_memory("knowledge", "Gateway should run on port 17890", source="test")

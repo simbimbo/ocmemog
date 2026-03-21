@@ -8,7 +8,7 @@ from typing import Dict, Any, List
 from brain.runtime.instrumentation import emit_event
 from brain.runtime import state_store
 from brain.runtime.memory import candidate, provenance, store
-from brain.runtime.security import redaction
+from ocmemog.runtime.security import redaction
 from brain.runtime import inference
 from brain.runtime import model_roles
 

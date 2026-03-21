@@ -6,7 +6,7 @@ import unittest
 from unittest import mock
 
 from ocmemog.sidecar import app
-from brain.runtime.memory import api, provenance, retrieval, store
+from ocmemog.runtime.memory import api, provenance, retrieval, store
 
 
 class GovernanceMatrixTests(unittest.TestCase):
@@ -32,7 +32,7 @@ class GovernanceMatrixTests(unittest.TestCase):
     def test_auto_promotion_blocked_when_contradiction_candidates_exist(self) -> None:
         api.store_memory("knowledge", "Gateway should run on port 18789", source="test")
         with mock.patch(
-            "brain.runtime.memory.api._model_contradiction_hint",
+            "ocmemog.runtime.memory.api._model_contradiction_hint",
             return_value={"contradiction": True, "confidence": 0.95, "rationale": "same subject different port"},
         ):
             changed = api.store_memory("knowledge", "Gateway should run on port 17890", source="test")
@@ -45,7 +45,7 @@ class GovernanceMatrixTests(unittest.TestCase):
     def test_auto_resolve_kind_allowlist_skips_duplicates(self) -> None:
         os.environ["OCMEMOG_GOVERNANCE_AUTORESOLVE_ALLOW_KINDS"] = "supersession_recommendation"
         api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
-        with mock.patch("brain.runtime.memory.api._model_contradiction_hint", return_value=None):
+        with mock.patch("ocmemog.runtime.memory.api._model_contradiction_hint", return_value=None):
             api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
 
         result = app.memory_governance_auto_resolve(
@@ -61,7 +61,7 @@ class GovernanceMatrixTests(unittest.TestCase):
         second = api.store_memory("knowledge", "Gateway should run on port 17890", source="test")
         api.mark_memory_relationship(f"knowledge:{second}", relationship="contradicts", target_reference=f"knowledge:{first}")
 
-        with mock.patch("brain.runtime.memory.vector_index.search_memory", return_value=[]):
+        with mock.patch("ocmemog.runtime.memory.vector_index.search_memory", return_value=[]):
             results = retrieval.retrieve("Gateway port", limit=10, categories=["knowledge"])
         refs = [item["memory_reference"] for item in results["knowledge"]]
         self.assertIn(f"knowledge:{second}", refs)

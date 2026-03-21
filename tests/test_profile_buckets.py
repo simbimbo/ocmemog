@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 
-from brain.runtime.memory import api, promote, retrieval, store
+from ocmemog.runtime.memory import api, promote, retrieval, store
 from ocmemog.sidecar import app
 
 

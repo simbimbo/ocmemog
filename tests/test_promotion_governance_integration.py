@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from brain.runtime.memory import api, promote, provenance, retrieval, store
+from ocmemog.runtime.memory import api, promote, provenance, retrieval, store
 
 
 class PromotionGovernanceIntegrationTests(unittest.TestCase):
@@ -35,7 +35,7 @@ class PromotionGovernanceIntegrationTests(unittest.TestCase):
             "confidence_score": 0.95,
             "metadata": {"source_labels": ["distill"]},
         }
-        with mock.patch("brain.runtime.memory.api._model_contradiction_hint", return_value=None):
+        with mock.patch("ocmemog.runtime.memory.api._model_contradiction_hint", return_value=None):
             result = promote.promote_candidate(candidate)
 
         self.assertEqual(result["decision"], "promote")
@@ -52,7 +52,7 @@ class PromotionGovernanceIntegrationTests(unittest.TestCase):
         self.assertEqual(prov.get("memory_status"), "duplicate")
         self.assertEqual(prov.get("duplicate_of"), f"knowledge:{canonical}")
 
-        with mock.patch("brain.runtime.memory.vector_index.search_memory", return_value=[]):
+        with mock.patch("ocmemog.runtime.memory.vector_index.search_memory", return_value=[]):
             search = retrieval.retrieve("FortiGate admin access", limit=10, categories=["knowledge"])
         refs = [item["memory_reference"] for item in search["knowledge"]]
         self.assertIn(f"knowledge:{canonical}", refs)

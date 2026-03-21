@@ -6,7 +6,7 @@ import unittest
 from unittest import mock
 
 from ocmemog.sidecar import app
-from brain.runtime.memory import api, store
+from ocmemog.runtime.memory import api, store
 
 
 class GovernanceQueueTests(unittest.TestCase):
@@ -26,7 +26,7 @@ class GovernanceQueueTests(unittest.TestCase):
     def test_governance_queue_returns_prioritized_action_items(self) -> None:
         api.store_memory("knowledge", "Gateway should run on port 18789", source="test")
         with mock.patch(
-            "brain.runtime.memory.api._model_contradiction_hint",
+            "ocmemog.runtime.memory.api._model_contradiction_hint",
             return_value={"contradiction": True, "confidence": 0.99, "rationale": "same subject different port"},
         ):
             api.store_memory("knowledge", "Gateway should run on port 17890", source="test")

@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from brain.runtime.memory import candidate, distill, store
+from ocmemog.runtime.memory import candidate, distill, store
 from ocmemog.sidecar import app
 
 
@@ -120,8 +120,8 @@ class CandidateNearDuplicateTests(unittest.TestCase):
         )
         self.assertTrue(first_ingest["ok"])
 
-        with mock.patch("brain.runtime.memory.distill._local_distill_summary", return_value="The user prefers aisle seats on long flights."), mock.patch(
-            "brain.runtime.memory.distill._needs_frontier_refine",
+        with mock.patch("ocmemog.runtime.memory.distill._local_distill_summary", return_value="The user prefers aisle seats on long flights."), mock.patch(
+            "ocmemog.runtime.memory.distill._needs_frontier_refine",
             return_value=False,
         ):
             first_results = distill.distill_experiences(limit=1)
@@ -137,9 +137,9 @@ class CandidateNearDuplicateTests(unittest.TestCase):
         self.assertTrue(second_ingest["ok"])
 
         with mock.patch(
-            "brain.runtime.memory.distill._local_distill_summary",
+            "ocmemog.runtime.memory.distill._local_distill_summary",
             return_value="User prefers aisle seating for long flights.",
-        ), mock.patch("brain.runtime.memory.distill._needs_frontier_refine", return_value=False):
+        ), mock.patch("ocmemog.runtime.memory.distill._needs_frontier_refine", return_value=False):
             second_results = distill.distill_experiences(limit=1)
 
         self.assertEqual(len(second_results), 1)

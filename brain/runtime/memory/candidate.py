@@ -9,7 +9,7 @@ from typing import Dict, Any
 from brain.runtime.instrumentation import emit_event
 from brain.runtime import state_store
 from brain.runtime.memory import provenance, store
-from brain.runtime.security import redaction
+from ocmemog.runtime.security import redaction
 
 
 LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"

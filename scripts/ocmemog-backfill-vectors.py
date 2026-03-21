@@ -18,7 +18,7 @@ os.environ.setdefault("BRAIN_EMBED_MODEL_PROVIDER", "local-openai")
 os.environ.setdefault("BRAIN_EMBED_MODEL_LOCAL", "")
 os.environ.setdefault("OCMEMOG_STATE_DIR", str(REPO_ROOT / ".ocmemog-state"))
 
-from brain.runtime.memory import vector_index
+from ocmemog.runtime.memory import vector_index
 
 
 def main() -> int:

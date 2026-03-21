@@ -48,6 +48,23 @@ def _auto_attach_model_hint_budget() -> int:
         return 2
 
 
+def _auto_attach_min_tokens() -> int:
+    raw = os.environ.get("OCMEMOG_AUTO_ATTACH_GOVERNANCE_MIN_TOKENS", "4")
+    try:
+        return max(2, int(raw or 0))
+    except Exception:
+        return 4
+
+
+def _governance_candidates_significant(content: str) -> bool:
+    tokens = set(_tokenize(content))
+    if len(tokens) >= _auto_attach_min_tokens():
+        return True
+    if _extract_literals(content):
+        return True
+    return False
+
+
 def _emit(event: str) -> None:
     emit_event(store.state_store.reports_dir() / "brain_memory.log.jsonl", event, status="ok")
 
@@ -257,6 +274,20 @@ def _auto_apply_supersession_recommendation(
 
 
 def _auto_attach_governance_candidates(reference: str, *, use_model: bool = True) -> Dict[str, Any]:
+    payload = provenance.fetch_reference(reference) or {}
+    content = str(payload.get("content") or "")
+    if not _governance_candidates_significant(content):
+        return {
+            "duplicate_candidates": [],
+            "contradiction_candidates": [],
+            "auto_promotion": {"duplicate_of": None, "promoted": False, "reason": "insufficient_governance_signal"},
+            "supersession_recommendation": {
+                "recommended": False,
+                "auto_applied": False,
+                "reason": "insufficient_governance_signal",
+            },
+        }
+
     duplicate_candidates = find_duplicate_candidates(reference, limit=5, min_similarity=0.72)
     contradiction_candidates = find_contradiction_candidates(
         reference,
@@ -462,7 +493,10 @@ def find_duplicate_candidates(
     content = str(payload.get("content") or "")
     if table not in set(store.MEMORY_TABLES):
         return []
+    if not _governance_candidates_significant(content):
+        return []
     row_id = payload.get("id")
+    content_tokens = set(_tokenize(content))
     conn = store.connect()
     try:
         rows = conn.execute(
@@ -476,7 +510,17 @@ def find_duplicate_candidates(
     for row in rows:
         candidate_ref = f"{table}:{row['id'] if isinstance(row, dict) else row[0]}"
         candidate_content = row["content"] if isinstance(row, dict) else row[1]
-        score = _similarity(content, candidate_content)
+        candidate_tokens = set(_tokenize(candidate_content))
+        if not candidate_tokens:
+            continue
+        overlap_tokens = content_tokens & candidate_tokens
+        if not overlap_tokens:
+            continue
+        overlap = len(overlap_tokens)
+        union = len(content_tokens | candidate_tokens)
+        if union <= 0:
+            continue
+        score = round(overlap / union, 3)
         if score < min_similarity:
             continue
         meta_raw = row["metadata_json"] if isinstance(row, dict) else row[2]
@@ -514,7 +558,11 @@ def find_contradiction_candidates(
     content = str(payload.get("content") or "")
     if table not in set(store.MEMORY_TABLES):
         return []
+    if not _governance_candidates_significant(content):
+        return []
     row_id = payload.get("id")
+    content_tokens = set(_tokenize(content))
+    content_literals = set(_extract_literals(content))
     conn = store.connect()
     try:
         rows = conn.execute(
@@ -528,7 +576,28 @@ def find_contradiction_candidates(
     for row in rows:
         candidate_ref = f"{table}:{row['id'] if isinstance(row, dict) else row[0]}"
         candidate_content = row["content"] if isinstance(row, dict) else row[1]
-        signal = _contradiction_signal(content, candidate_content)
+        candidate_tokens = set(_tokenize(candidate_content))
+        if not candidate_tokens:
+            continue
+        candidate_literal_values = _extract_literals(candidate_content)
+        candidate_literals = set(candidate_literal_values)
+        overlap_tokens = content_tokens & candidate_tokens
+        if not overlap_tokens:
+            continue
+        shared_context = len(overlap_tokens - content_literals - candidate_literals)
+        union = len(content_tokens | candidate_tokens)
+        lexical_similarity = round(len(overlap_tokens) / max(1, union), 3)
+        if not content_literals and not candidate_literals:
+            signal = 0.0
+        elif content_literals == candidate_literals:
+            signal = 0.0
+        elif shared_context < 2 and lexical_similarity < 0.45:
+            signal = 0.0
+        else:
+            signal = round(
+                min(1.0, 0.35 * lexical_similarity + 0.12 * shared_context + 0.3 * min(2, len(content_literals.symmetric_difference(candidate_literals)))),
+                3,
+            )
         if signal < min_signal:
             continue
         meta_raw = row["metadata_json"] if isinstance(row, dict) else row[2]
@@ -543,7 +612,7 @@ def find_contradiction_candidates(
             "signal": signal,
             "timestamp": row["timestamp"] if isinstance(row, dict) else row[3],
             "provenance_preview": preview,
-            "literals": _extract_literals(candidate_content),
+            "literals": candidate_literal_values,
         }
         candidates.append(item)
 

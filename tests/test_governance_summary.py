@@ -6,7 +6,7 @@ import unittest
 from unittest import mock
 
 from ocmemog.sidecar import app
-from brain.runtime.memory import api, store
+from ocmemog.runtime.memory import api, store
 
 
 class GovernanceSummaryTests(unittest.TestCase):
@@ -25,7 +25,7 @@ class GovernanceSummaryTests(unittest.TestCase):
     def test_governance_summary_reports_pending_and_status_counts(self) -> None:
         api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
         with mock.patch(
-            "brain.runtime.memory.api._model_contradiction_hint",
+            "ocmemog.runtime.memory.api._model_contradiction_hint",
             return_value={"contradiction": True, "confidence": 0.95, "rationale": "same subject different port"},
         ):
             api.store_memory("knowledge", "Gateway should run on port 18789", source="test")

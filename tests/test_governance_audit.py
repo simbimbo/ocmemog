@@ -5,9 +5,9 @@ import tempfile
 import unittest
 
 from ocmemog.sidecar import app
-from brain.runtime import state_store
-from brain.runtime.instrumentation import emit_event
-from brain.runtime.memory import store
+from ocmemog.runtime import state_store
+from ocmemog.runtime.instrumentation import emit_event
+from ocmemog.runtime.memory import store
 
 
 class GovernanceAuditTests(unittest.TestCase):

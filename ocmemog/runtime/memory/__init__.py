@@ -1,48 +1,91 @@
-"""ocmemog-native memory namespace backed by the legacy brain runtime."""
+"""ocmemog-native memory namespace with native surfaces."""
 
 from __future__ import annotations
 
 import importlib
-import sys
-from types import ModuleType
+
+# Native-first memory surfaces (core path has no package-level wrapper bootstrapping).
+from . import (
+    api,
+    candidate,
+    memory_consolidation,
+    distill,
+    embedding_engine,
+    health,
+    integrity,
+    memory_taxonomy,
+    memory_links,
+    provenance,
+    promote,
+    retrieval,
+    store,
+    unresolved_state,
+    vector_index,
+)
+
+_NATIVE_MEMORY_SURFACES = (
+    "api",
+    "candidate",
+    "distill",
+    "embedding_engine",
+    "health",
+    "integrity",
+    "memory_consolidation",
+    "memory_taxonomy",
+    "memory_links",
+    "provenance",
+    "promote",
+    "retrieval",
+    "store",
+    "unresolved_state",
+    "vector_index",
+)
+
+_MEMORY_SURFACES = (
+    "conversation_state",
+    "memory_synthesis",
+    "pondering_engine",
+    "reinforcement",
+    "semantic_search",
+    "memory_salience",
+    "freshness",
+)
 
 
-def _alias_module(alias: str, target: str) -> ModuleType:
-    module = importlib.import_module(target)
-    sys.modules.setdefault(alias, module)
-    return module
+def __getattr__(name: str):
+    if name in _NATIVE_MEMORY_SURFACES:
+        return globals()[name]
+    if name in _MEMORY_SURFACES:
+        module = importlib.import_module(f"{__name__}.{name}")
+        globals()[name] = module
+        return module
+    raise AttributeError(name)
 
-
-_memory = importlib.import_module("brain.runtime.memory")
-
-store = _alias_module(__name__ + ".store", "brain.runtime.memory.store")
-memory_links = _alias_module(__name__ + ".memory_links", "brain.runtime.memory.memory_links")
-provenance = _alias_module(__name__ + ".provenance", "brain.runtime.memory.provenance")
-embedding_engine = _alias_module(__name__ + ".embedding_engine", "brain.runtime.memory.embedding_engine")
-vector_index = _alias_module(__name__ + ".vector_index", "brain.runtime.memory.vector_index")
-retrieval = _alias_module(__name__ + ".retrieval", "brain.runtime.memory.retrieval")
-api = _alias_module(__name__ + ".api", "brain.runtime.memory.api")
-conversation_state = _alias_module(__name__ + ".conversation_state", "brain.runtime.memory.conversation_state")
-distill = _alias_module(__name__ + ".distill", "brain.runtime.memory.distill")
-health = _alias_module(__name__ + ".health", "brain.runtime.memory.health")
-pondering_engine = _alias_module(__name__ + ".pondering_engine", "brain.runtime.memory.pondering_engine")
-reinforcement = _alias_module(__name__ + ".reinforcement", "brain.runtime.memory.reinforcement")
 
 __all__ = [
     "api",
+    "candidate",
     "conversation_state",
     "distill",
     "embedding_engine",
     "health",
+    "integrity",
     "memory_links",
-    "pondering_engine",
+    "memory_consolidation",
+    "memory_taxonomy",
+    "memory_synthesis",
+    "promote",
     "provenance",
+    "pondering_engine",
+    "freshness",
+    "memory_salience",
     "reinforcement",
     "retrieval",
+    "semantic_search",
     "store",
+    "unresolved_state",
     "vector_index",
 ]
 
-
-def __getattr__(name: str):
-    return getattr(_memory, name)
+# No legacy-shimmed memory surfaces remain in this namespace.
+__legacy_memory_surfaces__ = ()

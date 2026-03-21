@@ -6,7 +6,7 @@ import unittest
 from unittest import mock
 
 from ocmemog.sidecar import app
-from brain.runtime.memory import api, provenance, store
+from ocmemog.runtime.memory import api, provenance, store
 
 
 class GovernanceAutoResolvePolicyTests(unittest.TestCase):
@@ -37,11 +37,11 @@ class GovernanceAutoResolvePolicyTests(unittest.TestCase):
     def test_auto_resolve_respects_max_apply_and_bucket_allowlist(self) -> None:
         # Create two separate supersession recommendations
         api.store_memory("knowledge", "Gateway should run on port 18789", source="test")
-        with mock.patch("brain.runtime.memory.api._model_contradiction_hint", return_value={"contradiction": True, "confidence": 0.99, "rationale": "same subject different port"}):
+        with mock.patch("ocmemog.runtime.memory.api._model_contradiction_hint", return_value={"contradiction": True, "confidence": 0.99, "rationale": "same subject different port"}):
             api.store_memory("knowledge", "Gateway should run on port 17890", source="test")
 
         api.store_memory("runbooks", "Procedure version should be v1", source="test")
-        with mock.patch("brain.runtime.memory.api._model_contradiction_hint", return_value={"contradiction": True, "confidence": 0.99, "rationale": "same subject different version"}):
+        with mock.patch("ocmemog.runtime.memory.api._model_contradiction_hint", return_value={"contradiction": True, "confidence": 0.99, "rationale": "same subject different version"}):
             api.store_memory("runbooks", "Procedure version should be v2", source="test")
 
         os.environ["OCMEMOG_GOVERNANCE_AUTORESOLVE_ALLOW_BUCKETS"] = "knowledge"

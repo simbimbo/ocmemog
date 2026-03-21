@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 from ocmemog.sidecar import app
-from brain.runtime.memory import api, provenance, store
+from ocmemog.runtime.memory import api, provenance, store
 
 
 class DuplicateCandidateTests(unittest.TestCase):

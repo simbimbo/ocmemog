@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from brain.runtime.memory import api, retrieval, store
+from ocmemog.runtime.memory import api, retrieval, store
 
 
 class HybridRetrievalTests(unittest.TestCase):
@@ -23,7 +23,7 @@ class HybridRetrievalTests(unittest.TestCase):
         first = api.store_memory("knowledge", "fortigate edge baseline hardening", source="test")
         second = api.store_memory("knowledge", "management plane lockdown and admin isolation", source="test")
 
-        with mock.patch("brain.runtime.memory.vector_index.search_memory", return_value=[
+        with mock.patch("ocmemog.runtime.memory.vector_index.search_memory", return_value=[
             {"source_type": "knowledge", "source_id": str(second), "score": 0.88},
             {"source_type": "knowledge", "source_id": str(first), "score": 0.12},
         ]):
@@ -40,7 +40,7 @@ class HybridRetrievalTests(unittest.TestCase):
     def test_exposes_selection_reason_and_signal_breakdown(self) -> None:
         row_id = api.store_memory("knowledge", "checkpoint expansion should stay enabled", source="test")
 
-        with mock.patch("brain.runtime.memory.vector_index.search_memory", return_value=[
+        with mock.patch("ocmemog.runtime.memory.vector_index.search_memory", return_value=[
             {"source_type": "knowledge", "source_id": str(row_id), "score": 0.91},
         ]):
             results = retrieval.retrieve("checkpoint expansion", limit=5, categories=["knowledge"])

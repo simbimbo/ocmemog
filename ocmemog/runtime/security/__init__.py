@@ -1,12 +1,8 @@
-"""ocmemog-native security namespace backed by the legacy brain runtime."""
+"""ocmemog-native security namespace."""
 
 from __future__ import annotations
 
-import importlib
-import sys
-
-
-redaction = importlib.import_module("brain.runtime.security.redaction")
-sys.modules.setdefault(__name__ + ".redaction", redaction)
+from . import redaction
 
 __all__ = ["redaction"]
+

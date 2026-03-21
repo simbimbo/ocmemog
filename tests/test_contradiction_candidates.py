@@ -6,7 +6,7 @@ import unittest
 from unittest import mock
 
 from ocmemog.sidecar import app
-from brain.runtime.memory import api, provenance, store
+from ocmemog.runtime.memory import api, provenance, store
 
 
 class ContradictionCandidateTests(unittest.TestCase):
@@ -25,7 +25,7 @@ class ContradictionCandidateTests(unittest.TestCase):
         second = api.store_memory("knowledge", "Gateway should run on port 17890", source="test")
         api.store_memory("knowledge", "Weather is sunny in Boston", source="test")
 
-        with mock.patch("brain.runtime.memory.api._model_contradiction_hint", return_value=None):
+        with mock.patch("ocmemog.runtime.memory.api._model_contradiction_hint", return_value=None):
             candidates = api.find_contradiction_candidates(f"knowledge:{first}", limit=5, min_signal=0.4, use_model=False)
 
         refs = [item["reference"] for item in candidates]
@@ -40,7 +40,7 @@ class ContradictionCandidateTests(unittest.TestCase):
         second = api.store_memory("knowledge", "Gateway should run on port 17890", source="test")
 
         with mock.patch(
-            "brain.runtime.memory.api._model_contradiction_hint",
+            "ocmemog.runtime.memory.api._model_contradiction_hint",
             return_value={"contradiction": True, "confidence": 0.91, "rationale": "same subject, different port"},
         ):
             result = app.memory_contradiction_candidates(

@@ -7,7 +7,7 @@ from ocmemog.runtime import config, model_router, state_store
 from ocmemog.runtime.instrumentation import emit_event
 from ocmemog.runtime.providers import provider_execute
 
-LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
+LOGFILE = state_store.report_log_path()
 _MODEL_CACHE: dict[str, Any] = {}
 
 

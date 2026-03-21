@@ -26,5 +26,9 @@ def reports_dir() -> Path:
     return storage_paths.reports_dir()
 
 
+def report_log_path() -> Path:
+    return storage_paths.report_log_path()
+
+
 def memory_db_path() -> Path:
     return storage_paths.memory_db_path()

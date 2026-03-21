@@ -135,7 +135,7 @@ def _row_value(row: Any, key: str, fallback_index: int | None = None) -> Any:
 
 
 def distill_experiences(limit: int = 10) -> List[Dict[str, Any]]:
-    emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_start", status="ok")
+    emit_event(state_store.report_log_path(), "brain_memory_distill_start", status="ok")
     conn = store.connect()
     rows = conn.execute(
         "SELECT id, task_id, outcome, source_module, metadata_json FROM experiences ORDER BY id DESC LIMIT ?",
@@ -171,10 +171,10 @@ def distill_experiences(limit: int = 10) -> List[Dict[str, Any]]:
         summary, _ = redaction.redact_text(summary)
         norm = _normalize(summary)
         if _reject_distilled_summary(summary, content):
-            emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_rejected", status="ok")
+            emit_event(state_store.report_log_path(), "brain_memory_distill_rejected", status="ok")
             continue
         if not norm or norm in seen:
-            emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_rejected", status="ok")
+            emit_event(state_store.report_log_path(), "brain_memory_distill_rejected", status="ok")
             continue
 
         seen.add(norm)
@@ -183,7 +183,7 @@ def distill_experiences(limit: int = 10) -> List[Dict[str, Any]]:
         ratio = len(summary) / max(1, len(content))
 
         if score <= 0.1:
-            emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_rejected", status="ok")
+            emit_event(state_store.report_log_path(), "brain_memory_distill_rejected", status="ok")
             continue
 
         candidate_metadata = provenance.normalize_metadata(
@@ -217,7 +217,7 @@ def distill_experiences(limit: int = 10) -> List[Dict[str, Any]]:
             "duplicate": candidate_result.get("duplicate"),
             "provenance": provenance.preview_from_metadata(candidate_metadata),
         })
-        emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_success", status="ok")
+        emit_event(state_store.report_log_path(), "brain_memory_distill_success", status="ok")
 
     return distilled
 
@@ -237,11 +237,11 @@ def distill_artifact(artifact: Dict[str, Any]) -> List[Dict[str, Any]]:
         summary = _heuristic_summary(text)
     summary, _ = redaction.redact_text(summary)
     if _reject_distilled_summary(summary, text):
-        emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_rejected", status="ok")
+        emit_event(state_store.report_log_path(), "brain_memory_distill_rejected", status="ok")
         return []
     norm = _normalize(summary)
     if not norm:
-        emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_rejected", status="ok")
+        emit_event(state_store.report_log_path(), "brain_memory_distill_rejected", status="ok")
         return []
 
     verification = _verification_points(text)
@@ -249,7 +249,7 @@ def distill_artifact(artifact: Dict[str, Any]) -> List[Dict[str, Any]]:
     ratio = len(summary) / max(1, len(text))
 
     if score <= 0.1:
-        emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_rejected", status="ok")
+        emit_event(state_store.report_log_path(), "brain_memory_distill_rejected", status="ok")
         return []
 
     artifact_metadata = provenance.normalize_metadata(
@@ -269,7 +269,7 @@ def distill_artifact(artifact: Dict[str, Any]) -> List[Dict[str, Any]]:
         metadata=artifact_metadata,
     )
 
-    emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_distill_success", status="ok")
+    emit_event(state_store.report_log_path(), "brain_memory_distill_success", status="ok")
     return [{
         "source_event_id": 0,
         "distilled_summary": summary,

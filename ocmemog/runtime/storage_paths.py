@@ -44,6 +44,19 @@ def reports_dir() -> Path:
     return path
 
 
+def report_log_path() -> Path:
+    override = _env_path("OCMEMOG_REPORT_LOG_PATH") or _env_path("BRAIN_REPORT_LOG_PATH")
+    if override:
+        override.parent.mkdir(parents=True, exist_ok=True)
+        return override
+    reports = reports_dir()
+    native = reports / "ocmemog_memory.log.jsonl"
+    legacy = reports / "brain_memory.log.jsonl"
+    if native.exists() or not legacy.exists():
+        return native
+    return legacy
+
+
 def memory_db_path() -> Path:
     override = _env_path("OCMEMOG_DB_PATH")
     if override:

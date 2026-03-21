@@ -6,7 +6,7 @@ from ocmemog.runtime import state_store
 from ocmemog.runtime.instrumentation import emit_event
 from ocmemog.runtime.memory import memory_taxonomy
 
-LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
+LOGFILE = state_store.report_log_path()
 
 
 def _cluster_key(record: Dict[str, object]) -> Tuple[str, str]:

@@ -5,7 +5,7 @@ from typing import Dict, List
 from ocmemog.runtime import state_store
 from ocmemog.runtime.instrumentation import emit_event
 
-LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
+LOGFILE = state_store.report_log_path()
 
 MEMORY_TYPES = [
     "episodic",

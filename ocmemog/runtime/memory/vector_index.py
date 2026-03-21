@@ -12,7 +12,7 @@ from ocmemog.runtime import state_store
 from ocmemog.runtime.instrumentation import emit_event
 from . import embedding_engine, memory_links, store
 
-LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
+LOGFILE = state_store.report_log_path()
 
 EMBEDDING_TABLES: tuple[str, ...] = tuple(store.MEMORY_TABLES)
 _REBUILD_LOCK = threading.Lock()

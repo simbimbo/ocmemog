@@ -41,7 +41,7 @@ def scan_freshness(
     limit: int = DEFAULT_LIMIT,
 ) -> Dict[str, Any]:
     emit_event(
-        state_store.reports_dir() / "brain_memory.log.jsonl",
+        state_store.report_log_path(),
         "brain_memory_freshness_scan_start",
         status="ok",
         stale_days=stale_days,
@@ -96,7 +96,7 @@ def scan_freshness(
             advisories.append(entry)
             refresh_candidates.append(entry)
     emit_event(
-        state_store.reports_dir() / "brain_memory.log.jsonl",
+        state_store.report_log_path(),
         "brain_memory_freshness_scan_complete",
         status="ok",
         advisory_count=len(advisories),

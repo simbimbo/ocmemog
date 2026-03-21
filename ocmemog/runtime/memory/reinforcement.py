@@ -23,7 +23,7 @@ def log_experience(
     ).fetchone()
     if row:
         conn.close()
-        emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_experience_duplicate", status="ok")
+        emit_event(state_store.report_log_path(), "brain_memory_experience_duplicate", status="ok")
         return {"experience_id": row[0], "duplicate": True}
 
     cur = conn.execute(
@@ -32,7 +32,7 @@ def log_experience(
     )
     conn.commit()
     conn.close()
-    emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_experience_logged", status="ok")
+    emit_event(state_store.report_log_path(), "brain_memory_experience_logged", status="ok")
     return {"experience_id": cur.lastrowid, "duplicate": False, "experience_type": experience_type, "source_module": source_module}
 
 

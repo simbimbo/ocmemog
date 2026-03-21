@@ -7,7 +7,7 @@ from ocmemog.runtime import state_store
 from ocmemog.runtime.instrumentation import emit_event
 from . import store
 
-LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
+LOGFILE = state_store.report_log_path()
 
 
 def _dedupe_memory_links(conn) -> None:

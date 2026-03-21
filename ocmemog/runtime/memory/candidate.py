@@ -11,7 +11,7 @@ from ocmemog.runtime.memory import provenance, store
 from ocmemog.runtime.instrumentation import emit_event
 from ocmemog.runtime import state_store
 
-LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
+LOGFILE = state_store.report_log_path()
 _NEAR_DUPLICATE_SIMILARITY = 0.85
 
 

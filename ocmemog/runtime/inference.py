@@ -11,7 +11,7 @@ from . import config, instrumentation, state_store
 
 __wrapped_from__ = "brain.runtime.inference"
 
-LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
+LOGFILE = state_store.report_log_path()
 
 
 def _infer_openai_compatible(

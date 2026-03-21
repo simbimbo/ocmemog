@@ -6,7 +6,7 @@ from ocmemog.runtime import state_store
 from ocmemog.runtime.instrumentation import emit_event
 from ocmemog.runtime.memory import freshness
 
-LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
+LOGFILE = state_store.report_log_path()
 
 
 def score_salience(record: Mapping[str, float]) -> Dict[str, float | bool]:

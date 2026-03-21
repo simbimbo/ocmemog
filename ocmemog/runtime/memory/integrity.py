@@ -10,7 +10,7 @@ EMBED_TABLES = tuple(store.MEMORY_TABLES)
 
 
 def run_integrity_check() -> Dict[str, Any]:
-    emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_integrity_start", status="ok")
+    emit_event(state_store.report_log_path(), "brain_memory_integrity_start", status="ok")
     conn = store.connect()
     issues: List[str] = []
     repairable: List[str] = []
@@ -35,7 +35,7 @@ def run_integrity_check() -> Dict[str, Any]:
     missing = required - tables
     if missing:
         issues.append(f"missing_tables:{','.join(sorted(missing))}")
-        emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_integrity_issue", status="warn")
+        emit_event(state_store.report_log_path(), "brain_memory_integrity_issue", status="warn")
 
     try:
         orphan = conn.execute(
@@ -43,7 +43,7 @@ def run_integrity_check() -> Dict[str, Any]:
         ).fetchone()[0]
         if orphan:
             issues.append(f"orphan_candidates:{orphan}")
-            emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_integrity_issue", status="warn")
+            emit_event(state_store.report_log_path(), "brain_memory_integrity_issue", status="warn")
     except Exception:
         pass
 
@@ -53,7 +53,7 @@ def run_integrity_check() -> Dict[str, Any]:
         ).fetchone()[0]
         if dup_groups:
             issues.append(f"duplicate_promotions:{dup_groups}")
-            emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_integrity_issue", status="warn")
+            emit_event(state_store.report_log_path(), "brain_memory_integrity_issue", status="warn")
     except Exception:
         pass
 
@@ -64,7 +64,7 @@ def run_integrity_check() -> Dict[str, Any]:
         if missing_ref:
             issues.append(f"missing_memory_reference:{missing_ref}")
             repairable.append("missing_memory_reference")
-            emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_integrity_issue", status="warn")
+            emit_event(state_store.report_log_path(), "brain_memory_integrity_issue", status="warn")
     except Exception:
         pass
 
@@ -105,12 +105,12 @@ def run_integrity_check() -> Dict[str, Any]:
 
     if missing_vectors:
         issues.append(f"vector_missing:{missing_vectors}")
-        emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_vector_integrity_issue", status="warn")
+        emit_event(state_store.report_log_path(), "brain_memory_vector_integrity_issue", status="warn")
 
     if orphan_vectors:
         issues.append(f"vector_orphan:{orphan_vectors}")
         repairable.append("vector_orphan")
-        emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_vector_integrity_issue", status="warn")
+        emit_event(state_store.report_log_path(), "brain_memory_vector_integrity_issue", status="warn")
 
     try:
         quick_check = conn.execute("PRAGMA quick_check(1)").fetchone()
@@ -118,7 +118,7 @@ def run_integrity_check() -> Dict[str, Any]:
         if quick_value.lower() != "ok":
             sqlite_ok = False
             issues.append(f"sqlite_quick_check:{quick_value}")
-            emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_integrity_issue", status="warn")
+            emit_event(state_store.report_log_path(), "brain_memory_integrity_issue", status="warn")
     except Exception:
         sqlite_ok = False
 
@@ -135,7 +135,7 @@ def run_integrity_check() -> Dict[str, Any]:
             break
 
     conn.close()
-    emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_integrity_complete", status="ok")
+    emit_event(state_store.report_log_path(), "brain_memory_integrity_complete", status="ok")
     return {
         "issues": issues,
         "ok": len(issues) == 0 and sqlite_ok,
@@ -190,7 +190,7 @@ def repair_integrity() -> Dict[str, Any]:
     if int(result.get("removed_orphan_vectors") or 0) > 0:
         repaired.append(f"vector_orphan:{int(result['removed_orphan_vectors'])}")
         emit_event(
-            state_store.reports_dir() / "brain_memory.log.jsonl",
+            state_store.report_log_path(),
             "brain_memory_integrity_repair",
             status="ok",
             repaired="vector_orphan",
@@ -199,7 +199,7 @@ def repair_integrity() -> Dict[str, Any]:
     if int(result.get("repaired_missing_memory_references") or 0) > 0:
         repaired.append(f"missing_memory_reference:{int(result['repaired_missing_memory_references'])}")
         emit_event(
-            state_store.reports_dir() / "brain_memory.log.jsonl",
+            state_store.report_log_path(),
             "brain_memory_integrity_repair",
             status="ok",
             repaired="missing_memory_reference",

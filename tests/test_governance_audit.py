@@ -22,7 +22,7 @@ class GovernanceAuditTests(unittest.TestCase):
         store._SCHEMA_READY = False
 
     def test_governance_audit_returns_recent_events(self) -> None:
-        log = state_store.reports_dir() / "brain_memory.log.jsonl"
+        log = state_store.report_log_path()
         emit_event(log, "store_memory_governance_candidates", status="ok", reference="knowledge:1")
         emit_event(log, "governance_auto_resolve", status="ok", applied=1)
 

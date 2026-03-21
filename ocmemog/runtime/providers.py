@@ -10,7 +10,7 @@ from . import config, instrumentation, state_store
 
 __wrapped_from__ = "brain.runtime.providers"
 
-LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
+LOGFILE = state_store.report_log_path()
 
 
 class ProviderExecute:

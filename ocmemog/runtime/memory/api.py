@@ -66,7 +66,7 @@ def _governance_candidates_significant(content: str) -> bool:
 
 
 def _emit(event: str) -> None:
-    emit_event(store.state_store.reports_dir() / "brain_memory.log.jsonl", event, status="ok")
+    emit_event(store.state_store.report_log_path(), event, status="ok")
 
 
 def record_event(event_type: str, payload: str, *, source: str | None = None) -> None:
@@ -318,7 +318,7 @@ def _auto_attach_governance_candidates(reference: str, *, use_model: bool = True
     }
     provenance.update_memory_metadata(reference, payload)
     emit_event(
-        store.state_store.reports_dir() / "brain_memory.log.jsonl",
+        store.state_store.report_log_path(),
         "store_memory_governance_candidates",
         status="ok",
         reference=reference,
@@ -374,11 +374,11 @@ def store_memory(
 
         vector_index.insert_memory(last_row_id, content, 1.0, source_type=table)
     except Exception as exc:
-        emit_event(store.state_store.reports_dir() / "brain_memory.log.jsonl", "store_memory_index_failed", status="error", error=str(exc), memory_type=table)
+        emit_event(store.state_store.report_log_path(), "store_memory_index_failed", status="error", error=str(exc), memory_type=table)
     try:
         _auto_attach_governance_candidates(reference, use_model=_auto_attach_model_hints_enabled())
     except Exception as exc:
-        emit_event(store.state_store.reports_dir() / "brain_memory.log.jsonl", "store_memory_governance_failed", status="error", error=str(exc), reference=reference)
+        emit_event(store.state_store.report_log_path(), "store_memory_governance_failed", status="error", error=str(exc), reference=reference)
     _emit("store_memory")
     return last_row_id
 
@@ -1158,7 +1158,7 @@ def governance_auto_resolve(
         })
 
     emit_event(
-        store.state_store.reports_dir() / "brain_memory.log.jsonl",
+        store.state_store.report_log_path(),
         "governance_auto_resolve",
         status="ok",
         dry_run=bool(dry_run),
@@ -1188,7 +1188,7 @@ def governance_auto_resolve(
 
 
 def governance_audit(*, limit: int = 100, kinds: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-    logfile = store.state_store.reports_dir() / "brain_memory.log.jsonl"
+    logfile = store.state_store.report_log_path()
     if not logfile.exists():
         return []
     wanted = {k.strip() for k in (kinds or []) if k.strip()}

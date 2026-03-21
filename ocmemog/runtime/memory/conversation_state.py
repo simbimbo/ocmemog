@@ -10,7 +10,7 @@ from ocmemog.runtime.instrumentation import emit_event
 from ocmemog.runtime.memory import memory_links, memory_salience, provenance, store, unresolved_state
 
 _ALLOWED_MEMORY_TABLES = {*store.MEMORY_TABLES, "candidates", "promotions"}
-LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
+LOGFILE = state_store.report_log_path()
 _COMMITMENT_RE = re.compile(
     r"\b(i(?:'m| am)? going to|i will|i'll|let me|i can(?:\s+now)?|next,? i(?:'ll| will)|i should be able to)\b",
     re.IGNORECASE,

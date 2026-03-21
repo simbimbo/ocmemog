@@ -1605,7 +1605,7 @@ def metrics() -> dict[str, Any]:
 
 
 def _event_stream():
-    path = state_store.reports_dir() / "brain_memory.log.jsonl"
+    path = state_store.report_log_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
         path.write_text("")
@@ -1625,7 +1625,7 @@ def events() -> StreamingResponse:
 
 
 def _tail_events(limit: int = 50) -> str:
-    path = state_store.reports_dir() / "brain_memory.log.jsonl"
+    path = state_store.report_log_path()
     if not path.exists():
         return ""
     try:

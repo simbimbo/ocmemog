@@ -88,8 +88,8 @@ def _governance_state(metadata: Dict[str, Any]) -> tuple[str, Dict[str, Any]]:
 
 
 def retrieve(prompt: str, limit: int = 5, categories: Iterable[str] | None = None) -> Dict[str, List[Dict[str, Any]]]:
-    emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_retrieval_start", status="ok")
-    emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_retrieval_rank_start", status="ok")
+    emit_event(state_store.report_log_path(), "brain_memory_retrieval_start", status="ok")
+    emit_event(state_store.report_log_path(), "brain_memory_retrieval_rank_start", status="ok")
 
     conn = store.connect()
     results = _empty_results()
@@ -178,8 +178,8 @@ def retrieve(prompt: str, limit: int = 5, categories: Iterable[str] | None = Non
         results[table] = sorted(candidates.values(), key=lambda x: x["score"], reverse=True)[:limit]
 
     conn.close()
-    emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_retrieval_rank_complete", status="ok")
-    emit_event(state_store.reports_dir() / "brain_memory.log.jsonl", "brain_memory_retrieval_complete", status="ok")
+    emit_event(state_store.report_log_path(), "brain_memory_retrieval_rank_complete", status="ok")
+    emit_event(state_store.report_log_path(), "brain_memory_retrieval_complete", status="ok")
     return results
 
 

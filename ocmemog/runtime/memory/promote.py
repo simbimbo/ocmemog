@@ -7,7 +7,7 @@ from ocmemog.runtime.instrumentation import emit_event
 from ocmemog.runtime import config, state_store
 from ocmemog.runtime.memory import provenance, store
 
-LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
+LOGFILE = state_store.report_log_path()
 
 _PREFERENCE_PATTERNS = (
     "prefer",

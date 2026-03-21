@@ -18,6 +18,7 @@ The release gate is now codified by:
 - [ ] Install test deps for sidecar route tests: `python3 -m pip install -r requirements-test.txt`
 - [ ] `./scripts/ocmemog-release-check.sh`
 - [ ] Verify `tests/test_doctor.py` still passes for doctor health surfaces if you changed check coverage
+- [ ] If testing against a protected sidecar, confirm auth-bearing requests succeed (`x-ocmemog-token` or `Authorization: Bearer ...`)
 - [ ] `npm pack --dry-run`
 
 The `ocmemog-release-check` command enforces strict doctor mode for repo-locally safe checks and runs a focused pytest subset.

@@ -71,8 +71,11 @@ The doctor command currently checks:
 ## Optional: transcript watcher (auto-ingest)
 
 ```bash
-# defaults to ~/.openclaw/workspace/memory/transcripts if not set
+# defaults:
+# - transcript mode: ~/.openclaw/workspace/memory/transcripts
+# - session mode: ~/.openclaw/agents/main/sessions (used when OCMEMOG_TRANSCRIPT_DIR is unset)
 export OCMEMOG_TRANSCRIPT_DIR="$HOME/.openclaw/workspace/memory/transcripts"
+export OCMEMOG_SESSION_DIR="$HOME/.openclaw/agents/main/sessions"
 ./scripts/ocmemog-transcript-watcher.sh
 ```
 
@@ -114,12 +117,21 @@ Optional environment variables:
 - `BRAIN_EMBED_MODEL_PROVIDER` (`local-openai` to use the local llama.cpp embedding endpoint; `openai` remains available for hosted embeddings)
 - `OCMEMOG_TRANSCRIPT_WATCHER` (`true` to auto-start transcript watcher inside the sidecar)
 - `OCMEMOG_TRANSCRIPT_ROOTS` (comma-separated allowed roots for transcript context retrieval; default: `~/.openclaw/workspace/memory`)
+- `OCMEMOG_TRANSCRIPT_DIR` (default: `~/.openclaw/workspace/memory/transcripts`)
+- `OCMEMOG_SESSION_DIR` (default: `~/.openclaw/agents/main/sessions`)
+- `OCMEMOG_TRANSCRIPT_POLL_SECONDS` (poll interval for file/session watcher; default: `30`, or `120` in battery mode)
+- `OCMEMOG_INGEST_BATCH_SECONDS` (max lines per watcher batch; default: `30`, or `120` in battery mode)
+- `OCMEMOG_INGEST_BATCH_MAX` (max watcher batches before yield; default: `25`, or `10` in battery mode)
+- `OCMEMOG_SESSION_GLOB` (default file glob for session sources: `*.jsonl`)
+- `OCMEMOG_TRANSCRIPT_GLOB` (default file glob for transcripts: `*.log`)
 - `OCMEMOG_INGEST_ASYNC_WORKER` (`true` to keep async ingest queue processing enabled; defaults to `true`)
 - `OCMEMOG_INGEST_ASYNC_POLL_SECONDS` (`5` by default)
 - `OCMEMOG_INGEST_ASYNC_BATCH_MAX` (`25` by default)
+- `OCMEMOG_INGEST_ENDPOINT` (default: `http://127.0.0.1:17891/memory/ingest_async`)
 - `OCMEMOG_SHUTDOWN_DRAIN_QUEUE` (`true` to drain remaining queue entries during shutdown; defaults to `false`)
 - `OCMEMOG_WORKER_SHUTDOWN_TIMEOUT_SECONDS` (`0.35` by default)
 - `OCMEMOG_SHUTDOWN_DUMP_THREADS` (`true` to include worker thread dump output during shutdown joins; defaults to `false`)
+- `OCMEMOG_SHUTDOWN_TIMING` (`true` enables shutdown timing logs; defaults to `true`)
 - `OCMEMOG_API_TOKEN` (optional; if set, requests must include `x-ocmemog-token` or `Authorization: Bearer ...`)
 - `OCMEMOG_AUTO_HYDRATION` (`true` to re-enable prompt-time continuity prepending; defaults to `false` as a safety guard until the host runtime is verified not to persist prepended context into session history)
 - `OCMEMOG_LAPTOP_MODE` (`auto` by default; on macOS battery power this slows watcher polling, reduces ingest batch size, and disables sentiment reinforcement unless explicitly overridden)
@@ -275,7 +287,7 @@ What is working now:
 Current limitations before broader public rollout:
 - Some advanced inference- and embedding-dependent paths still depend on environment configuration and may degrade to simpler local behavior if provider access is unavailable
 - Packaging and install UX are aimed primarily at power users and local developers today
-- Public release/distribution metadata is still being tightened up
+- Distribution and release metadata are now tracked in `package.json`, `CHANGELOG.md`, and the release check workflow.
 
 When a richer path is unavailable, the sidecar is designed to fail soft with explicit warnings rather than crash.
  soft with explicit warnings rather than crash.

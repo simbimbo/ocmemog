@@ -22,7 +22,7 @@ bash -n scripts/install-ocmemog.sh
 bash -n scripts/ocmemog-install.sh
 bash -n scripts/ocmemog-sidecar.sh
 ./scripts/install-ocmemog.sh --help
-bash -n scripts/ocmemog-doctor.py
+python -m compileall scripts/ocmemog-doctor.py
 ./scripts/ocmemog-release-check.sh
 python -m pytest -q tests/test_sidecar_routes.py
 python -m unittest tests.test_regressions

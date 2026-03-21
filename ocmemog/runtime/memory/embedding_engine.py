@@ -58,7 +58,11 @@ def generate_embedding(text: str) -> List[float] | None:
     if not isinstance(text, str) or not text.strip():
         emit_event(LOGFILE, "brain_embedding_failed", status="error", reason="empty_text")
         return None
-    local_model = str(getattr(config, "BRAIN_EMBED_MODEL_LOCAL", "simple") or "")
+    local_model = str(
+        getattr(config, "OCMEMOG_EMBED_MODEL_LOCAL", "")
+        or getattr(config, "BRAIN_EMBED_MODEL_LOCAL", "simple")
+        or ""
+    )
     provider_model = getattr(config, "BRAIN_EMBED_MODEL_PROVIDER", "")
 
     if provider_model:

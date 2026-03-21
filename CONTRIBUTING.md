@@ -10,7 +10,7 @@ cd ocmemog
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-test.txt
 ```
 
 ## Useful checks
@@ -20,7 +20,11 @@ Run the main local validation steps before opening a PR:
 ```bash
 bash -n scripts/install-ocmemog.sh
 bash -n scripts/ocmemog-install.sh
+bash -n scripts/ocmemog-sidecar.sh
 ./scripts/install-ocmemog.sh --help
+bash -n scripts/ocmemog-doctor.py
+./scripts/ocmemog-release-check.sh
+python -m pytest -q tests/test_sidecar_routes.py
 python -m unittest tests.test_regressions
 npm pack --dry-run
 ```

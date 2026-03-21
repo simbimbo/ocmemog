@@ -1,0 +1,4 @@
+# Runtime dependencies plus the explicit test-only requirements.
+-r requirements.txt
+pytest>=8,<9
+httpx>=0.28,<1

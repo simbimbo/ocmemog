@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+TEST_REQUIREMENTS_FILE="${TEST_REQUIREMENTS_FILE:-requirements-test.txt}"
 
 PYTHON_BIN="${OCMEMOG_PYTHON_BIN:-}"
 if [[ -z "${PYTHON_BIN}" ]]; then
@@ -86,7 +87,7 @@ if missing:
 PY
 then
   echo "ERROR: pytest and/or httpx missing. Install with:"
-  echo "  $PYTHON_BIN -m pip install -e \".[test]\""
+  echo "  $PYTHON_BIN -m pip install -r \"$ROOT_DIR/$TEST_REQUIREMENTS_FILE\""
   exit 1
 fi
 

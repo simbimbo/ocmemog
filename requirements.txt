@@ -1,2 +1,4 @@
+## Runtime dependency set for the sidecar and local bootstrap.
+# Install with: python -m pip install -r requirements.txt
 fastapi>=0.115,<1
 uvicorn[standard]>=0.32,<1

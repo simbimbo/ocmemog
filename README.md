@@ -38,6 +38,15 @@ pip install -r requirements.txt
 # http://127.0.0.1:17891/dashboard
 ```
 
+For local development and CI-style test runs, install test dependencies as well:
+
+```bash
+cd /path/to/ocmemog
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements-test.txt
+```
+
 ### Run the doctor check
 
 ```bash
@@ -205,6 +214,8 @@ Run the release gate first:
 ```bash
 ./scripts/ocmemog-release-check.sh
 ```
+
+This command is the canonical pre-release and CI validation path.
 
 Example ClawHub publish command (update version + changelog first; do not reuse stale release text blindly):
 

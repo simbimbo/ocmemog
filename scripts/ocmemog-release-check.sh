@@ -21,6 +21,8 @@ fi
 TEST_FILE_ARGS=(
   tests/test_sidecar_routes.py
   tests/test_regressions.py
+  tests/test_pondering_engine.py
+  tests/test_doctor.py
   tests/test_governance_queue.py
   tests/test_promotion_governance_integration.py
   tests/test_hybrid_retrieval.py

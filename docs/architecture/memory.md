@@ -2,7 +2,7 @@
 
 ## What this repo actually ships
 
-ocmemog vendors a subset of brAIn's memory package and wraps it with a small FastAPI sidecar. The authoritative local implementation lives in:
+ocmemog ships a repo-local memory implementation with a FastAPI sidecar, while still carrying some compatibility residue from earlier brAIn-derived runtime surfaces. The authoritative local implementation lives in:
 
 - `ocmemog/runtime/memory/store.py` for the main SQLite schema
 - `ocmemog/runtime/memory/retrieval.py` for keyword-first retrieval

@@ -11,6 +11,15 @@ LOGFILE = state_store.reports_dir() / "brain_memory.log.jsonl"
 _MODEL_CACHE: dict[str, Any] = {}
 
 
+def _local_embedding(text: str, local_model: str) -> List[float] | None:
+    if local_model in {"simple", "hash"}:
+        return _simple_embedding(text)
+    model = _load_sentence_transformer(local_model)
+    if model is None:
+        return None
+    return [float(x) for x in model.encode([text])[0]]
+
+
 def _simple_embedding(text: str, dims: int = 8) -> List[float]:
     digest = hashlib.sha256(text.encode("utf-8")).digest()
     values = [digest[i] / 255.0 for i in range(dims)]
@@ -49,7 +58,7 @@ def generate_embedding(text: str) -> List[float] | None:
     if not isinstance(text, str) or not text.strip():
         emit_event(LOGFILE, "brain_embedding_failed", status="error", reason="empty_text")
         return None
-    local_model = getattr(config, "BRAIN_EMBED_MODEL_LOCAL", "simple")
+    local_model = str(getattr(config, "BRAIN_EMBED_MODEL_LOCAL", "simple") or "")
     provider_model = getattr(config, "BRAIN_EMBED_MODEL_PROVIDER", "")
 
     if provider_model:
@@ -61,7 +70,7 @@ def generate_embedding(text: str) -> List[float] | None:
                 "brain_embedding_failed",
                 status="error",
                 reason="provider_timeout",
-                provider="provider",
+                provider=provider_model,
                 model=provider_model,
                 error=str(exc),
             )
@@ -74,11 +83,21 @@ def generate_embedding(text: str) -> List[float] | None:
                 "brain_embedding_failed",
                 status="error",
                 reason="provider_error",
-                provider="provider",
+                provider=provider_model,
                 model=provider_model,
                 error=str(exc),
             )
             embedding, provider_meta = None, {}
+        if not embedding:
+            emit_event(
+                LOGFILE,
+                "brain_embedding_failed",
+                status="error",
+                reason="provider_no_embedding",
+                provider=provider_model,
+                model=provider_meta.get("model", ""),
+                fallback="local" if local_model else "disabled",
+            )
         if embedding:
             emit_event(
                 LOGFILE,
@@ -100,17 +119,11 @@ def generate_embedding(text: str) -> List[float] | None:
             return embedding
 
     if local_model:
-        if local_model in {"simple", "hash"}:
-            embedding = _simple_embedding(text)
-            emit_event(LOGFILE, "brain_embedding_complete", status="ok", provider="local_simple")
-            emit_event(LOGFILE, "brain_embedding_generated", status="ok", provider="local_simple", dimensions=len(embedding))
+        embedding = _local_embedding(text, local_model)
+        if embedding:
+            provider = "local_simple" if local_model in {"simple", "hash"} else "local_model"
+            emit_event(LOGFILE, "brain_embedding_complete", status="ok", provider=provider)
+            emit_event(LOGFILE, "brain_embedding_generated", status="ok", provider=provider, dimensions=len(embedding))
             return embedding
-        model = _load_sentence_transformer(local_model)
-        if model is not None:
-            embedding = model.encode([text])[0]
-            emit_event(LOGFILE, "brain_embedding_complete", status="ok", provider="local_model")
-            vector = [float(x) for x in embedding]
-            emit_event(LOGFILE, "brain_embedding_generated", status="ok", provider="local_model", dimensions=len(vector))
-            return vector
     emit_event(LOGFILE, "brain_embedding_failed", status="error", reason="no_embedding")
     return None

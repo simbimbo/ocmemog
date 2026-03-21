@@ -407,6 +407,62 @@ class OcmemogRegressionTests(unittest.TestCase):
         self.assertEqual(vector, [0.25, 0.5])
         provider_mock.assert_called_once()
 
+    def test_provider_error_falls_back_to_local_simple(self) -> None:
+        with mock.patch.object(embedding_engine.config, "BRAIN_EMBED_MODEL_PROVIDER", "openai"), \
+             mock.patch.object(embedding_engine.config, "BRAIN_EMBED_MODEL_LOCAL", "simple"), \
+             mock.patch("ocmemog.runtime.memory.embedding_engine._provider_embedding", side_effect=RuntimeError("provider failed")) as provider_mock, \
+             mock.patch("ocmemog.runtime.memory.embedding_engine._simple_embedding", return_value=[0.25, 0.5]) as local_mock, \
+             mock.patch("ocmemog.runtime.memory.embedding_engine.emit_event") as emit_mock:
+            vector = embedding_engine.generate_embedding("hello world")
+
+        self.assertEqual(vector, [0.25, 0.5])
+        provider_mock.assert_called_once()
+        local_mock.assert_called_once_with("hello world")
+        self.assertTrue(any(
+            call.args[1] == "brain_embedding_failed" and call.kwargs.get("reason") == "provider_error"
+            for call in emit_mock.call_args_list
+        ))
+
+    def test_provider_timeout_falls_back_to_local_simple(self) -> None:
+        with mock.patch.object(embedding_engine.config, "BRAIN_EMBED_MODEL_PROVIDER", "openai"), \
+             mock.patch.object(embedding_engine.config, "BRAIN_EMBED_MODEL_LOCAL", "simple"), \
+             mock.patch("ocmemog.runtime.memory.embedding_engine._provider_embedding", side_effect=TimeoutError("provider timed out")) as provider_mock, \
+             mock.patch("ocmemog.runtime.memory.embedding_engine._simple_embedding", return_value=[0.75, 0.25]) as local_mock, \
+             mock.patch("ocmemog.runtime.memory.embedding_engine.emit_event") as emit_mock:
+            vector = embedding_engine.generate_embedding("timeout test")
+
+        self.assertEqual(vector, [0.75, 0.25])
+        provider_mock.assert_called_once()
+        local_mock.assert_called_once_with("timeout test")
+        self.assertTrue(any(
+            call.args[1] == "brain_embedding_failed" and call.kwargs.get("reason") == "provider_timeout"
+            for call in emit_mock.call_args_list
+        ))
+
+    def test_provider_timeout_without_local_fallback_rethrows(self) -> None:
+        with mock.patch.object(embedding_engine.config, "BRAIN_EMBED_MODEL_PROVIDER", "openai"), \
+             mock.patch.object(embedding_engine.config, "BRAIN_EMBED_MODEL_LOCAL", ""), \
+             mock.patch("ocmemog.runtime.memory.embedding_engine._provider_embedding", side_effect=TimeoutError("provider timed out")), \
+             mock.patch("ocmemog.runtime.memory.embedding_engine.emit_event") as emit_mock:
+            with self.assertRaises(TimeoutError):
+                embedding_engine.generate_embedding("timeout test")
+
+        self.assertTrue(any(
+            call.args[1] == "brain_embedding_failed" and call.kwargs.get("reason") == "provider_timeout"
+            for call in emit_mock.call_args_list
+        ))
+
+    def test_provider_embedding_model_absence_skips_provider_fallbacks(self) -> None:
+        with mock.patch.object(embedding_engine.config, "BRAIN_EMBED_MODEL_PROVIDER", ""), \
+             mock.patch.object(embedding_engine.config, "BRAIN_EMBED_MODEL_LOCAL", "simple"), \
+             mock.patch("ocmemog.runtime.memory.embedding_engine._provider_embedding") as provider_mock, \
+             mock.patch("ocmemog.runtime.memory.embedding_engine._simple_embedding", return_value=[0.1, 0.2, 0.3]) as local_mock:
+            vector = embedding_engine.generate_embedding("hello world")
+
+        self.assertEqual(vector, [0.1, 0.2, 0.3])
+        provider_mock.assert_not_called()
+        local_mock.assert_called_once_with("hello world")
+
     def test_embedding_input_strips_html_and_falls_back_when_empty(self) -> None:
         value = vector_index._embedding_input("<div> </div>")
         self.assertEqual(value, "<div> </div>")

@@ -213,16 +213,16 @@ launchctl bootstrap gui/$UID scripts/launchagents/com.openclaw.ocmemog.guard.pli
 
 ## Recent changes
 
-### 0.1.11 (current main)
+### 0.1.12 (current main)
 
-Current main includes the recent memory-quality, governance, and watcher hardening work, including:
-- transcript watcher duplicate-ingest prevention
-- watcher auth propagation for `OCMEMOG_API_TOKEN`
-- persisted queue stats restored on startup
-- durable watcher error logging
-- multi-part text preservation for session content arrays
-- retry-safe session/transcript handling with transcript provenance preserved
-- pytest declared as a repo test extra and available in the local project venv
+Current main now includes:
+- integrated release-gate validation with a fresh-state memory contract proof
+- live sidecar smoke checks for `/memory/ingest`, `/memory/search`, `/memory/get`, and `/conversation/hydrate`
+- hardened async ingest/postprocess handling and queue-health validation
+- native-first `ocmemog` config, DB, and report-log naming with legacy fallback support
+- sidecar/package version alignment and regression coverage for checkpoint self-heal behavior
+- major collapse of the legacy `brain/runtime/*` implementation surface into thin compatibility shims
+- removal of orphan legacy memory side-modules and stale architecture references to retired side DBs
 
 ## Release prep / publish
 

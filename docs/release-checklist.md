@@ -25,7 +25,7 @@ The release gate is now codified by:
 - [ ] If testing against a protected sidecar, confirm auth-bearing requests succeed (`x-ocmemog-token` or `Authorization: Bearer ...`)
 - [ ] `npm pack --dry-run`
 
-The `ocmemog-release-check` command enforces strict doctor mode for repo-locally safe checks, runs a focused pytest subset, validates explicit sidecar route behavior, runs live `/healthz`, `/memory/ingest`, and `/memory/search` smoke checks, and executes a full integrated proof in fresh state.
+The `ocmemog-release-check` command enforces strict doctor mode for repo-locally safe checks, runs a focused pytest subset, validates explicit sidecar route behavior, runs live `/healthz`, `/memory/ingest`, `/memory/search`, `/memory/get`, and `/conversation/hydrate` smoke checks, and executes a full integrated proof in fresh state.
 Legacy-state verification is optional and can be enabled with `OCMEMOG_RELEASE_LEGACY_ENDPOINT`.
 GitHub CI runs the same release check command so local and CI validation remain aligned.
 

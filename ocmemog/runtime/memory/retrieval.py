@@ -87,7 +87,13 @@ def _governance_state(metadata: Dict[str, Any]) -> tuple[str, Dict[str, Any]]:
     return str(state["memory_status"] or "active"), state
 
 
-def retrieve(prompt: str, limit: int = 5, categories: Iterable[str] | None = None) -> Dict[str, List[Dict[str, Any]]]:
+def retrieve(
+    prompt: str,
+    limit: int = 5,
+    categories: Iterable[str] | None = None,
+    *,
+    skip_vector_provider: bool = False,
+) -> Dict[str, List[Dict[str, Any]]]:
     emit_event(state_store.report_log_path(), "brain_memory_retrieval_start", status="ok")
     emit_event(state_store.report_log_path(), "brain_memory_retrieval_rank_start", status="ok")
 
@@ -112,7 +118,12 @@ def retrieve(prompt: str, limit: int = 5, categories: Iterable[str] | None = Non
 
     semantic_scores: Dict[str, float] = {}
     if prompt.strip():
-        for item in vector_index.search_memory(prompt, limit=max(limit * 6, 20)):
+        for item in vector_index.search_memory(
+            prompt,
+            limit=max(limit * 6, 20),
+            skip_provider=skip_vector_provider,
+            source_types=selected_categories,
+        ):
             source_type = item.get("source_type") or "knowledge"
             source_id = str(item.get("source_id") or "")
             if source_type in selected_categories and source_id:
@@ -188,6 +199,7 @@ def retrieve_for_queries(
     *,
     limit: int = 5,
     categories: Iterable[str] | None = None,
+    skip_vector_provider: bool = False,
 ) -> Dict[str, List[Dict[str, Any]]]:
     merged = _empty_results()
     seen_refs = {bucket: set() for bucket in MEMORY_BUCKETS}
@@ -198,7 +210,7 @@ def retrieve_for_queries(
         return retrieve("", limit=limit, categories=selected_categories)
 
     for query in normalized_queries:
-        partial = retrieve(query, limit=limit, categories=selected_categories)
+        partial = retrieve(query, limit=limit, categories=selected_categories, skip_vector_provider=skip_vector_provider)
         for bucket in selected_categories:
             for item in partial.get(bucket, []):
                 ref = item.get("memory_reference")

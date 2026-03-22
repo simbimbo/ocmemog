@@ -36,6 +36,21 @@ def _sanitize(text: str) -> str:
     return redacted
 
 
+def _parse_memory_reference(reference: str) -> tuple[str, str] | None:
+    if ":" not in str(reference or ""):
+        return None
+    table, identifier = str(reference).split(":", 1)
+    table = table.strip()
+    identifier = identifier.strip()
+    if not table or not identifier:
+        return None
+    try:
+        int(identifier)
+    except Exception:
+        return None
+    return table, identifier
+
+
 def _auto_attach_model_hints_enabled() -> bool:
     return os.environ.get("OCMEMOG_AUTO_ATTACH_GOVERNANCE_USE_MODEL_HINTS", "true").strip().lower() in {"1", "true", "yes"}
 
@@ -340,6 +355,8 @@ def store_memory(
     source: str | None = None,
     metadata: Dict[str, Any] | None = None,
     timestamp: str | None = None,
+    post_process: bool = True,
+    skip_embedding_provider: bool = False,
 ) -> int:
     content = _sanitize(content)
     table = memory_type.strip().lower() if memory_type else "knowledge"
@@ -369,18 +386,110 @@ def store_memory(
     last_row_id = store.submit_write(_write, timeout=30.0)
     reference = f"{table}:{last_row_id}"
     provenance.apply_links(reference, normalized_metadata)
-    try:
-        from . import vector_index
+    if post_process:
+        try:
+            from . import vector_index
 
-        vector_index.insert_memory(last_row_id, content, 1.0, source_type=table)
-    except Exception as exc:
-        emit_event(store.state_store.report_log_path(), "store_memory_index_failed", status="error", error=str(exc), memory_type=table)
-    try:
-        _auto_attach_governance_candidates(reference, use_model=_auto_attach_model_hints_enabled())
-    except Exception as exc:
-        emit_event(store.state_store.report_log_path(), "store_memory_governance_failed", status="error", error=str(exc), reference=reference)
+            vector_index.insert_memory(last_row_id, content, 1.0, source_type=table, skip_provider=skip_embedding_provider)
+        except Exception as exc:
+            emit_event(store.state_store.report_log_path(), "store_memory_index_failed", status="error", error=str(exc), memory_type=table)
+        try:
+            _auto_attach_governance_candidates(reference, use_model=_auto_attach_model_hints_enabled())
+        except Exception as exc:
+            emit_event(
+                store.state_store.report_log_path(),
+                "store_memory_governance_failed",
+                status="error",
+                error=str(exc),
+                reference=reference,
+            )
     _emit("store_memory")
     return last_row_id
+
+
+def postprocess_stored_memory(
+    reference: str,
+    *,
+    run_embedding: bool = True,
+    run_governance: bool = True,
+    skip_embedding_provider: bool = False,
+) -> Dict[str, Any]:
+    parsed = _parse_memory_reference(reference)
+    if not parsed:
+        emit_event(
+            store.state_store.report_log_path(),
+            "store_memory_postprocess_skipped",
+            status="error",
+            reason="invalid_reference",
+            reference=reference,
+        )
+        return {"ok": False, "reference": reference, "error": "invalid_reference"}
+    table, identifier = parsed
+    if table not in set(store.MEMORY_TABLES):
+        emit_event(
+            store.state_store.report_log_path(),
+            "store_memory_postprocess_skipped",
+            status="error",
+            reason="invalid_table",
+            reference=reference,
+            table=table,
+        )
+        return {"ok": False, "reference": reference, "error": "invalid_table"}
+
+    row = provenance.fetch_reference(reference)
+    if not row:
+        emit_event(
+            store.state_store.report_log_path(),
+            "store_memory_postprocess_skipped",
+            status="error",
+            reason="missing_memory",
+            reference=reference,
+        )
+        return {"ok": False, "reference": reference, "error": "missing_memory"}
+
+    content = str(row.get("content") or "")
+    memory_id = int(identifier)
+    if run_embedding:
+        try:
+            from . import vector_index
+
+            vector_index.insert_memory(
+                memory_id,
+                content,
+                float(row.get("confidence") or 1.0),
+                source_type=table,
+                skip_provider=skip_embedding_provider,
+            )
+        except Exception as exc:
+            emit_event(
+                store.state_store.report_log_path(),
+                "store_memory_index_failed",
+                status="error",
+                error=str(exc),
+                reference=reference,
+            )
+            return {"ok": False, "reference": reference, "error": str(exc)}
+
+    if run_governance:
+        try:
+            _auto_attach_governance_candidates(reference, use_model=_auto_attach_model_hints_enabled())
+        except Exception as exc:
+            emit_event(
+                store.state_store.report_log_path(),
+                "store_memory_postprocess_governance_failed",
+                status="error",
+                error=str(exc),
+                reference=reference,
+            )
+            return {"ok": False, "reference": reference, "error": str(exc)}
+
+    emit_event(
+        store.state_store.report_log_path(),
+        "store_memory_postprocess_complete",
+        status="ok",
+        reference=reference,
+    )
+    return {"ok": True, "reference": reference}
 
 
 def record_reinforcement(task_id: str, outcome: str, note: str, *, source_module: str | None = None) -> None:

@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import re
+import os
 import threading
 from typing import Any, Dict, List, Iterable
 
@@ -70,10 +71,17 @@ def _normalized_tables(tables: Iterable[str] | None) -> List[str]:
     return normalized
 
 
-def insert_memory(memory_id: int, content: str, confidence: float, *, source_type: str = "knowledge") -> None:
+def insert_memory(
+    memory_id: int,
+    content: str,
+    confidence: float,
+    *,
+    source_type: str = "knowledge",
+    skip_provider: bool = False,
+) -> None:
     source_type = source_type if source_type in EMBEDDING_TABLES else "knowledge"
     redacted_content, changed = redaction.redact_text(content)
-    embedding = embedding_engine.generate_embedding(redacted_content)
+    embedding = embedding_engine.generate_embedding(redacted_content, skip_provider=skip_provider)
     metadata_json = json.dumps({"redacted": changed, "source_type": source_type})
 
     def _write() -> None:
@@ -307,16 +315,49 @@ def backfill_missing_vectors(*, tables: Iterable[str] | None = None, limit_per_t
     return count
 
 
-def search_memory(query: str, limit: int = 5) -> List[Dict[str, Any]]:
+def search_memory(
+    query: str,
+    limit: int = 5,
+    *,
+    skip_provider: bool = False,
+    source_types: Iterable[str] | None = None,
+) -> List[Dict[str, Any]]:
     emit_event(LOGFILE, "brain_memory_vector_search_start", status="ok")
     conn = store.connect()
     _ensure_vector_table(conn)
 
-    query_embedding = embedding_engine.generate_embedding(query)
+    query_embedding = embedding_engine.generate_embedding(query, skip_provider=skip_provider)
     results: List[Dict[str, Any]] = []
 
+    try:
+        scan_limit = int(os.environ.get("OCMEMOG_SEARCH_VECTOR_SCAN_LIMIT", 1200))
+    except Exception:
+        scan_limit = 1200
+    if scan_limit <= 0:
+        scan_limit = max(1, limit * 8)
+    scan_limit = max(limit, scan_limit)
+
+    if source_types is None:
+        filtered_source_types = tuple(EMBEDDING_TABLES)
+    else:
+        filtered_source_types = tuple(
+            source_type
+            for source_type in dict.fromkeys(source_type for source_type in source_types if source_type in EMBEDDING_TABLES)
+        )
+    if filtered_source_types:
+        placeholders = ",".join("?" for _ in filtered_source_types)
+        vector_query = (
+            "SELECT id, source_type, source_id, embedding "
+            f"FROM vector_embeddings WHERE source_type IN ({placeholders}) "
+            "ORDER BY rowid DESC LIMIT ?"
+        )
+        scan_rows = (*filtered_source_types, scan_limit)
+    else:
+        vector_query = "SELECT id, source_type, source_id, embedding FROM vector_embeddings ORDER BY rowid DESC LIMIT ?"
+        scan_rows = (scan_limit,)
+
     if query_embedding:
-        rows = conn.execute("SELECT id, source_type, source_id, embedding FROM vector_embeddings").fetchall()
+        rows = conn.execute(vector_query, scan_rows).fetchall()
         scored: List[Dict[str, Any]] = []
         for row in rows:
             try:
@@ -337,9 +378,15 @@ def search_memory(query: str, limit: int = 5) -> List[Dict[str, Any]]:
         results = scored[:limit]
 
     if not results:
+        fallback_where = ""
+        fallback_params: List[Any] = [f"%{query}%"]
+        if filtered_source_types:
+            patterns = [f"{source_type}:%" for source_type in filtered_source_types]
+            fallback_where = f" AND ({' OR '.join(['source LIKE ?'] * len(patterns))})"
+            fallback_params.extend(patterns)
         rows = conn.execute(
-            "SELECT id, source, content, confidence, metadata_json FROM memory_index WHERE content LIKE ? ORDER BY id DESC LIMIT ?",
-            (f"%{query}%", limit),
+            f"SELECT id, source, content, confidence, metadata_json FROM memory_index WHERE content LIKE ?{fallback_where} ORDER BY id DESC LIMIT ?",
+            tuple(fallback_params + [limit]),
         ).fetchall()
         fallback_results: List[Dict[str, Any]] = []
         for row in rows:

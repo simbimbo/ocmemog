@@ -227,9 +227,7 @@ class SidecarRouteTests(unittest.TestCase):
         fake_path = mock.Mock()
         fake_path.exists.return_value = True
         fake_path.read_text.side_effect = OSError("boom")
-        fake_dir = mock.Mock()
-        fake_dir.__truediv__ = mock.Mock(return_value=fake_path)
-        with mock.patch("ocmemog.sidecar.app.state_store.reports_dir", return_value=fake_dir):
+        with mock.patch("ocmemog.sidecar.app.state_store.report_log_path", return_value=fake_path):
             with mock.patch("sys.stderr") as stderr:
                 result = sidecar_app._tail_events()
         self.assertEqual(result, "")

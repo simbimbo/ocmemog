@@ -144,6 +144,8 @@ QUEUE_STATS = {
     "last_error": None,
     "last_batch": 0,
 }
+_POSTPROCESS_TASK_KEY = "_ocmemog_task"
+_POSTPROCESS_TASK_VALUE = "postprocess_memory"
 
 
 _REFLECTION_RECLASSIFY_PREFERENCE_PATTERNS = (
@@ -306,6 +308,24 @@ def _enqueue_payload(payload: Dict[str, Any]) -> int:
         return _queue_depth()
 
 
+def _enqueue_postprocess(reference: str, *, skip_embedding_provider: bool = True) -> int:
+    return _enqueue_payload({
+        _POSTPROCESS_TASK_KEY: _POSTPROCESS_TASK_VALUE,
+        "reference": reference,
+        "skip_embedding_provider": bool(skip_embedding_provider),
+    })
+
+
+def _run_postprocess_payload(payload: Dict[str, Any]) -> None:
+    reference = str(payload.get("reference") or "").strip()
+    if not reference:
+        raise ValueError("missing_reference")
+    skip_embedding_provider = bool(payload.get("skip_embedding_provider", True))
+    result = api.postprocess_stored_memory(reference, skip_embedding_provider=skip_embedding_provider)
+    if not result.get("ok"):
+        raise RuntimeError(str(result.get("error") or "postprocess_failed"))
+
+
 
 def _process_queue(limit: Optional[int] = None) -> Dict[str, Any]:
     processed = 0
@@ -328,8 +348,11 @@ def _process_queue(limit: Optional[int] = None) -> Dict[str, Any]:
             acknowledged = 0
             for line_no, payload in batch:
                 try:
-                    req = IngestRequest(**payload)
-                    _ingest_request(req)
+                    if isinstance(payload, dict) and payload.get(_POSTPROCESS_TASK_KEY) == _POSTPROCESS_TASK_VALUE:
+                        _run_postprocess_payload(payload)
+                    else:
+                        req = IngestRequest(**payload)
+                        _ingest_request(req)
                     processed += 1
                     batch_processed += 1
                     acknowledged = line_no
@@ -922,14 +945,35 @@ def healthz() -> dict[str, Any]:
 def memory_search(request: SearchRequest) -> dict[str, Any]:
     categories = _normalize_categories(request.categories)
     runtime = _runtime_payload()
+    started = time.perf_counter()
+    query = request.query or ""
+    skip_vector_provider = _parse_bool_env("OCMEMOG_SEARCH_SKIP_EMBEDDING_PROVIDER", default=True)
     try:
-        results = retrieval.retrieve_for_queries([request.query], limit=request.limit, categories=categories)
+        results = retrieval.retrieve_for_queries(
+            [query],
+            limit=request.limit,
+            categories=categories,
+            skip_vector_provider=skip_vector_provider,
+        )
         flattened = flatten_results(results)
+        if len(flattened) > request.limit:
+            flattened = flattened[: request.limit]
         used_fallback = False
     except Exception as exc:
         flattened = _fallback_search(request.query, request.limit, categories)
         used_fallback = True
         runtime["warnings"] = [*runtime["warnings"], f"search fallback enabled: {exc}"]
+    elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
+    if elapsed_ms >= 10:
+        print(
+            f"[ocmemog][route] memory_search elapsed_ms={elapsed_ms:.3f} limit={request.limit} categories={','.join(categories)} fallback={used_fallback}",
+            file=sys.stderr,
+        )
+        if elapsed_ms >= 200:
+            print(
+                f"[ocmemog][route] memory_search slow_path query={query[:128]!r} result_count={len(flattened)}",
+                file=sys.stderr,
+            )
 
     return {
         "ok": True,
@@ -1433,8 +1477,10 @@ def _ingest_request(request: IngestRequest) -> dict[str, Any]:
             source=request.source,
             metadata=metadata,
             timestamp=request.timestamp,
+            post_process=False,
         )
         reference = f"{memory_type}:{memory_id}"
+        _enqueue_postprocess(reference, skip_embedding_provider=_parse_bool_env("OCMEMOG_POSTPROCESS_SKIP_EMBEDDING_PROVIDER", default=True))
         if request.conversation_id:
             memory_links.add_memory_link(reference, "conversation", f"conversation:{request.conversation_id}")
         if request.session_id:
@@ -1531,7 +1577,11 @@ def _ingest_request(request: IngestRequest) -> dict[str, Any]:
 
 @app.post("/memory/ingest")
 def memory_ingest(request: IngestRequest) -> dict[str, Any]:
-    return _ingest_request(request)
+    started = time.perf_counter()
+    payload = _ingest_request(request)
+    elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
+    print(f"[ocmemog][route] memory_ingest elapsed_ms={elapsed_ms:.3f} kind={request.kind} reference={payload.get('reference', '')}", file=sys.stderr)
+    return payload
 
 
 @app.post("/memory/ingest_async")

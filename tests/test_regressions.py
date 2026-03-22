@@ -38,6 +38,7 @@ class OcmemogRegressionTests(unittest.TestCase):
             app.IngestRequest(content="remember provider precedence", kind="memory", memory_type="knowledge")
         )
         self.assertTrue(response["ok"])
+        app._process_queue(limit=10)
 
         conn = store.connect()
         try:
@@ -72,7 +73,7 @@ class OcmemogRegressionTests(unittest.TestCase):
         self.assertEqual(app._queue_depth(), 2)
 
         stats = app._process_queue(limit=10)
-        self.assertEqual(stats["processed"], 2)
+        self.assertEqual(stats["processed"], 4)
         self.assertEqual(app._queue_depth(), 0)
 
     def test_memory_context_uses_transcript_range_anchor(self) -> None:

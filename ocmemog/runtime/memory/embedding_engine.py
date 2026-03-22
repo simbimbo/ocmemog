@@ -53,7 +53,11 @@ def _provider_embedding(text: str, model_name: str) -> tuple[List[float] | None,
     return None, meta
 
 
-def generate_embedding(text: str) -> List[float] | None:
+def generate_embedding(
+    text: str,
+    *,
+    skip_provider: bool = False,
+) -> List[float] | None:
     emit_event(LOGFILE, "brain_embedding_start", status="ok")
     if not isinstance(text, str) or not text.strip():
         emit_event(LOGFILE, "brain_embedding_failed", status="error", reason="empty_text")
@@ -68,8 +72,10 @@ def generate_embedding(text: str) -> List[float] | None:
         or getattr(config, "OCMEMOG_EMBED_MODEL_PROVIDER", "")
         or getattr(config, "BRAIN_EMBED_MODEL_PROVIDER", "")
     )
+    embedding: List[float] | None = None
+    provider_meta: dict[str, str] = {}
 
-    if provider_model:
+    if provider_model and not skip_provider:
         try:
             embedding, provider_meta = _provider_embedding(text, provider_model)
         except TimeoutError as exc:
@@ -106,7 +112,7 @@ def generate_embedding(text: str) -> List[float] | None:
                 model=provider_meta.get("model", ""),
                 fallback="local" if local_model else "disabled",
             )
-        if embedding:
+        elif embedding:
             emit_event(
                 LOGFILE,
                 "brain_embedding_complete",
@@ -125,6 +131,14 @@ def generate_embedding(text: str) -> List[float] | None:
                 model=provider_meta.get("model", ""),
             )
             return embedding
+    elif provider_model:
+        emit_event(
+            LOGFILE,
+            "brain_embedding_start",
+            status="ok",
+            provider=provider_model,
+            provider_skipped="true",
+        )
 
     if local_model:
         embedding = _local_embedding(text, local_model)

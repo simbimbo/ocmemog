@@ -232,7 +232,12 @@ Run the release gate first:
 ./scripts/ocmemog-release-check.sh
 ```
 
-This command is the canonical pre-release and CI validation path.
+This command is the canonical pre-release and CI validation path. A pass now means:
+- strict doctor checks succeed on a clean temporary state
+- the broad regression subset plus sidecar route tests pass
+- live `/healthz`, `/memory/ingest`, `/memory/search`, `/memory/get`, and `/conversation/hydrate` checks pass on `OCMEMOG_RELEASE_LIVE_ENDPOINT`
+- the integrated memory contract proof runs in fresh state and emits `reports/release-gate-proof.json`
+- syntax checks, integration assertions, and non-blocking packing validation are attempted
 
 Example ClawHub publish command (update version + changelog first; do not reuse stale release text blindly):
 
@@ -293,4 +298,3 @@ Current limitations before broader public rollout:
 - Distribution and release metadata are now tracked in `package.json`, `CHANGELOG.md`, and the release check workflow.
 
 When a richer path is unavailable, the sidecar is designed to fail soft with explicit warnings rather than crash.
- soft with explicit warnings rather than crash.

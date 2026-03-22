@@ -2,14 +2,18 @@
 
 ## 0.1.12 — 2026-03-21
 
-Release hardening and native-ownership cleanup.
+Release hardening, integrated proof validation, and native-ownership cleanup.
 
 ### Highlights
 - fixed conversation-state self-healing so polluted continuity cleanup preserves valid checkpoints instead of deleting the entire checkpoint history for a thread/session/conversation
 - aligned FastAPI sidecar version reporting with the package version and added regression coverage for version drift
 - moved runtime defaults toward native `ocmemog` ownership for report-log and SQLite DB naming while preserving legacy `brain_*` file fallback for existing installs
 - made embedding configuration native-first (`OCMEMOG_*`) while keeping `BRAIN_*` aliases for compatibility
-- cleaned release docs, compat wording, and helper scripts so new deployments follow native `ocmemog` naming by default
+- hardened the integrated memory contract proof and release gate so fresh-state proof, live sidecar smoke, and route/regression validation run together as the canonical pre-release bar
+- fixed release-gate/proof path bugs around HTTP method mismatches, async ingest/postprocess timing assumptions, and proof output capture
+- restored live sidecar request-path verification for `/memory/ingest`, `/memory/search`, `/memory/get`, and `/conversation/hydrate`
+- collapsed the legacy `brain/runtime/*` implementation tree into thin compatibility shims and removed orphan legacy side-modules that were no longer part of the shipped product contract
+- cleaned release docs, compat wording, and helper scripts so new deployments follow native `ocmemog` behavior by default and stale side-DB architecture references are removed
 - removed stray invalid transcript-watcher drift assertions from the test suite
 
 ## 0.1.11 — 2026-03-20

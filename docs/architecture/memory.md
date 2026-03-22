@@ -19,11 +19,7 @@ Primary files:
 
 - `.ocmemog-state/memory/ocmemog_memory.sqlite3`
 - `.ocmemog-state/reports/ocmemog_memory.log.jsonl`
-- `.ocmemog-state/data/person_memory.db`
-- `.ocmemog-state/data/interaction_memory.db`
-- `.ocmemog-state/data/sentiment_memory.db`
 - `.ocmemog-state/data/unresolved_state.db`
-- `.ocmemog-state/data/memory_graph.db`
 
 The main SQLite database owns these tables:
 
@@ -60,7 +56,7 @@ The main repo-local write paths are:
 - `promote.promote_candidate()` writes to `promotions` plus one of `knowledge`, `runbooks`, or `lessons`
 - `vector_index.insert_memory()` writes to `memory_index` and `vector_embeddings`
 - `memory_links.add_memory_link()` writes link metadata inside the main memory DB
-- `person_memory`, `interaction_memory`, `sentiment_memory`, `unresolved_state`, and `memory_graph` each write to separate SQLite files under `.ocmemog-state/data`
+- `unresolved_state` writes to a separate SQLite file under `.ocmemog-state/data`; core memory relationships and provenance now live in the main memory DB.
 
 ## Distillation and promotion
 

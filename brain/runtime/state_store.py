@@ -1,25 +1,3 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-from . import storage_paths
-
-
-def root_dir() -> Path:
-    return storage_paths.root_dir()
-
-
-def data_dir() -> Path:
-    return storage_paths.data_dir()
-
-
-def memory_dir() -> Path:
-    return storage_paths.memory_dir()
-
-
-def reports_dir() -> Path:
-    return storage_paths.reports_dir()
-
-
-def memory_db_path() -> Path:
-    return storage_paths.memory_db_path()
+from ocmemog.runtime.state_store import *  # noqa: F401,F403

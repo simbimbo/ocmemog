@@ -1,13 +1,3 @@
-"""Minimal runtime shims required by the copied brAIn memory package."""
+from __future__ import annotations
 
-from . import config, inference, instrumentation, model_roles, model_router, state_store, storage_paths
-
-__all__ = [
-    "config",
-    "inference",
-    "instrumentation",
-    "model_roles",
-    "model_router",
-    "state_store",
-    "storage_paths",
-]
+from ocmemog.runtime import *  # noqa: F401,F403

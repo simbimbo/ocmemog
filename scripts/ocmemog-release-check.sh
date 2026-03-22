@@ -32,8 +32,18 @@ PROOF_REPORT_FILE="${PROOF_REPORT_DIR}/release-gate-proof.json"
 PROOF_LEGACY_ENDPOINT="${OCMEMOG_RELEASE_LEGACY_ENDPOINT:-}"
 LIVE_STATE_DIR="$(mktemp -d -t ocmemog-release-live-XXXXXX)"
 DOCTOR_STATE_DIR="$(mktemp -d -t ocmemog-release-doctor-XXXXXX)"
+SMOKE_STATE_DIR="$(mktemp -d -t ocmemog-release-smoke-XXXXXX)"
+SMOKE_LOG_FILE="${SMOKE_STATE_DIR}/sidecar-smoke.log"
+SMOKE_SIDECAR_PID=""
 mkdir -p "$PROOF_REPORT_DIR"
-trap 'rm -rf "$DOCTOR_STATE_DIR" "$LIVE_STATE_DIR"' EXIT
+cleanup_release_check() {
+  if [[ -n "${SMOKE_SIDECAR_PID:-}" ]]; then
+    kill "${SMOKE_SIDECAR_PID}" >/dev/null 2>&1 || true
+    wait "${SMOKE_SIDECAR_PID}" >/dev/null 2>&1 || true
+  fi
+  rm -rf "$DOCTOR_STATE_DIR" "$LIVE_STATE_DIR" "$SMOKE_STATE_DIR"
+}
+trap cleanup_release_check EXIT
 
 STATUS=0
 
@@ -62,6 +72,24 @@ run_optional_step() {
   else
     echo "[WARN] ${label}: command reported a non-blocking warning"
   fi
+}
+
+start_local_smoke_sidecar() {
+  local smoke_port="${OCMEMOG_RELEASE_SMOKE_PORT:-17931}"
+  local smoke_host="127.0.0.1"
+  export OCMEMOG_STATE_DIR="$SMOKE_STATE_DIR"
+  export OCMEMOG_TRANSCRIPT_WATCHER="false"
+  export OCMEMOG_INGEST_ASYNC_WORKER="true"
+  export OCMEMOG_AUTO_HYDRATION="false"
+  export OCMEMOG_SEARCH_SKIP_EMBEDDING_PROVIDER="true"
+  export OCMEMOG_HOST="$smoke_host"
+  export OCMEMOG_PORT="$smoke_port"
+  export PYTHONPATH="$ROOT_DIR${PYTHONPATH:+:$PYTHONPATH}"
+
+  "$PYTHON_BIN" -m uvicorn ocmemog.sidecar.app:app --host "$smoke_host" --port "$smoke_port" >"$SMOKE_LOG_FILE" 2>&1 &
+  SMOKE_SIDECAR_PID=$!
+  LIVE_CHECK_URL="http://${smoke_host}:${smoke_port}"
+  export LIVE_CHECK_URL
 }
 
 run_step "Verifying shell script syntax" \
@@ -137,6 +165,12 @@ run_step "Running broad regression subset" \
 
 run_step "Running contract-facing sidecar route tests" \
   "$PYTHON_BIN" -m pytest -q tests/test_sidecar_routes.py
+
+if [[ -z "${OCMEMOG_RELEASE_LIVE_ENDPOINT:-}" ]]; then
+  echo
+  echo "[ocmemog-release-check] No explicit live endpoint provided; starting temporary local sidecar for smoke checks"
+  start_local_smoke_sidecar
+fi
 
 LIVE_CHECK_ENDPOINT="$LIVE_CHECK_URL"
 export LIVE_CHECK_ENDPOINT

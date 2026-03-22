@@ -213,7 +213,7 @@ launchctl bootstrap gui/$UID scripts/launchagents/com.openclaw.ocmemog.guard.pli
 
 ## Recent changes
 
-### 0.1.12 (current main)
+### 0.1.14 (current main)
 
 Current main now includes:
 - integrated release-gate validation with a fresh-state memory contract proof

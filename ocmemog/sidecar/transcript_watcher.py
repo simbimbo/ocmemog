@@ -118,8 +118,15 @@ def _pick_latest(path: Path, pattern: str) -> Optional[Path]:
         return path
     if not path.exists():
         return None
-    files = sorted(path.glob(pattern), key=lambda p: p.stat().st_mtime)
-    return files[-1] if files else None
+    files = []
+    for candidate in path.glob(pattern):
+        try:
+            mtime = candidate.stat().st_mtime
+        except FileNotFoundError:
+            continue
+        files.append((mtime, candidate))
+    files.sort(key=lambda item: item[0])
+    return files[-1][1] if files else None
 
 
 def _apply_auth_headers(req: urlrequest.Request) -> None:

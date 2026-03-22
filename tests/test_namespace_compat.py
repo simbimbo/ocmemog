@@ -48,8 +48,8 @@ class NamespaceCompatTests(unittest.TestCase):
         self.assertNotEqual(native_config, legacy_config)
 
         for module in (native_state_store, native_config, native_inference, native_model_router, native_providers):
-            self.assertTrue(hasattr(module, "__wrapped_from__"))
-            self.assertIn("brain.runtime", module.__wrapped_from__)
+            self.assertFalse(hasattr(module, "__wrapped_from__"))
+            self.assertFalse(module.__name__.startswith("brain.runtime."))
         for module in (
             native_memory_links,
             native_memory_provenance,
@@ -136,26 +136,19 @@ class NamespaceCompatTests(unittest.TestCase):
             "ocmemog.runtime.storage_paths": SURFACE_ENGINE_OWNER,
             "ocmemog.runtime.roles": SURFACE_ENGINE_OWNER,
             "ocmemog.runtime.identity": SURFACE_ENGINE_OWNER,
+            "ocmemog.runtime.config": SURFACE_ENGINE_OWNER,
+            "ocmemog.runtime.inference": SURFACE_ENGINE_OWNER,
+            "ocmemog.runtime.model_router": SURFACE_ENGINE_OWNER,
+            "ocmemog.runtime.model_roles": SURFACE_ENGINE_OWNER,
+            "ocmemog.runtime.providers": SURFACE_ENGINE_OWNER,
+            "ocmemog.runtime.state_store": SURFACE_ENGINE_OWNER,
         }
-        compat_expected = {
-            "ocmemog.runtime.config": SURFACE_COMPAT_OWNER,
-            "ocmemog.runtime.inference": SURFACE_COMPAT_OWNER,
-            "ocmemog.runtime.model_router": SURFACE_COMPAT_OWNER,
-            "ocmemog.runtime.model_roles": SURFACE_COMPAT_OWNER,
-            "ocmemog.runtime.providers": SURFACE_COMPAT_OWNER,
-            "ocmemog.runtime.state_store": SURFACE_COMPAT_OWNER,
-        }
+        compat_expected = {}
         self.assertTrue(all(surface in caps_by_surface for surface in native_expected))
-        self.assertTrue(all(surface in caps_by_surface for surface in compat_expected))
         for surface, expected_owner in native_expected.items():
             self.assertEqual(caps_by_surface[surface]["owner"], expected_owner)
             self.assertEqual(caps_by_surface[surface]["provider_module"], surface)
-        for surface, expected_owner in compat_expected.items():
-            self.assertEqual(caps_by_surface[surface]["owner"], expected_owner)
-            legacy_surface = surface.replace("ocmemog.", "brain.", 1)
-            self.assertEqual(caps_by_surface[surface]["provider_module"], legacy_surface)
-
-        self.assertTrue(any(w.startswith("Runtime still relies on") for w in status.warnings))
+        self.assertFalse(any(w.startswith("Runtime still relies on") for w in status.warnings))
 
     def test_runtime_probe_marks_compat_mode_as_degraded(self) -> None:
         from ocmemog.sidecar.compat import probe_runtime

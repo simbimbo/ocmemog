@@ -6,8 +6,6 @@ from pathlib import Path
 
 from . import storage_paths
 
-__wrapped_from__ = "brain.runtime.state_store"
-__wrapped_by__ = "ocmemog-runtime-bridge"
 
 
 def root_dir() -> Path:

@@ -55,3 +55,39 @@ def get_memory_health() -> Dict[str, Any]:
         "vector_index_integrity_status": integrity_result.get("ok"),
         "integrity": integrity_result,
     }
+
+
+def get_memory_health_fast() -> Dict[str, Any]:
+    conn = store.connect()
+    counts: Dict[str, int] = {}
+    try:
+        for table in ["experiences", "candidates", "promotions", "memory_index", *store.MEMORY_TABLES, "vector_embeddings"]:
+            try:
+                counts[table] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            except Exception:
+                counts[table] = 0
+
+        vector_index_count = 0
+        for table in EMBED_TABLES:
+            try:
+                vector_index_count += conn.execute(
+                    "SELECT COUNT(*) FROM vector_embeddings WHERE source_type=?",
+                    (table,),
+                ).fetchone()[0]
+            except Exception:
+                continue
+    finally:
+        conn.close()
+
+    total_embed_sources = sum(counts.get(table, 0) for table in EMBED_TABLES)
+    coverage = 0.0
+    if total_embed_sources:
+        coverage = round(vector_index_count / total_embed_sources, 3)
+
+    return {
+        "counts": counts,
+        "vector_index_count": vector_index_count,
+        "vector_index_coverage": coverage,
+        "vector_index_integrity_status": None,
+        "integrity": {"ok": None, "mode": "deferred"},
+    }

@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 from . import config
 
-__wrapped_from__ = "brain.runtime.model_router"
 
 
 @dataclass(frozen=True)

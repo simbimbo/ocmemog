@@ -215,10 +215,11 @@ def _derive_port(endpoint: str) -> int | None:
 
 
 def run_probe(endpoint: str) -> dict[str, Any]:
-    token = "proof-token-demo-12345"
-    conversation = "proof-conv-demo"
-    session = "proof-sess-demo"
-    thread = "proof-thread-demo"
+    nonce = uuid.uuid4().hex
+    token = f"proof-token-{nonce}"
+    conversation = f"proof-conv-{nonce}"
+    session = f"proof-sess-{nonce}"
+    thread = f"proof-thread-{nonce}"
 
     ingest_payload = {
         "content": f"I learned that the {token} is the canonical token for this verification.",

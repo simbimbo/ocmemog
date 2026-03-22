@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import threading
+from queue import Queue
 from typing import List, Dict, Any, Optional
 
 from ocmemog.runtime import inference
 from ocmemog.runtime.instrumentation import emit_event
 from . import provenance, store
 from ocmemog.runtime.security import redaction
+
+_SUPERSESSION_SUMMARY_CACHE: Dict[str, str] = {}
 
 _REVIEW_KIND_METADATA: Dict[str, Dict[str, str]] = {
     "duplicate_candidate": {
@@ -34,6 +39,26 @@ _REVIEW_KIND_METADATA: Dict[str, Dict[str, str]] = {
 def _sanitize(text: str) -> str:
     redacted, _ = redaction.redact_text(text)
     return redacted
+
+
+def _run_with_timeout(fn, timeout_s: float, default: Any) -> Any:
+    result_queue: Queue[tuple[str, Any]] = Queue(maxsize=1)
+
+    def _target() -> None:
+        try:
+            result_queue.put(("ok", fn()))
+        except Exception as exc:
+            result_queue.put(("error", exc))
+
+    worker = threading.Thread(target=_target, name="ocmemog-governance-summary", daemon=True)
+    worker.start()
+    worker.join(timeout_s)
+    if worker.is_alive() or result_queue.empty():
+        return default
+    status, payload = result_queue.get_nowait()
+    if status != "ok":
+        return default
+    return payload
 
 
 def _parse_memory_reference(reference: str) -> tuple[str, str] | None:
@@ -320,6 +345,17 @@ def _auto_attach_governance_candidates(reference: str, *, use_model: bool = True
         duplicate_candidates=duplicate_candidates,
         contradiction_candidates=contradiction_candidates,
     )
+    if supersession_recommendation.get("recommended"):
+        target_reference = str(supersession_recommendation.get("target_reference") or "").strip()
+        target_payload = provenance.fetch_reference(target_reference) or {} if target_reference else {}
+        supersession_recommendation["plain_english"] = _plain_english_supersession_summary(
+            reference=reference,
+            target_reference=target_reference,
+            source_content=str(payload.get("content") or ""),
+            target_content=str(target_payload.get("content") or ""),
+            reason=str(supersession_recommendation.get("reason") or ""),
+        )
+
     supersession_recommendation = _auto_apply_supersession_recommendation(
         reference,
         contradiction_candidates=contradiction_candidates,
@@ -841,6 +877,23 @@ def _remove_from_list(values: Any, target: str) -> List[str]:
 
 
 def _review_item_context(reference: str, *, depth: int = 1) -> Dict[str, Any]:
+    if depth <= 0:
+        payload = provenance.fetch_reference(reference) or {"reference": reference}
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        prov = metadata.get("provenance") if isinstance(metadata.get("provenance"), dict) else {}
+        return {
+            "reference": reference,
+            "bucket": payload.get("table"),
+            "id": payload.get("id"),
+            "timestamp": payload.get("timestamp"),
+            "content": payload.get("content"),
+            "memory_status": prov.get("memory_status") or metadata.get("memory_status") or "active",
+            "provenance_preview": provenance.preview_from_metadata(metadata),
+            "metadata": metadata,
+            "links": [],
+            "backlinks": [],
+        }
+
     payload = provenance.hydrate_reference(reference, depth=depth) or {"reference": reference}
     metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
     prov = metadata.get("provenance") if isinstance(metadata.get("provenance"), dict) else {}
@@ -866,6 +919,106 @@ def _review_item_summary(kind: str, reference: str, target_reference: str) -> st
     if kind == "supersession_recommendation":
         return f"{reference} may supersede {target_reference}"
     return f"{reference} requires review against {target_reference}"
+
+
+def _normalize_supersession_preview(text: str, fallback: str) -> str:
+    raw = str(text or "").strip()
+    if not raw:
+        return fallback
+    cleaned = _sanitize(raw)
+    cleaned = re.sub(r"\[\[reply_to_current\]\]", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\([^\)]*assistant\)", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\b", "", cleaned)
+    cleaned = re.sub(r"https?://\S+", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    lower = cleaned.lower()
+    noisy_markers = [
+        "provider monitor",
+        "memory-sync",
+        "launchctl",
+        "reply_to_current",
+        "openclaw gateway restart",
+        "python3 -u -m",
+        "logged to",
+        "checkpoint saved",
+    ]
+    if any(marker in lower for marker in noisy_markers):
+        return fallback
+    if len(cleaned) > 140:
+        sentence = re.split(r"(?<=[.!?])\s+", cleaned, maxsplit=1)[0].strip()
+        cleaned = sentence or cleaned[:140]
+    cleaned = cleaned[:140].rstrip(" ,;:-")
+    return cleaned or fallback
+
+
+def _heuristic_supersession_summary(
+    reference: str,
+    target_reference: str,
+    source_content: str,
+    target_content: str,
+    reason: str,
+) -> str:
+    source = _normalize_supersession_preview(source_content, "a newer consolidated memory")
+    target = _normalize_supersession_preview(target_content, "an older noisier memory")
+    because = _normalize_supersession_preview(reason, "the newer memory appears cleaner and more useful")
+    return f"This newer memory probably replaces an older one: new = {source}; old = {target}; reason = {because}."[:220].rstrip()
+
+
+def _plain_english_supersession_summary(
+    *,
+    reference: str,
+    target_reference: str,
+    source_content: str,
+    target_content: str,
+    reason: str,
+) -> str:
+    cache_key = json.dumps(
+        {
+            "reference": reference,
+            "target_reference": target_reference,
+            "source_content": source_content,
+            "target_content": target_content,
+            "reason": reason,
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    cached = _SUPERSESSION_SUMMARY_CACHE.get(cache_key)
+    if cached:
+        return cached
+
+    fallback = _heuristic_supersession_summary(reference, target_reference, source_content, target_content, reason)
+    source_preview = _normalize_supersession_preview(source_content, "a newer consolidated memory")
+    target_preview = _normalize_supersession_preview(target_content, "an older noisier memory")
+    reason_preview = _normalize_supersession_preview(reason, "the newer memory appears cleaner and more useful")
+    prompt = (
+        "Rewrite this supersession recommendation as exactly one short plain-English sentence for a human dashboard. "
+        "Describe the relationship only. Do not quote or repeat full memory contents. Do not use JSON, bullets, markdown, timestamps, or command text. Keep it under 160 characters.\n\n"
+        f"Newer candidate reference: {reference}\n"
+        f"Potentially replaced reference: {target_reference}\n"
+        f"Newer candidate preview: {source_preview}\n"
+        f"Older candidate preview: {target_preview}\n"
+        f"Recommendation reason: {reason_preview}\n\n"
+        "Plain-English dashboard sentence:"
+    )
+    result = _run_with_timeout(
+        lambda: inference.infer(
+            prompt,
+            provider_name=os.environ.get("OCMEMOG_PONDER_MODEL", "local-openai:qwen2.5-7b-instruct"),
+        ),
+        1.5,
+        {"status": "timeout", "output": ""},
+    )
+    output = str((result or {}).get("output") or "").strip()
+    cleaned = output.replace("\n", " ").strip(" -:\t")
+    cleaned = re.sub(r"^(summary|sentence|plain-english dashboard sentence)\s*:\s*", "", cleaned, flags=re.IGNORECASE).strip()
+    cleaned = _normalize_supersession_preview(cleaned, "")
+    if cleaned and len(cleaned) >= 24:
+        summary = cleaned[:160]
+    else:
+        summary = fallback
+    _SUPERSESSION_SUMMARY_CACHE[cache_key] = summary
+    return summary
 
 
 def _review_actions(kind: str, relationship: str) -> List[Dict[str, Any]]:
@@ -899,8 +1052,9 @@ def list_governance_review_items(
     categories: Optional[List[str]] = None,
     limit: int = 100,
     context_depth: int = 1,
+    scan_limit: int = 3000,
 ) -> List[Dict[str, Any]]:
-    items = governance_queue(categories=categories, limit=limit)
+    items = governance_queue(categories=categories, limit=limit, scan_limit=scan_limit)
     review_items: List[Dict[str, Any]] = []
     for item in items:
         kind = str(item.get("kind") or "")
@@ -909,6 +1063,13 @@ def list_governance_review_items(
         target_reference = str(item.get("target_reference") or "")
         if not reference or not target_reference or not relationship:
             continue
+        source = _review_item_context(reference, depth=context_depth)
+        target = _review_item_context(target_reference, depth=context_depth)
+        summary = _review_item_summary(kind, reference, target_reference)
+        if kind == "supersession_recommendation":
+            plain_english = str(item.get("plain_english") or "").strip()
+            if plain_english:
+                summary = plain_english
         review_items.append({
             "review_id": f"{kind}:{reference}->{target_reference}",
             "kind": kind,
@@ -921,10 +1082,10 @@ def list_governance_review_items(
             "reason": item.get("reason"),
             "reference": reference,
             "target_reference": target_reference,
-            "summary": _review_item_summary(kind, reference, target_reference),
+            "summary": summary,
             "actions": _review_actions(kind, relationship),
-            "source": _review_item_context(reference, depth=context_depth),
-            "target": _review_item_context(target_reference, depth=context_depth),
+            "source": source,
+            "target": target,
         })
     return review_items
 
@@ -1073,15 +1234,17 @@ def rollback_governance_decision(
     return None
 
 
-def governance_queue(*, categories: Optional[List[str]] = None, limit: int = 100) -> List[Dict[str, Any]]:
+def governance_queue(*, categories: Optional[List[str]] = None, limit: int = 100, scan_limit: int = 3000) -> List[Dict[str, Any]]:
     allowed = set(store.MEMORY_TABLES)
     tables = [table for table in (categories or list(allowed)) if table in allowed]
+    per_table_scan_limit = max(int(scan_limit or 0), max(int(limit or 0), 1))
     conn = store.connect()
     try:
         items: List[Dict[str, Any]] = []
         for table in tables:
             rows = conn.execute(
-                f"SELECT id, timestamp, content, metadata_json FROM {table} ORDER BY id DESC LIMIT 3000"
+                f"SELECT id, timestamp, content, metadata_json FROM {table} ORDER BY id DESC LIMIT ?",
+                (per_table_scan_limit,),
             ).fetchall()
             for row in rows:
                 reference = f"{table}:{row['id'] if isinstance(row, dict) else row[0]}"

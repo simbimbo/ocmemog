@@ -8,7 +8,6 @@ import urllib.request
 
 from . import config, instrumentation, state_store
 
-__wrapped_from__ = "brain.runtime.providers"
 
 LOGFILE = state_store.report_log_path()
 

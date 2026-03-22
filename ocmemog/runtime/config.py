@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 
-__wrapped_from__ = "brain.runtime.config"
 
 OCMEMOG_EMBED_MODEL_LOCAL = os.environ.get("OCMEMOG_EMBED_MODEL_LOCAL", "")
 OCMEMOG_EMBED_LOCAL_MODEL = OCMEMOG_EMBED_MODEL_LOCAL or os.environ.get("BRAIN_EMBED_MODEL_LOCAL", "simple")

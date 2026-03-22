@@ -6,6 +6,7 @@ import faulthandler
 import os
 import re
 import threading
+import tempfile
 import time
 import sys
 from contextlib import asynccontextmanager
@@ -37,6 +38,8 @@ from ocmemog.sidecar.transcript_watcher import watch_forever
 DEFAULT_CATEGORIES = tuple(store.MEMORY_TABLES)
 
 API_TOKEN = os.environ.get("OCMEMOG_API_TOKEN")
+_GOVERNANCE_REVIEW_CACHE_TTL_SECONDS = 15.0
+_governance_review_cache: Dict[str, Any] = {"key": None, "expires_at": 0.0, "payload": None}
 
 
 _BOOL_TRUE_VALUES = {"1", "true", "yes", "on", "y", "t"}
@@ -198,9 +201,14 @@ def _load_queue_stats() -> None:
 
 def _save_queue_stats() -> None:
     path = _queue_stats_path()
-    tmp = path.with_suffix('.tmp')
-    tmp.write_text(json.dumps(QUEUE_STATS, indent=2, sort_keys=True), encoding='utf-8')
-    tmp.replace(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(QUEUE_STATS, indent=2, sort_keys=True)
+    with tempfile.NamedTemporaryFile('w', encoding='utf-8', dir=str(path.parent), prefix='queue_stats.', suffix='.tmp', delete=False) as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+        tmp_name = handle.name
+    Path(tmp_name).replace(path)
 
 
 @app.middleware("http")
@@ -546,6 +554,7 @@ class GovernanceReviewRequest(BaseModel):
     categories: Optional[List[str]] = None
     limit: int = Field(default=100, ge=1, le=500)
     context_depth: int = Field(default=1, ge=0, le=2)
+    scan_limit: int = Field(default=3000, ge=1, le=10000)
 
 
 class GovernanceDecisionRequest(BaseModel):
@@ -1044,15 +1053,57 @@ def memory_governance_review(request: GovernanceReviewRequest) -> dict[str, Any]
         categories=request.categories,
         limit=request.limit,
         context_depth=request.context_depth,
+        scan_limit=request.scan_limit,
     )
     return {
         "ok": True,
         "categories": request.categories,
         "limit": request.limit,
         "context_depth": request.context_depth,
+        "scan_limit": request.scan_limit,
         "items": items,
         **runtime,
     }
+
+
+@app.post("/memory/governance/review/summary")
+def memory_governance_review_summary(request: GovernanceReviewRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    limit = min(int(request.limit or 25), 50)
+    scan_limit = min(int(request.scan_limit or max(limit * 10, 250)), 500)
+    cache_key = json.dumps(
+        {
+            "categories": sorted(request.categories or []),
+            "limit": limit,
+            "context_depth": 0,
+            "scan_limit": scan_limit,
+        },
+        sort_keys=True,
+    )
+    now = time.time()
+    if _governance_review_cache.get("key") == cache_key and float(_governance_review_cache.get("expires_at") or 0.0) > now:
+        cached_payload = _governance_review_cache.get("payload") or {}
+        return {**cached_payload, **runtime, "cached": True}
+
+    items = api.list_governance_review_items(
+        categories=request.categories,
+        limit=limit,
+        context_depth=0,
+        scan_limit=scan_limit,
+    )
+    payload = {
+        "ok": True,
+        "categories": request.categories,
+        "limit": limit,
+        "context_depth": 0,
+        "scan_limit": scan_limit,
+        "items": items,
+        "cached": False,
+    }
+    _governance_review_cache.update(
+        {"key": cache_key, "expires_at": now + _GOVERNANCE_REVIEW_CACHE_TTL_SECONDS, "payload": payload}
+    )
+    return {**payload, **runtime}
 
 
 @app.post("/memory/governance/decision")
@@ -1630,26 +1681,29 @@ def memory_distill(request: DistillRequest) -> dict[str, Any]:
 @app.get("/metrics")
 def metrics() -> dict[str, Any]:
     runtime = _runtime_payload()
-    payload = health.get_memory_health()
+    payload = health.get_memory_health_fast()
     counts = payload.get("counts", {})
     counts["queue_depth"] = _queue_depth()
     counts["queue_processed"] = QUEUE_STATS.get("processed", 0)
     counts["queue_errors"] = QUEUE_STATS.get("errors", 0)
     payload["counts"] = counts
+
     coverage_tables = list(store.MEMORY_TABLES)
     conn = store.connect()
     try:
+        vector_counts: Dict[str, int] = {str(row[0]): int(row[1] or 0) for row in conn.execute("SELECT source_type, COUNT(*) FROM vector_embeddings GROUP BY source_type")}
         payload["coverage"] = [
             {
                 "table": table,
                 "rows": int(counts.get(table, 0) or 0),
-                "vectors": int(conn.execute("SELECT COUNT(*) FROM vector_embeddings WHERE source_type=?", (table,)).fetchone()[0] or 0),
-                "missing": max(int(counts.get(table, 0) or 0) - int(conn.execute("SELECT COUNT(*) FROM vector_embeddings WHERE source_type=?", (table,)).fetchone()[0] or 0), 0),
+                "vectors": int(vector_counts.get(table, 0) or 0),
+                "missing": max(int(counts.get(table, 0) or 0) - int(vector_counts.get(table, 0) or 0), 0),
             }
             for table in coverage_tables
         ]
     finally:
         conn.close()
+
     payload["queue"] = QUEUE_STATS
     return {"ok": True, "metrics": payload, **runtime}
 
@@ -1679,7 +1733,16 @@ def _tail_events(limit: int = 50) -> str:
     if not path.exists():
         return ""
     try:
-        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        size = path.stat().st_size
+        # Read only the trailing chunk to avoid loading very large logs.
+        # This bounds dashboard latency even when the report log grows huge.
+        max_bytes = 256 * 1024
+        with path.open("rb") as handle:
+            if size > max_bytes:
+                handle.seek(-max_bytes, 2)
+            data = handle.read()
+        text = data.decode("utf-8", errors="ignore")
+        lines = text.splitlines()
     except Exception as exc:
         print(f"[ocmemog][events] tail_read_failed path={path} error={exc!r}", file=sys.stderr)
         return ""
@@ -1688,21 +1751,33 @@ def _tail_events(limit: int = 50) -> str:
 
 @app.get("/dashboard")
 def dashboard() -> HTMLResponse:
-    metrics_payload = health.get_memory_health()
+    metrics_payload = health.get_memory_health_fast()
     counts = metrics_payload.get("counts", {})
     coverage_tables = list(store.MEMORY_TABLES)
     conn = store.connect()
     try:
+        cursor = conn.execute("SELECT source_type, COUNT(*) FROM vector_embeddings GROUP BY source_type")
+        try:
+            vector_rows = list(cursor)
+        except TypeError:
+            fetchall = getattr(cursor, "fetchall", None)
+            if callable(fetchall):
+                vector_rows = fetchall()
+            else:
+                fetchone = getattr(cursor, "fetchone", None)
+                row = fetchone() if callable(fetchone) else None
+                vector_rows = [row] if row is not None else []
+        vector_counts: Dict[str, int] = {}
+        for row in vector_rows:
+            if not isinstance(row, (list, tuple)) or len(row) < 2:
+                continue
+            vector_counts[str(row[0])] = int(row[1] or 0)
+        if hasattr(cursor, "close"):
+            cursor.close()
         coverage_rows = []
         for table in coverage_tables:
             total = int(counts.get(table, 0) or 0)
-            vectors = int(
-                conn.execute(
-                    "SELECT COUNT(*) FROM vector_embeddings WHERE source_type=?",
-                    (table,),
-                ).fetchone()[0]
-                or 0
-            )
+            vectors = int(vector_counts.get(table, 0) or 0)
             missing = max(total - vectors, 0)
             coverage_rows.append({"table": table, "rows": total, "vectors": vectors, "missing": missing})
     finally:
@@ -1804,15 +1879,12 @@ def dashboard() -> HTMLResponse:
           <thead>
             <tr>
               <th>Priority</th>
-              <th>Kind</th>
-              <th>Source</th>
-              <th>Target</th>
-              <th>Summary</th>
+              <th>Review</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody id="review-table-body">
-            <tr><td colspan="6" class="muted">Loading...</td></tr>
+            <tr><td colspan="3" class="muted">Loading...</td></tr>
           </tbody>
         </table>
       </div>
@@ -1878,6 +1950,17 @@ def dashboard() -> HTMLResponse:
           return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString();
         }}
 
+        function summarizeReviewItem(item) {{
+          const sourceRef = item.source?.reference || item.reference || 'source memory';
+          const targetRef = item.target?.reference || item.target_reference || 'target memory';
+          const sourceText = item.source?.content || sourceRef;
+          const targetText = item.target?.content || targetRef;
+          const relation = item.relationship || (item.kind_label || item.kind || 'relationship').toLowerCase();
+          const when = item.timestamp ? ` Reviewed signal from ${{formatTimestamp(item.timestamp)}}.` : '';
+          const signal = item.signal ? ` Signal score: ${{item.signal}}.` : '';
+          return `${{sourceRef}} may ${{relation.replaceAll('_', ' ')}} ${{targetRef}}. Source: “${{sourceText}}” Target: “${{targetText}}”.${{signal}}${{when}}`;
+        }}
+
         function renderReviewTable() {{
           const kindFilter = reviewKindFilterEl.value;
           const priorityFilter = reviewPriorityFilterEl.value;
@@ -1895,29 +1978,20 @@ def dashboard() -> HTMLResponse:
           reviewNoteEl.textContent = `${{filtered.length}} items shown${{reviewItems.length !== filtered.length ? ` of ${{reviewItems.length}}` : ''}} • Last refresh: ${{reviewLastRefresh ? formatTimestamp(reviewLastRefresh) : 'n/a'}}`;
 
           if (!filtered.length) {{
-            reviewTableBodyEl.innerHTML = '<tr><td colspan="6" class="muted">No review items match the current filters.</td></tr>';
+            reviewTableBodyEl.innerHTML = '<tr><td colspan="3" class="muted">No review items match the current filters.</td></tr>';
             return;
           }}
 
           reviewTableBodyEl.innerHTML = filtered.map((item) => {{
             const disabled = pendingReviewIds.has(item.review_id) ? 'disabled' : '';
-            const sourceContent = item.source?.content || item.reference;
-            const targetContent = item.target?.content || item.target_reference;
+            const reviewText = summarizeReviewItem(item);
+            const summaryBits = [item.kind_label || item.kind, item.summary].filter(Boolean).join(' • ');
             return `
               <tr>
                 <td>${{escapeHtml(item.priority)}}</td>
-                <td>${{escapeHtml(item.kind_label || item.kind)}}</td>
                 <td>
-                  <strong>${{escapeHtml(item.reference)}}</strong><br/>
-                  <span class="muted">${{escapeHtml(sourceContent)}}</span>
-                </td>
-                <td>
-                  <strong>${{escapeHtml(item.target_reference)}}</strong><br/>
-                  <span class="muted">${{escapeHtml(targetContent)}}</span>
-                </td>
-                <td>
-                  <strong>${{escapeHtml(item.summary || '')}}</strong><br/>
-                  <span class="muted">${{escapeHtml(item.relationship || '')}}${{item.signal ? ` • signal ${{item.signal}}` : ''}}</span>
+                  <strong>${{escapeHtml(summaryBits || 'Governance review item')}}</strong><br/>
+                  <span class="muted">${{escapeHtml(reviewText)}}</span>
                 </td>
                 <td>
                   <button type="button" data-review-id="${{escapeHtml(item.review_id)}}" data-approved="true" ${{disabled}}>Approve</button>
@@ -1962,10 +2036,10 @@ def dashboard() -> HTMLResponse:
         async function refreshGovernanceReview() {{
           reviewErrorEl.textContent = '';
           try {{
-            const res = await fetch('/memory/governance/review', {{
+            const res = await fetch('/memory/governance/review/summary', {{
               method: 'POST',
               headers: {{ 'Content-Type': 'application/json' }},
-              body: JSON.stringify({{ limit: 100, context_depth: 1 }}),
+              body: JSON.stringify({{ limit: 20, context_depth: 0, scan_limit: 250 }}),
             }});
             const data = await res.json();
             if (!res.ok || !data.ok) {{
@@ -1976,7 +2050,7 @@ def dashboard() -> HTMLResponse:
             renderReviewTable();
           }} catch (error) {{
             reviewErrorEl.textContent = error instanceof Error ? error.message : String(error);
-            reviewTableBodyEl.innerHTML = '<tr><td colspan="6" class="muted">Unable to load review items.</td></tr>';
+            reviewTableBodyEl.innerHTML = '<tr><td colspan="3" class="muted">Unable to load review items.</td></tr>';
           }}
         }}
 

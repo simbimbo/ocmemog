@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.1.14 — 2026-03-22
+
+Corrective follow-up to make the published release fully version-aligned.
+
+### Highlights
+- aligned package/source/documentation versioning after the 0.1.13 publish so source fallback version, README current-main note, and package metadata all agree on the shipped release
+- preserves the full 0.1.13 hardening/test matrix and release validation while fixing version/documentation drift
+
+## 0.1.13 — 2026-03-22
+
+Final hardening release before a possible 1.0 cut.
+
+### Highlights
+- tested the full shipped surface aggressively: full pytest suite, release gate, live sidecar contract smoke, packaging dry-run, installer surfaces, and governance summary responsiveness checks all passed together
+- fixed a supersession-governance regression that could suppress `supersession_recommendation` generation and break governance queue/review/summary and auto-resolve flows
+- moved dashboard supersession plain-English rewriting out of the render path so live dashboard loads stay fast while recommendations still carry human-readable text
+- added a lightweight cached governance review summary path for the dashboard, reducing review load time from multi-second scans to sub-second first load and near-instant cached refresh
+- simplified Governance Review UI output into more concise, single-row plain-English review items
+- hardened supersession summary generation against polluted transcript/log content with tighter preview normalization, aggressive noise stripping, bounded local-model rewriting, and safe heuristic fallbacks
+- fixed dashboard cursor handling so the dashboard route tolerates minimal/mock DB cursor implementations used by tests
+- hardened the integrated proof token/session identifiers to avoid fresh-state collisions during repeated release validation
+
 ## 0.1.12 — 2026-03-21
 
 Release hardening, integrated proof validation, and native-ownership cleanup.

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from . import config
 
-__wrapped_from__ = "brain.runtime.model_roles"
 
 
 def get_model_for_role(role: str) -> str:

@@ -36,6 +36,7 @@ DEFAULT_REINFORCE_NEGATIVE = [
     "frustrated",
 ]
 WATCHER_ERROR_LOG = state_store.reports_dir() / "ocmemog_transcript_watcher_errors.jsonl"
+WATCHER_CURSOR_PATH = state_store.data_dir() / "transcript_watcher_cursor.json"
 _SHUTDOWN_TRACE = os.environ.get("OCMEMOG_SHUTDOWN_TIMING", "true").lower() in {"1", "true", "yes", "on"}
 _WATCHER_REQUEST_TIMEOUT_SECONDS = 10.0
 _WATCHER_SHUTDOWN_REQUEST_TIMEOUT_SECONDS = 1.0
@@ -216,6 +217,26 @@ def _count_lines(path: Path) -> int:
         return sum(1 for _ in handle)
 
 
+def _load_cursor_state() -> dict:
+    try:
+        raw = WATCHER_CURSOR_PATH.read_text(encoding="utf-8")
+        payload = json.loads(raw)
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+
+def _save_cursor_state(payload: dict) -> None:
+    try:
+        WATCHER_CURSOR_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temp = WATCHER_CURSOR_PATH.with_suffix(".tmp")
+        temp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp.replace(WATCHER_CURSOR_PATH)
+    except Exception:
+        return
+
+
 
 def _append_transcript(transcript_target: Path, timestamp: str, role: str, text: str) -> tuple[Path, int]:
     if transcript_target.suffix:
@@ -269,11 +290,15 @@ def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
     else:
         session_target = (Path.home() / ".openclaw" / "agents" / "main" / "sessions").expanduser().resolve()
 
-    current_file: Optional[Path] = None
-    position = 0
-    current_line_number = 0
-    session_file: Optional[Path] = None
-    session_pos = 0
+    cursor_state = _load_cursor_state()
+    transcript_cursor = cursor_state.get("transcript") if isinstance(cursor_state.get("transcript"), dict) else {}
+    session_cursor = cursor_state.get("session") if isinstance(cursor_state.get("session"), dict) else {}
+
+    current_file: Optional[Path] = Path(str(transcript_cursor.get("path"))).resolve() if transcript_cursor.get("path") else None
+    position = int(transcript_cursor.get("position") or 0)
+    current_line_number = int(transcript_cursor.get("line_number") or 0)
+    session_file: Optional[Path] = Path(str(session_cursor.get("path"))).resolve() if session_cursor.get("path") else None
+    session_pos = int(session_cursor.get("position") or 0)
 
     transcript_buffer: list[str] = []
     session_buffer: list[str] = []
@@ -296,6 +321,22 @@ def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
         stopper = threading.Event()
         stopper.clear()
     _WATCHER_STOP_EVENT = stopper
+
+    def _persist_cursors() -> None:
+        _save_cursor_state(
+            {
+                "transcript": {
+                    "path": str(current_file) if current_file is not None else None,
+                    "position": position,
+                    "line_number": current_line_number,
+                },
+                "session": {
+                    "path": str(session_file) if session_file is not None else None,
+                    "position": session_pos,
+                },
+                "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            }
+        )
 
     def _flush_buffer(
         buffer: list[str],
@@ -328,6 +369,7 @@ def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
         ok = _post_ingest(endpoint, payload, stop_event=stop_event)
         if ok:
             buffer.clear()
+            _persist_cursors()
         return ok
 
     def _maybe_reinforce(text: str, timestamp: str) -> None:
@@ -366,17 +408,23 @@ def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
             if latest is not None:
                 if current_file is None or latest != current_file:
                     current_file = latest
-                    position = 0
-                    current_line_number = 0
-                    if start_at_end:
-                        try:
-                            position = current_file.stat().st_size
-                        except Exception:
-                            position = 0
-                        try:
-                            current_line_number = _count_lines(current_file)
-                        except Exception:
-                            current_line_number = 0
+                    reuse_cursor = transcript_cursor.get("path") and Path(str(transcript_cursor.get("path"))).resolve() == current_file
+                    if reuse_cursor:
+                        position = int(transcript_cursor.get("position") or 0)
+                        current_line_number = int(transcript_cursor.get("line_number") or 0)
+                    else:
+                        position = 0
+                        current_line_number = 0
+                        if start_at_end:
+                            try:
+                                position = current_file.stat().st_size
+                            except Exception:
+                                position = 0
+                            try:
+                                current_line_number = _count_lines(current_file)
+                            except Exception:
+                                current_line_number = 0
+                    _persist_cursors()
 
                 try:
                     with current_file.open("r", encoding="utf-8", errors="ignore") as handle:
@@ -399,6 +447,7 @@ def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
                                 committed_line_number = next_line_number
                                 position = committed_position
                                 current_line_number = committed_line_number
+                                _persist_cursors()
                                 continue
                             current_marker = (str(current_file), next_line_number)
                             if current_marker in recent_session_transcript_lines:
@@ -406,6 +455,7 @@ def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
                                 committed_line_number = next_line_number
                                 position = committed_position
                                 current_line_number = committed_line_number
+                                _persist_cursors()
                                 continue
                             transcript_buffer.append(text)
                             transcript_last_path = current_file
@@ -463,6 +513,7 @@ def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
                             committed_line_number = next_line_number
                             position = committed_position
                             current_line_number = committed_line_number
+                            _persist_cursors()
                 except Exception:
                     pass
 
@@ -471,12 +522,17 @@ def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
             if session_latest is not None:
                 if session_file is None or session_latest != session_file:
                     session_file = session_latest
-                    session_pos = 0
-                    if start_at_end:
-                        try:
-                            session_pos = session_file.stat().st_size
-                        except Exception:
-                            session_pos = 0
+                    reuse_session_cursor = session_cursor.get("path") and Path(str(session_cursor.get("path"))).resolve() == session_file
+                    if reuse_session_cursor:
+                        session_pos = int(session_cursor.get("position") or 0)
+                    else:
+                        session_pos = 0
+                        if start_at_end:
+                            try:
+                                session_pos = session_file.stat().st_size
+                            except Exception:
+                                session_pos = 0
+                    _persist_cursors()
                 try:
                     with session_file.open("r", encoding="utf-8", errors="ignore") as handle:
                         handle.seek(session_pos)
@@ -488,22 +544,26 @@ def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
                             line = handle.readline()
                             if not line:
                                 session_pos = committed_session_pos
+                                _persist_cursors()
                                 break
                             try:
                                 entry = json.loads(line)
                             except Exception:
                                 committed_session_pos = handle.tell()
                                 session_pos = committed_session_pos
+                                _persist_cursors()
                                 continue
                             if entry.get("type") != "message":
                                 committed_session_pos = handle.tell()
                                 session_pos = committed_session_pos
+                                _persist_cursors()
                                 continue
                             msg = entry.get("message") or {}
                             role = msg.get("role")
                             if role not in {"user", "assistant"}:
                                 committed_session_pos = handle.tell()
                                 session_pos = committed_session_pos
+                                _persist_cursors()
                                 continue
                             content = msg.get("content")
                             text = _extract_message_text(content).strip()
@@ -514,6 +574,7 @@ def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
                             if not text:
                                 committed_session_pos = handle.tell()
                                 session_pos = committed_session_pos
+                                _persist_cursors()
                                 continue
                             timestamp = entry.get("timestamp") or time.strftime("%Y-%m-%dT%H:%M:%S")
                             if role == "user":
@@ -558,6 +619,7 @@ def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
                                 break
                             if not _post_turn(turn_endpoint, turn_payload, stop_event=stopper):
                                 session_pos = line_start
+                                _persist_cursors()
                                 break
                             pending_session_turns.pop(retry_key, None)
                             recent_session_transcript_lines.append((str(transcript_path), transcript_line_no))
@@ -585,6 +647,7 @@ def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
                                 last_session_flush = time.time()
                             committed_session_pos = handle.tell()
                             session_pos = committed_session_pos
+                            _persist_cursors()
                 except Exception:
                     pass
 

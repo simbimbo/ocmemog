@@ -530,6 +530,8 @@ class SearchRequest(BaseModel):
     query: str = Field(default="")
     limit: int = Field(default=5, ge=1, le=50)
     categories: Optional[List[str]] = None
+    metadata_filters: Optional[Dict[str, Any]] = None
+    lane: Optional[str] = Field(default=None, description="Optional retrieval lane/domain hint, e.g. 'tbc'")
 
 
 class DuplicateCandidatesRequest(BaseModel):
@@ -638,6 +640,7 @@ class IngestRequest(BaseModel):
     transcript_offset: Optional[int] = None
     transcript_end_offset: Optional[int] = None
     timestamp: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class ConversationTurnRequest(BaseModel):
@@ -661,6 +664,7 @@ class ConversationHydrateRequest(BaseModel):
     thread_id: Optional[str] = None
     turns_limit: int = Field(default=12, ge=1, le=100)
     memory_limit: int = Field(default=8, ge=1, le=50)
+    predictive_brief_limit: int = Field(default=5, ge=1, le=12)
 
 
 class ConversationCheckpointRequest(BaseModel):
@@ -770,16 +774,28 @@ def _retune_reflection_memory_type(content: str, memory_type: str) -> str:
     return memory_type
 
 
-def _fallback_search(query: str, limit: int, categories: List[str]) -> List[Dict[str, Any]]:
+def _fallback_search(
+    query: str,
+    limit: int,
+    categories: List[str],
+    *,
+    metadata_filters: Optional[Dict[str, Any]] = None,
+    lane: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     conn = store.connect()
+    active_lane = retrieval.infer_lane(query, explicit_lane=lane)
     try:
         results: List[Dict[str, Any]] = []
         for table in categories:
             rows = conn.execute(
-                f"SELECT id, content, confidence FROM {table} WHERE content LIKE ? ORDER BY id DESC LIMIT ?",
-                (f"%{query}%", limit),
+                f"SELECT id, content, confidence, metadata_json FROM {table} WHERE content LIKE ? ORDER BY id DESC LIMIT ?",
+                (f"%{query}%", limit * 5),
             ).fetchall()
             for row in rows:
+                meta = json.loads(row["metadata_json"] or "{}") if row["metadata_json"] else {}
+                if not retrieval._metadata_matches(meta, metadata_filters):
+                    continue
+                lane_bonus = retrieval._lane_bonus(meta, active_lane)
                 results.append(
                     {
                         "bucket": table,
@@ -787,14 +803,103 @@ def _fallback_search(query: str, limit: int, categories: List[str]) -> List[Dict
                         "table": table,
                         "id": str(row["id"]),
                         "content": str(row["content"] or ""),
-                        "score": float(row["confidence"] or 0.0),
+                        "score": float(row["confidence"] or 0.0) + lane_bonus,
                         "links": [],
+                        "metadata": meta,
                     }
                 )
         results.sort(key=lambda item: item["score"], reverse=True)
         return results[:limit]
     finally:
         conn.close()
+
+
+def _compact_text(value: Any, max_len: int = 180) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(text) > max_len:
+        return f"{text[: max_len - 1].rstrip()}…"
+    return text
+
+
+def _build_predictive_brief(
+    *,
+    request: ConversationHydrateRequest,
+    turns: Sequence[Dict[str, Any]],
+    summary: Dict[str, Any],
+    linked_memories: Sequence[Dict[str, Any]],
+) -> Dict[str, Any]:
+    latest_user_ask = ((summary.get("latest_user_intent") or {}).get("effective_content") if isinstance(summary.get("latest_user_intent"), dict) else None) or ((summary.get("latest_user_ask") or {}).get("content") if isinstance(summary.get("latest_user_ask"), dict) else None) or ""
+    summary_text = str(summary.get("summary_text") or "").strip()
+    query = _compact_text(latest_user_ask or summary_text or "resume context", 260)
+    lane = retrieval.infer_lane(query)
+    profiles = retrieval._load_lane_profiles()
+    profile = profiles.get(lane or "") if lane else None
+    metadata_filters = profile.get("metadata_filters") if isinstance(profile, dict) else None
+    categories = ["knowledge", "runbooks", "tasks", "reflections", "directives"]
+    retrieved = retrieval.retrieve_for_queries(
+        [query],
+        limit=max(1, request.predictive_brief_limit),
+        categories=categories,
+        metadata_filters=metadata_filters,
+        lane=lane,
+        skip_vector_provider=True,
+    )
+    items: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for bucket in categories:
+        for item in retrieved.get(bucket, []) or []:
+            ref = str(item.get("reference") or "")
+            if not ref or ref in seen:
+                continue
+            seen.add(ref)
+            items.append(
+                {
+                    "reference": ref,
+                    "category": bucket,
+                    "content": _compact_text(item.get("content") or "", 180),
+                    "selected_because": item.get("selected_because") or item.get("retrieval_signals") or "retrieval",
+                    "score": item.get("score"),
+                    "metadata": item.get("metadata") or {},
+                }
+            )
+            if len(items) >= request.predictive_brief_limit:
+                break
+        if len(items) >= request.predictive_brief_limit:
+            break
+
+    checkpoint = summary.get("latest_checkpoint") if isinstance(summary.get("latest_checkpoint"), dict) else None
+    open_loops = summary.get("open_loops") if isinstance(summary.get("open_loops"), list) else []
+    recent_linked = []
+    for item in linked_memories[:2]:
+        if not isinstance(item, dict):
+            continue
+        recent_linked.append({
+            "reference": item.get("reference"),
+            "summary": _compact_text(item.get("summary") or item.get("content") or item.get("reference") or "", 140),
+        })
+    return {
+        "lane": lane,
+        "query": query,
+        "metadata_filters": metadata_filters or {},
+        "checkpoint": {
+            "reference": checkpoint.get("reference") if checkpoint else None,
+            "summary": _compact_text(checkpoint.get("summary") if checkpoint else "", 180),
+        } if checkpoint else None,
+        "open_loops": [
+            {
+                "kind": item.get("kind"),
+                "summary": _compact_text(item.get("summary") or "", 120),
+                "reference": item.get("source_reference") or item.get("reference"),
+            }
+            for item in open_loops[:2]
+            if isinstance(item, dict) and str(item.get("summary") or "").strip()
+        ],
+        "memories": items,
+        "linked_memories": recent_linked,
+        "latest_user_ask": _compact_text(latest_user_ask, 180),
+        "summary_text": _compact_text(summary_text, 220),
+        "mode": "predictive-brief",
+    }
 
 
 _ALLOWED_MEMORY_REFERENCE_TYPES = {
@@ -963,13 +1068,15 @@ def memory_search(request: SearchRequest) -> dict[str, Any]:
             limit=request.limit,
             categories=categories,
             skip_vector_provider=skip_vector_provider,
+            metadata_filters=request.metadata_filters,
+            lane=request.lane,
         )
         flattened = flatten_results(results)
         if len(flattened) > request.limit:
             flattened = flattened[: request.limit]
         used_fallback = False
     except Exception as exc:
-        flattened = _fallback_search(request.query, request.limit, categories)
+        flattened = _fallback_search(request.query, request.limit, categories, metadata_filters=request.metadata_filters, lane=request.lane)
         used_fallback = True
         runtime["warnings"] = [*runtime["warnings"], f"search fallback enabled: {exc}"]
     elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
@@ -1371,6 +1478,12 @@ def conversation_hydrate(request: ConversationHydrateRequest) -> dict[str, Any]:
         runtime["warnings"] = [*runtime["warnings"], "hydrate returned persisted state while state refresh was delayed"]
     elif state_status == "derived_not_persisted":
         runtime["warnings"] = [*runtime["warnings"], "hydrate returned derived state while state refresh was delayed"]
+    predictive_brief = _build_predictive_brief(
+        request=request,
+        turns=turns,
+        summary=summary,
+        linked_memories=linked_memories,
+    )
     return {
         "ok": True,
         "conversation_id": request.conversation_id,
@@ -1378,6 +1491,7 @@ def conversation_hydrate(request: ConversationHydrateRequest) -> dict[str, Any]:
         "thread_id": request.thread_id,
         "recent_turns": turns,
         "summary": summary,
+        "predictive_brief": predictive_brief,
         "turn_counts": conversation_state.get_turn_counts(
             conversation_id=request.conversation_id,
             session_id=request.session_id,
@@ -1508,6 +1622,7 @@ def _ingest_request(request: IngestRequest) -> dict[str, Any]:
             memory_type = "knowledge"
         memory_type = _retune_reflection_memory_type(content, memory_type)
         metadata = {
+            **(request.metadata or {}),
             "conversation_id": request.conversation_id,
             "session_id": request.session_id,
             "thread_id": request.thread_id,
@@ -1583,6 +1698,7 @@ def _ingest_request(request: IngestRequest) -> dict[str, Any]:
     # experience ingest
     experience_metadata = provenance.normalize_metadata(
         {
+            **(request.metadata or {}),
             "conversation_id": request.conversation_id,
             "session_id": request.session_id,
             "thread_id": request.thread_id,

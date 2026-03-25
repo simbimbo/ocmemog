@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Dict, List, Any, Iterable, Tuple
+from typing import Dict, List, Any, Iterable, Tuple, Optional
 
 import json
+import os
 
 from ocmemog.runtime import state_store
 from ocmemog.runtime.instrumentation import emit_event
@@ -87,12 +88,126 @@ def _governance_state(metadata: Dict[str, Any]) -> tuple[str, Dict[str, Any]]:
     return str(state["memory_status"] or "active"), state
 
 
+def _flatten_strings(value: Any) -> List[str]:
+    items: List[str] = []
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped:
+            items.append(stripped)
+    elif isinstance(value, dict):
+        for child in value.values():
+            items.extend(_flatten_strings(child))
+    elif isinstance(value, (list, tuple, set)):
+        for child in value:
+            items.extend(_flatten_strings(child))
+    return items
+
+
+def _metadata_lookup(metadata: Dict[str, Any], dotted_key: str) -> Any:
+    current: Any = metadata
+    for part in (dotted_key or "").split("."):
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+    return current
+
+
+def _metadata_matches(metadata: Dict[str, Any], filters: Optional[Dict[str, Any]]) -> bool:
+    if not filters:
+        return True
+    for key, expected in filters.items():
+        actual = _metadata_lookup(metadata, key)
+        actual_values = {item.lower() for item in _flatten_strings(actual)}
+        expected_values = {item.lower() for item in _flatten_strings(expected)}
+        if expected_values:
+            if not actual_values.intersection(expected_values):
+                return False
+        else:
+            if actual not in (None, "", [], {}):
+                return False
+    return True
+
+
+def _load_lane_profiles() -> Dict[str, Dict[str, Any]]:
+    raw = os.getenv("OCMEMOG_MEMORY_LANES_JSON", "").strip()
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    profiles: Dict[str, Dict[str, Any]] = {}
+    for lane_name, config in payload.items():
+        if not isinstance(config, dict):
+            continue
+        normalized_name = str(lane_name or "").strip().lower()
+        if not normalized_name:
+            continue
+        profiles[normalized_name] = {
+            "keywords": [item.lower() for item in _flatten_strings(config.get("keywords"))],
+            "metadata_filters": config.get("metadata_filters") if isinstance(config.get("metadata_filters"), dict) else {},
+        }
+    return profiles
+
+
+def infer_lane(prompt: str, explicit_lane: Optional[str] = None) -> Optional[str]:
+    lane = str(explicit_lane or "").strip().lower()
+    if lane:
+        return lane
+    profiles = _load_lane_profiles()
+    if not profiles:
+        return None
+    prompt_l = str(prompt or "").lower()
+    tokens = set(_tokenize(prompt))
+    best_lane: Optional[str] = None
+    best_score = 0
+    for lane_name, config in profiles.items():
+        keywords = {item for item in config.get("keywords", []) if item}
+        if not keywords:
+            continue
+        score = 0
+        for keyword in keywords:
+            keyword_tokens = set(_tokenize(keyword))
+            if not keyword_tokens:
+                continue
+            if len(keyword_tokens) == 1:
+                if next(iter(keyword_tokens)) in tokens:
+                    score += 1
+            elif keyword.lower() in prompt_l:
+                score += len(keyword_tokens)
+        if score > best_score:
+            best_score = score
+            best_lane = lane_name
+    return best_lane if best_score > 0 else None
+
+
+def _lane_bonus(metadata: Dict[str, Any], lane: Optional[str]) -> float:
+    lane_value = str(lane or "").strip().lower()
+    if not lane_value:
+        return 0.0
+    domain = str(_metadata_lookup(metadata, "domain") or "").strip().lower()
+    if domain == lane_value:
+        return 0.2
+    profile = _load_lane_profiles().get(lane_value) or {}
+    filters = profile.get("metadata_filters") if isinstance(profile.get("metadata_filters"), dict) else {}
+    if filters and _metadata_matches(metadata, filters):
+        return 0.16
+    source_labels = {item.lower() for item in _flatten_strings(_metadata_lookup(metadata, "source_labels"))}
+    if lane_value in source_labels:
+        return 0.08
+    return 0.0
+
+
 def retrieve(
     prompt: str,
     limit: int = 5,
     categories: Iterable[str] | None = None,
     *,
     skip_vector_provider: bool = False,
+    metadata_filters: Optional[Dict[str, Any]] = None,
+    lane: Optional[str] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     emit_event(state_store.report_log_path(), "brain_memory_retrieval_start", status="ok")
     emit_event(state_store.report_log_path(), "brain_memory_retrieval_rank_start", status="ok")
@@ -100,6 +215,7 @@ def retrieve(
     conn = store.connect()
     results = _empty_results()
     selected_categories = tuple(dict.fromkeys(category for category in (categories or MEMORY_BUCKETS) if category in MEMORY_BUCKETS))
+    active_lane = infer_lane(prompt, explicit_lane=lane)
 
     reinf_rows = conn.execute("SELECT memory_reference, reward_score, confidence FROM experiences").fetchall()
     reinforcement: Dict[str, Dict[str, float]] = {}
@@ -129,20 +245,22 @@ def retrieve(
             if source_type in selected_categories and source_id:
                 semantic_scores[f"{source_type}:{source_id}"] = float(item.get("score") or 0.0)
 
-    def score_record(*, content: str, memory_ref: str, promo_conf: float, timestamp: str | None) -> tuple[float, Dict[str, float]]:
+    def score_record(*, content: str, memory_ref: str, promo_conf: float, timestamp: str | None, metadata_payload: Dict[str, Any]) -> tuple[float, Dict[str, float]]:
         keyword = _match_score(content, prompt)
         semantic = float(semantic_scores.get(memory_ref, 0.0))
         reinf = reinforcement.get(memory_ref, {})
         reinf_score = float(reinf.get("reward_score", 0.0)) * 0.35
         promo_score = float(promo_conf) * 0.2
         recency = _recency_score(timestamp)
-        score = round((keyword * 0.45) + (semantic * 0.35) + reinf_score + promo_score + recency, 3)
+        lane_bonus = _lane_bonus(metadata_payload, active_lane)
+        score = round((keyword * 0.45) + (semantic * 0.35) + reinf_score + promo_score + recency + lane_bonus, 3)
         return score, {
             "keyword": round(keyword, 3),
             "semantic": round(semantic, 3),
             "reinforcement": round(reinf_score, 3),
             "promotion": round(promo_score, 3),
             "recency": round(recency, 3),
+            "lane_bonus": round(lane_bonus, 3),
         }
 
     for table in selected_categories:
@@ -165,11 +283,13 @@ def retrieve(
             timestamp = row["timestamp"] if isinstance(row, dict) else row[1]
             raw_metadata = row["metadata_json"] if isinstance(row, dict) else row[4]
             metadata_payload = _parse_metadata(raw_metadata)
+            if not _metadata_matches(metadata_payload, metadata_filters):
+                continue
             memory_status, governance = _governance_state(metadata_payload)
             if memory_status in {"superseded", "duplicate"}:
                 continue
             metadata = provenance.fetch_reference(mem_ref)
-            score, signals = score_record(content=content, memory_ref=mem_ref, promo_conf=promo_conf, timestamp=timestamp)
+            score, signals = score_record(content=content, memory_ref=mem_ref, promo_conf=promo_conf, timestamp=timestamp, metadata_payload=metadata_payload)
             if memory_status == "contested":
                 score = round(max(0.0, score - 0.15), 3)
                 signals["contradiction_penalty"] = 0.15
@@ -200,6 +320,8 @@ def retrieve_for_queries(
     limit: int = 5,
     categories: Iterable[str] | None = None,
     skip_vector_provider: bool = False,
+    metadata_filters: Optional[Dict[str, Any]] = None,
+    lane: Optional[str] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     merged = _empty_results()
     seen_refs = {bucket: set() for bucket in MEMORY_BUCKETS}
@@ -207,10 +329,17 @@ def retrieve_for_queries(
     normalized_queries = [query.strip() for query in queries if isinstance(query, str) and query.strip()]
 
     if not normalized_queries:
-        return retrieve("", limit=limit, categories=selected_categories)
+        return retrieve("", limit=limit, categories=selected_categories, metadata_filters=metadata_filters, lane=lane)
 
     for query in normalized_queries:
-        partial = retrieve(query, limit=limit, categories=selected_categories, skip_vector_provider=skip_vector_provider)
+        partial = retrieve(
+            query,
+            limit=limit,
+            categories=selected_categories,
+            skip_vector_provider=skip_vector_provider,
+            metadata_filters=metadata_filters,
+            lane=lane,
+        )
         for bucket in selected_categories:
             for item in partial.get(bucket, []):
                 ref = item.get("memory_reference")

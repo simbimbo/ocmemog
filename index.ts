@@ -1,4 +1,7 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/memory-core";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const DEFAULT_ENDPOINT = "http://127.0.0.1:17891";
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -12,6 +15,10 @@ type PluginConfig = {
 const AUTO_HYDRATION_ENABLED = ["1", "true", "yes"].includes(
   String(process.env.OCMEMOG_AUTO_HYDRATION ?? "false").trim().toLowerCase(),
 );
+const DURABLE_OUTBOX_ENABLED = !["0", "false", "no"].includes(
+  String(process.env.OCMEMOG_DURABLE_OUTBOX ?? "true").trim().toLowerCase(),
+);
+const DEFAULT_OUTBOX_PATH = path.join(os.homedir(), ".openclaw", "ocmemog-outbox.json");
 
 type SearchResponse = {
   ok: boolean;
@@ -57,6 +64,7 @@ type ConversationHydrateResponse = {
   recent_turns?: Array<Record<string, unknown>>;
   linked_memories?: Array<{ reference?: string; content?: string }>;
   summary?: Record<string, unknown>;
+  predictive_brief?: Record<string, unknown>;
   state?: Record<string, unknown>;
   error?: string;
 };
@@ -72,6 +80,122 @@ type ConversationScope = {
   session_id?: string;
   thread_id?: string;
 };
+
+type DurableOutboxRecord = {
+  id: string;
+  kind: "conversation_ingest" | "conversation_checkpoint";
+  path: string;
+  body: Record<string, unknown>;
+  createdAt: string;
+  attempts: number;
+  lastError?: string;
+};
+
+function durableOutboxPath(): string {
+  const raw = String(process.env.OCMEMOG_DURABLE_OUTBOX_PATH ?? DEFAULT_OUTBOX_PATH).trim();
+  return raw || DEFAULT_OUTBOX_PATH;
+}
+
+function makeOutboxRecord(kind: DurableOutboxRecord["kind"], pathValue: string, body: Record<string, unknown>): DurableOutboxRecord {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    kind,
+    path: pathValue,
+    body,
+    createdAt: new Date().toISOString(),
+    attempts: 0,
+  };
+}
+
+async function loadOutbox(): Promise<DurableOutboxRecord[]> {
+  if (!DURABLE_OUTBOX_ENABLED) return [];
+  const filePath = durableOutboxPath();
+  try {
+    const raw = await fs.readFile(filePath, "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as DurableOutboxRecord[]) : [];
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+async function saveOutbox(records: DurableOutboxRecord[]): Promise<void> {
+  if (!DURABLE_OUTBOX_ENABLED) return;
+  const filePath = durableOutboxPath();
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, JSON.stringify(records, null, 2), "utf8");
+}
+
+async function enqueueOutbox(record: DurableOutboxRecord): Promise<void> {
+  if (!DURABLE_OUTBOX_ENABLED) return;
+  const records = await loadOutbox();
+  records.push(record);
+  await saveOutbox(records);
+}
+
+async function flushOutbox(
+  api: OpenClawPluginApi,
+  config: PluginConfig,
+  options: { maxItems?: number } = {},
+): Promise<void> {
+  const maxItems = options.maxItems ?? 25;
+  if (!DURABLE_OUTBOX_ENABLED) return;
+  const records = await loadOutbox();
+  if (!records.length) return;
+  const remaining: DurableOutboxRecord[] = [];
+  let processed = 0;
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+    if (processed >= maxItems) {
+      remaining.push(...records.slice(index));
+      break;
+    }
+    try {
+      await postJson(config, record.path, record.body);
+      processed += 1;
+    } catch (error) {
+      remaining.push({
+        ...record,
+        attempts: (record.attempts || 0) + 1,
+        lastError: error instanceof Error ? error.message : String(error),
+      });
+      remaining.push(...records.slice(index + 1));
+      break;
+    }
+  }
+  await saveOutbox(remaining);
+  if (processed > 0) {
+    api.logger.info(`ocmemog durable outbox flushed ${processed} item(s)`);
+  }
+}
+
+async function durablePostJson(
+  api: OpenClawPluginApi,
+  config: PluginConfig,
+  record: DurableOutboxRecord,
+  options: { flushFirst?: boolean } = {},
+): Promise<void> {
+  const flushFirst = options.flushFirst ?? true;
+  if (flushFirst) {
+    try {
+      await flushOutbox(api, config);
+    } catch (error) {
+      api.logger.warn(`ocmemog durable outbox pre-flush failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  try {
+    await postJson(config, record.path, record.body);
+  } catch (error) {
+    await enqueueOutbox({
+      ...record,
+      attempts: (record.attempts || 0) + 1,
+      lastError: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+}
 
 function readConfig(raw: unknown): PluginConfig {
   const cfg = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
@@ -299,6 +423,52 @@ function sanitizeContinuityNoise(text: string, maxLen = 280): string {
   return cleaned;
 }
 
+function buildPredictiveBriefContext(payload: ConversationHydrateResponse): string {
+  if (!payload.ok) {
+    return "";
+  }
+  const brief = asRecord(payload.predictive_brief);
+  if (!brief) {
+    return "";
+  }
+  const lines: string[] = [];
+  const lane = sanitizeContinuityNoise(firstString(brief.lane), 48);
+  if (lane) {
+    lines.push(`Lane: ${lane}`);
+  }
+  const checkpoint = asRecord(brief.checkpoint);
+  const checkpointSummary = sanitizeContinuityNoise(firstString(checkpoint?.summary), 140);
+  if (checkpointSummary) {
+    lines.push(`Checkpoint: ${checkpointSummary}`);
+  }
+  const memories = Array.isArray(brief.memories) ? brief.memories : [];
+  const memoryLines = memories
+    .slice(0, 4)
+    .map((item) => {
+      const record = asRecord(item);
+      return sanitizeContinuityNoise(firstString(record?.content, record?.reference), 120);
+    })
+    .filter(Boolean);
+  if (memoryLines.length) {
+    lines.push(`Likely-needed facts: ${memoryLines.join(" | ")}`);
+  }
+  const openLoops = Array.isArray(brief.open_loops) ? brief.open_loops : [];
+  const openLoopLines = openLoops
+    .slice(0, 2)
+    .map((item) => {
+      const record = asRecord(item);
+      return sanitizeContinuityNoise(firstString(record?.summary, record?.reference), 100);
+    })
+    .filter(Boolean);
+  if (openLoopLines.length) {
+    lines.push(`Open loops: ${openLoopLines.join(" | ")}`);
+  }
+  if (!lines.length) {
+    return "";
+  }
+  return `Working memory brief (JIT by ocmemog):\n- ${lines.join("\n- ")}`;
+}
+
 function buildHydrationContext(payload: ConversationHydrateResponse): string {
   if (!payload.ok) {
     return "";
@@ -352,6 +522,10 @@ function buildTurnMetadata(message: unknown, ctx: { agentId?: string; sessionKey
 }
 
 function registerAutomaticContinuityHooks(api: OpenClawPluginApi, config: PluginConfig) {
+  void flushOutbox(api, config).catch((error) => {
+    api.logger.warn(`ocmemog durable outbox startup flush failed: ${error instanceof Error ? error.message : String(error)}`);
+  });
+
   api.on("before_message_write", (event, ctx) => {
     try {
       const role = extractRole(event.message);
@@ -366,7 +540,7 @@ function registerAutomaticContinuityHooks(api: OpenClawPluginApi, config: Plugin
       if (!scope.session_id && !scope.thread_id && !scope.conversation_id) {
         return;
       }
-      void postJson<{ ok: boolean }>(config, "/conversation/ingest_turn", {
+      const body = {
         ...scope,
         role,
         content,
@@ -374,8 +548,9 @@ function registerAutomaticContinuityHooks(api: OpenClawPluginApi, config: Plugin
         timestamp: extractTimestamp(event.message),
         source: "openclaw.before_message_write",
         metadata: buildTurnMetadata(event.message, ctx),
-      }).catch((error) => {
-        api.logger.warn(`ocmemog continuity ingest failed: ${error instanceof Error ? error.message : String(error)}`);
+      };
+      void durablePostJson(api, config, makeOutboxRecord("conversation_ingest", "/conversation/ingest_turn", body)).catch((error) => {
+        api.logger.warn(`ocmemog continuity ingest failed (queued for retry): ${error instanceof Error ? error.message : String(error)}`);
       });
     } catch (error) {
       api.logger.warn(`ocmemog continuity ingest scheduling failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -399,7 +574,9 @@ function registerAutomaticContinuityHooks(api: OpenClawPluginApi, config: Plugin
           turns_limit: 4,
           memory_limit: 3,
         });
-        const prependContext = buildHydrationContext(payload);
+        const briefContext = buildPredictiveBriefContext(payload);
+        const continuityContext = buildHydrationContext(payload);
+        const prependContext = [briefContext, continuityContext].filter(Boolean).join("\n\n");
         if (!prependContext) {
           return;
         }
@@ -419,11 +596,15 @@ function registerAutomaticContinuityHooks(api: OpenClawPluginApi, config: Plugin
       if (!sessionId) {
         return;
       }
-      await postJson<ConversationCheckpointResponse>(config, "/conversation/checkpoint", {
-        session_id: sessionId,
-        checkpoint_kind: "compaction",
-        turns_limit: 32,
-      });
+      await durablePostJson(
+        api,
+        config,
+        makeOutboxRecord("conversation_checkpoint", "/conversation/checkpoint", {
+          session_id: sessionId,
+          checkpoint_kind: "compaction",
+          turns_limit: 32,
+        }),
+      );
     } catch (error) {
       api.logger.warn(`ocmemog compaction checkpoint failed: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -435,11 +616,15 @@ function registerAutomaticContinuityHooks(api: OpenClawPluginApi, config: Plugin
       if (!sessionId) {
         return;
       }
-      await postJson<ConversationCheckpointResponse>(config, "/conversation/checkpoint", {
-        session_id: sessionId,
-        checkpoint_kind: "session_end",
-        turns_limit: 48,
-      });
+      await durablePostJson(
+        api,
+        config,
+        makeOutboxRecord("conversation_checkpoint", "/conversation/checkpoint", {
+          session_id: sessionId,
+          checkpoint_kind: "session_end",
+          turns_limit: 48,
+        }),
+      );
     } catch (error) {
       api.logger.warn(`ocmemog session-end checkpoint failed: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -473,6 +658,14 @@ const ocmemogPlugin = {
               items: { type: "string" },
               description: "Memory category.",
             },
+            metadataFilters: {
+              type: "object",
+              description: "Optional metadata filters (for example { domain: 'tbc', site: 'dal' }).",
+            },
+            lane: {
+              type: "string",
+              description: "Optional retrieval lane/domain hint (for example 'tbc'). Usually not needed when query context is clear.",
+            },
           },
         },
         async execute(_toolCallId: string, params: Record<string, unknown>) {
@@ -481,6 +674,8 @@ const ocmemogPlugin = {
               query: params.query,
               limit: params.limit,
               categories: params.categories,
+              metadata_filters: params.metadataFilters,
+              lane: params.lane,
             });
 
             const results = payload.results ?? [];
@@ -648,6 +843,7 @@ const ocmemogPlugin = {
             memoryType: { type: "string", description: "memory bucket (knowledge/reflections/etc.)" },
             source: { type: "string", description: "Optional source label." },
             taskId: { type: "string", description: "Optional task id for experience ingest." },
+            metadata: { type: "object", description: "Optional structured metadata (for example { domain: 'tbc', site: 'dal' })." },
           },
         },
         async execute(_toolCallId: string, params: Record<string, unknown>) {
@@ -658,6 +854,7 @@ const ocmemogPlugin = {
               memory_type: params.memoryType,
               source: params.source,
               task_id: params.taskId,
+              metadata: params.metadata,
             });
             return {
               content: [{ type: "text", text: `memory_ingest: ${payload.ok ? "ok" : "failed"}` }],

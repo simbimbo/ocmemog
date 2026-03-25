@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.15 — 2026-03-25
+
+Hydration stabilization + cross-platform default cleanup.
+
+### Highlights
+- made `/conversation/hydrate` read-only (no inline `refresh_state()` on the hot read path)
+- added hydrate stage timing + refresh_state source tagging for root-cause clarity
+- added plugin prepend-size logging and a dedicated hydrate stress harness
+- expanded platform-aware OpenClaw home defaults (OPENCLAW_HOME / OCMEMOG_OPENCLAW_HOME / XDG / Windows AppData)
+- updated transcript/test rig helpers and docs to match cross-platform defaults
+
 ## 0.1.14 — 2026-03-22
 
 Corrective follow-up to make the published release fully version-aligned.

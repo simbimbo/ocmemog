@@ -46,6 +46,28 @@ _BOOL_TRUE_VALUES = {"1", "true", "yes", "on", "y", "t"}
 _BOOL_FALSE_VALUES = {"0", "false", "no", "off", "n", "f"}
 
 
+def _default_openclaw_home() -> Path:
+    explicit = os.environ.get("OPENCLAW_HOME", "").strip() or os.environ.get("OCMEMOG_OPENCLAW_HOME", "").strip()
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    xdg = os.environ.get("XDG_DATA_HOME", "").strip()
+    if xdg:
+        return (Path(xdg).expanduser() / "openclaw").resolve()
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA", "").strip() or os.environ.get("LOCALAPPDATA", "").strip()
+        if appdata:
+            return (Path(appdata).expanduser() / "OpenClaw").resolve()
+    return (Path.home() / ".openclaw").resolve()
+
+
+def _default_transcript_root() -> Path:
+    home = _default_openclaw_home()
+    legacy = (Path.home() / ".openclaw" / "workspace" / "memory").resolve()
+    if home == legacy.parent.parent:
+        return legacy
+    return home / "workspace" / "memory"
+
+
 def _parse_bool_env_value(raw: Any | None, default: bool = False) -> tuple[bool, bool]:
     """Return ``(value, valid)``, where ``valid`` indicates parser confidence."""
     if raw is None:
@@ -138,6 +160,8 @@ _INGEST_WORKER_LOCK = threading.Lock()
 _WATCHER_STOP = threading.Event()
 _WATCHER_THREAD: threading.Thread | None = None
 _WATCHER_LOCK = threading.Lock()
+_HYDRATE_CACHE_LOCK = threading.Lock()
+_HYDRATE_CACHE: dict[tuple[str, str, str, int, int], tuple[float, dict[str, Any]]] = {}
 QUEUE_LOCK = threading.Lock()
 QUEUE_PROCESS_LOCK = threading.Lock()
 QUEUE_STATS = {
@@ -221,6 +245,17 @@ async def _auth_middleware(request: Request, call_next):
     return await call_next(request)
 
 
+def _watcher_direct_turn_ingest(payload: dict) -> bool:
+    try:
+        request = ConversationTurnRequest(**payload)
+        response = _ingest_conversation_turn(request)
+        return bool(response.get("ok"))
+    except Exception as exc:
+        print(f"[ocmemog][watcher] direct_turn_ingest_failed error={exc!r}", file=sys.stderr)
+        return False
+
+
+
 def _start_transcript_watcher() -> None:
     global _WATCHER_THREAD
     _load_queue_stats()
@@ -233,7 +268,7 @@ def _start_transcript_watcher() -> None:
         _WATCHER_STOP.clear()
         _WATCHER_THREAD = threading.Thread(
             target=watch_forever,
-            args=(_WATCHER_STOP,),
+            args=(_WATCHER_STOP, _watcher_direct_turn_ingest),
             daemon=True,
             name="ocmemog-transcript-watcher",
         )
@@ -325,13 +360,26 @@ def _enqueue_postprocess(reference: str, *, skip_embedding_provider: bool = True
 
 
 def _run_postprocess_payload(payload: Dict[str, Any]) -> None:
+    started = time.perf_counter()
     reference = str(payload.get("reference") or "").strip()
     if not reference:
         raise ValueError("missing_reference")
     skip_embedding_provider = bool(payload.get("skip_embedding_provider", True))
     result = api.postprocess_stored_memory(reference, skip_embedding_provider=skip_embedding_provider)
+    elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
+    trace = _parse_bool_env("OCMEMOG_TRACE_INGEST_PIPELINE", default=False)
+    warn_ms = _parse_float_env("OCMEMOG_TRACE_INGEST_PIPELINE_WARN_MS", default=20.0, minimum=0.0)
+    if trace or elapsed_ms >= warn_ms:
+        print(f"[ocmemog][ingest] postprocess elapsed_ms={elapsed_ms:.3f} reference={reference}", file=sys.stderr)
     if not result.get("ok"):
         raise RuntimeError(str(result.get("error") or "postprocess_failed"))
+
+
+def _should_link_ingest_memory_to_turn(request: IngestRequest) -> bool:
+    source = str(request.source or "").strip().lower()
+    if source in {"session", "transcript"}:
+        return False
+    return True
 
 
 
@@ -1000,7 +1048,7 @@ def _allowed_transcript_roots() -> list[Path]:
     if raw:
         roots = [Path(item).expanduser().resolve() for item in raw.split(",") if item.strip()]
     else:
-        roots = [Path.home() / ".openclaw" / "workspace" / "memory"]
+        roots = [_default_transcript_root()]
     return roots
 
 
@@ -1427,18 +1475,40 @@ def conversation_ingest_turn(request: ConversationTurnRequest) -> dict[str, Any]
 @app.post("/conversation/hydrate")
 def conversation_hydrate(request: ConversationHydrateRequest) -> dict[str, Any]:
     runtime = _runtime_payload()
+    route_started = time.perf_counter()
+    stage_marks: list[tuple[str, float]] = []
+
+    def _mark(stage: str) -> None:
+        stage_marks.append((stage, time.perf_counter()))
+
+    cache_ttl_ms = _parse_float_env("OCMEMOG_HYDRATE_CACHE_TTL_MS", default=350.0, minimum=0.0)
+    cache_key = (
+        str(request.conversation_id or ""),
+        str(request.session_id or ""),
+        str(request.thread_id or ""),
+        int(request.turns_limit),
+        int(request.memory_limit),
+    )
+    if cache_ttl_ms > 0:
+        with _HYDRATE_CACHE_LOCK:
+            cached = _HYDRATE_CACHE.get(cache_key)
+            now_ms = time.time() * 1000.0
+            if cached and (now_ms - cached[0]) <= cache_ttl_ms:
+                return {**cached[1], **runtime}
     turns = conversation_state.get_recent_turns(
         conversation_id=request.conversation_id,
         session_id=request.session_id,
         thread_id=request.thread_id,
         limit=request.turns_limit,
     )
+    _mark("get_recent_turns")
     linked_memories = conversation_state.get_linked_memories(
         conversation_id=request.conversation_id,
         session_id=request.session_id,
         thread_id=request.thread_id,
         limit=request.memory_limit,
     )
+    _mark("get_linked_memories")
     link_targets: List[Dict[str, Any]] = []
     if request.thread_id:
         link_targets.extend(memory_links.get_memory_links_for_thread(request.thread_id))
@@ -1446,6 +1516,11 @@ def conversation_hydrate(request: ConversationHydrateRequest) -> dict[str, Any]:
         link_targets.extend(memory_links.get_memory_links_for_session(request.session_id))
     if request.conversation_id:
         link_targets.extend(memory_links.get_memory_links_for_conversation(request.conversation_id))
+    conversation_state._self_heal_legacy_continuity_artifacts(
+        conversation_id=request.conversation_id,
+        session_id=request.session_id,
+        thread_id=request.thread_id,
+    )
     latest_checkpoint = conversation_state.get_latest_checkpoint(
         conversation_id=request.conversation_id,
         session_id=request.session_id,
@@ -1457,6 +1532,7 @@ def conversation_hydrate(request: ConversationHydrateRequest) -> dict[str, Any]:
         thread_id=request.thread_id,
         limit=10,
     )
+    _mark("list_relevant_unresolved_state")
     summary = conversation_state.infer_hydration_payload(
         turns,
         conversation_id=request.conversation_id,
@@ -1466,25 +1542,35 @@ def conversation_hydrate(request: ConversationHydrateRequest) -> dict[str, Any]:
         latest_checkpoint=latest_checkpoint,
         linked_memories=linked_memories,
     )
-    state_payload = conversation_state.refresh_state(
+    _mark("infer_hydration_payload")
+    state_payload = conversation_state.get_state(
         conversation_id=request.conversation_id,
         session_id=request.session_id,
         thread_id=request.thread_id,
-        tolerate_write_failure=True,
     )
+    _mark("get_state")
+    if not state_payload:
+        state_payload = conversation_state._state_from_payload(
+            summary,
+            conversation_id=request.conversation_id,
+            session_id=request.session_id,
+            thread_id=request.thread_id,
+        )
     state_meta = (state_payload or {}).get("metadata") if isinstance((state_payload or {}).get("metadata"), dict) else {}
     state_status = str(state_meta.get("state_status") or "")
+    runtime["warnings"] = [*runtime["warnings"], "hydrate returned state without inline state refresh"]
     if state_status == "stale_persisted":
         runtime["warnings"] = [*runtime["warnings"], "hydrate returned persisted state while state refresh was delayed"]
     elif state_status == "derived_not_persisted":
-        runtime["warnings"] = [*runtime["warnings"], "hydrate returned derived state while state refresh was delayed"]
+        runtime["warnings"] = [*runtime["warnings"], "hydrate returned derived state without inline state refresh"]
     predictive_brief = _build_predictive_brief(
         request=request,
         turns=turns,
         summary=summary,
         linked_memories=linked_memories,
     )
-    return {
+    _mark("build_predictive_brief")
+    response = {
         "ok": True,
         "conversation_id": request.conversation_id,
         "session_id": request.session_id,
@@ -1504,6 +1590,33 @@ def conversation_hydrate(request: ConversationHydrateRequest) -> dict[str, Any]:
         "state": state_payload,
         **runtime,
     }
+    elapsed_ms = round((time.perf_counter() - route_started) * 1000, 3)
+    hydrate_trace_enabled = _parse_bool_env("OCMEMOG_TRACE_HYDRATE", default=False)
+    hydrate_warn_ms_raw = os.environ.get("OCMEMOG_TRACE_HYDRATE_WARN_MS", "25").strip()
+    try:
+        hydrate_warn_ms = max(0.0, float(hydrate_warn_ms_raw))
+    except Exception:
+        hydrate_warn_ms = 25.0
+    if cache_ttl_ms > 0:
+        with _HYDRATE_CACHE_LOCK:
+            _HYDRATE_CACHE[cache_key] = (time.time() * 1000.0, dict(response))
+            if len(_HYDRATE_CACHE) > 256:
+                oldest_key = min(_HYDRATE_CACHE.items(), key=lambda item: item[1][0])[0]
+                _HYDRATE_CACHE.pop(oldest_key, None)
+    if hydrate_trace_enabled or elapsed_ms >= hydrate_warn_ms:
+        stage_details: list[str] = []
+        previous = route_started
+        for name, mark in stage_marks:
+            stage_details.append(f"{name}={(mark - previous) * 1000.0:.3f}ms")
+            previous = mark
+        print(
+            "[ocmemog][route] conversation_hydrate "
+            f"elapsed_ms={elapsed_ms:.3f} turns={len(turns)} linked_memories={len(linked_memories)} "
+            f"unresolved_items={len(unresolved_items)} state_status={state_status or 'fresh'} "
+            f"stages={'|'.join(stage_details) or 'none'}",
+            file=sys.stderr,
+        )
+    return response
 
 
 @app.post("/conversation/checkpoint")
@@ -1609,6 +1722,7 @@ def memory_ponder_latest(limit: int = 5) -> dict[str, Any]:
 
 
 def _ingest_request(request: IngestRequest) -> dict[str, Any]:
+    ingest_started = time.perf_counter()
     runtime = _runtime_payload()
     content = request.content.strip() if isinstance(request.content, str) else ""
     if not content:
@@ -1663,7 +1777,7 @@ def _ingest_request(request: IngestRequest) -> dict[str, Any]:
             else:
                 suffix = ""
             memory_links.add_memory_link(reference, "transcript", f"transcript:{request.transcript_path}{suffix}")
-        if request.role:
+        if request.role and _should_link_ingest_memory_to_turn(request):
             turn_response = _ingest_conversation_turn(
                 ConversationTurnRequest(
                     role=request.role,
@@ -1693,7 +1807,13 @@ def _ingest_request(request: IngestRequest) -> dict[str, Any]:
                     ]
                 },
             )
-        return {"ok": True, "kind": "memory", "memory_type": memory_type, "reference": reference, "turn": turn_response, **runtime}
+        response = {"ok": True, "kind": "memory", "memory_type": memory_type, "reference": reference, "turn": turn_response, **runtime}
+        elapsed_ms = round((time.perf_counter() - ingest_started) * 1000, 3)
+        trace = _parse_bool_env("OCMEMOG_TRACE_INGEST_PIPELINE", default=False)
+        warn_ms = _parse_float_env("OCMEMOG_TRACE_INGEST_PIPELINE_WARN_MS", default=20.0, minimum=0.0)
+        if trace or elapsed_ms >= warn_ms:
+            print(f"[ocmemog][ingest] ingest_request elapsed_ms={elapsed_ms:.3f} kind=memory source={request.source or ''} reference={reference}", file=sys.stderr)
+        return response
 
     # experience ingest
     experience_metadata = provenance.normalize_metadata(

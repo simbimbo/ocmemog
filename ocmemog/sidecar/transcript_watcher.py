@@ -13,6 +13,36 @@ from urllib import request as urlrequest
 from ocmemog.runtime import state_store
 
 DEFAULT_ENDPOINT = "http://127.0.0.1:17891/memory/ingest_async"
+
+
+def _default_openclaw_home() -> Path:
+    explicit = os.environ.get("OPENCLAW_HOME", "").strip() or os.environ.get("OCMEMOG_OPENCLAW_HOME", "").strip()
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    xdg = os.environ.get("XDG_DATA_HOME", "").strip()
+    if xdg:
+        return (Path(xdg).expanduser() / "openclaw").resolve()
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA", "").strip() or os.environ.get("LOCALAPPDATA", "").strip()
+        if appdata:
+            return (Path(appdata).expanduser() / "OpenClaw").resolve()
+    return (Path.home() / ".openclaw").resolve()
+
+
+def _default_transcript_target() -> Path:
+    home = _default_openclaw_home()
+    legacy = (Path.home() / ".openclaw" / "workspace" / "memory" / "transcripts").resolve()
+    if home == legacy.parent.parent.parent:
+        return legacy
+    return home / "workspace" / "memory" / "transcripts"
+
+
+def _default_session_target() -> Path:
+    home = _default_openclaw_home()
+    legacy = (Path.home() / ".openclaw" / "agents" / "main" / "sessions").resolve()
+    if home == legacy.parent.parent.parent:
+        return legacy
+    return home / "agents" / "main" / "sessions"
 DEFAULT_GLOB = "*.log"
 DEFAULT_SESSION_GLOB = "*.jsonl"
 DEFAULT_REINFORCE_POSITIVE = [
@@ -145,7 +175,22 @@ def _post_json(endpoint: str, payload: dict, *, stop_event: threading.Event | No
 
 
 def _post_turn(endpoint: str, payload: dict, *, stop_event: threading.Event | None = None) -> bool:
-    return _post_json(endpoint, payload, stop_event=stop_event)
+    started = time.perf_counter()
+    ok = _post_json(endpoint, payload, stop_event=stop_event)
+    elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
+    trace_turn = str(os.environ.get("OCMEMOG_TRACE_WATCHER_TURN", "")).strip().lower() in {"1", "true", "yes", "on"}
+    warn_ms_raw = os.environ.get("OCMEMOG_TRACE_WATCHER_TURN_WARN_MS", "20").strip()
+    try:
+        warn_ms = max(0.0, float(warn_ms_raw))
+    except Exception:
+        warn_ms = 20.0
+    if trace_turn or elapsed_ms >= warn_ms:
+        print(
+            "[ocmemog][watcher] post_turn "
+            f"elapsed_ms={elapsed_ms:.3f} ok={ok} role={payload.get('role')} session_id={payload.get('session_id') or '-'}",
+            file=sys.stderr,
+        )
+    return ok
 
 
 def _extract_user_text(text: str) -> str:
@@ -252,7 +297,10 @@ def _append_transcript(transcript_target: Path, timestamp: str, role: str, text:
     return path, line_no
 
 
-def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
+def watch_forever(
+    stop_event: Optional[threading.Event] = None,
+    turn_ingest_callable: Callable[[dict], bool] | None = None,
+) -> None:
     global _WATCHER_STOP_EVENT
     transcript_path = os.environ.get("OCMEMOG_TRANSCRIPT_PATH", "").strip()
     transcript_dir = os.environ.get("OCMEMOG_TRANSCRIPT_DIR", "").strip()
@@ -283,12 +331,12 @@ def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
     if transcript_path or transcript_dir:
         transcript_target = Path(transcript_path or transcript_dir).expanduser().resolve()
     else:
-        transcript_target = (Path.home() / ".openclaw" / "workspace" / "memory" / "transcripts").expanduser().resolve()
+        transcript_target = _default_transcript_target()
 
     if session_dir:
         session_target = Path(session_dir).expanduser().resolve()
     else:
-        session_target = (Path.home() / ".openclaw" / "agents" / "main" / "sessions").expanduser().resolve()
+        session_target = _default_session_target()
 
     cursor_state = _load_cursor_state()
     transcript_cursor = cursor_state.get("transcript") if isinstance(cursor_state.get("transcript"), dict) else {}
@@ -314,6 +362,8 @@ def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
     pending_session_turns: dict[tuple[str, int], dict[str, object]] = {}
     last_transcript_flush = time.time()
     last_session_flush = time.time()
+    cursor_dirty = False
+    last_cursor_flush = 0.0
     stopper: threading.Event
     if isinstance(stop_event, threading.Event):
         stopper = stop_event
@@ -322,7 +372,13 @@ def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
         stopper.clear()
     _WATCHER_STOP_EVENT = stopper
 
-    def _persist_cursors() -> None:
+    def _persist_cursors(*, force: bool = False) -> None:
+        nonlocal cursor_dirty, last_cursor_flush
+        now = time.time()
+        if not force and not cursor_dirty:
+            return
+        if not force and (now - last_cursor_flush) < cursor_flush_seconds:
+            return
         _save_cursor_state(
             {
                 "transcript": {
@@ -337,6 +393,8 @@ def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
                 "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             }
         )
+        cursor_dirty = False
+        last_cursor_flush = now
 
     def _flush_buffer(
         buffer: list[str],
@@ -519,6 +577,7 @@ def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
 
             # 2) Watch OpenClaw session jsonl (verbatim capture)
             session_latest = _pick_latest(session_target, session_glob)
+            debug_session = str(os.environ.get("OCMEMOG_TRACE_WATCHER_SESSION_STATE", "")).strip().lower() in {"1", "true", "yes", "on"}
             if session_latest is not None:
                 if session_file is None or session_latest != session_file:
                     session_file = session_latest
@@ -527,12 +586,12 @@ def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
                         session_pos = int(session_cursor.get("position") or 0)
                     else:
                         session_pos = 0
-                        if start_at_end:
-                            try:
-                                session_pos = session_file.stat().st_size
-                            except Exception:
-                                session_pos = 0
-                    _persist_cursors()
+                        try:
+                            session_pos = session_file.stat().st_size
+                        except Exception:
+                            session_pos = 0
+                    cursor_dirty = True
+                    _persist_cursors(force=True)
                 try:
                     with session_file.open("r", encoding="utf-8", errors="ignore") as handle:
                         handle.seek(session_pos)
@@ -617,7 +676,12 @@ def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
                                 transcript_line_no = int(pending["transcript_line_no"])
                             if stopper.is_set():
                                 break
-                            if not _post_turn(turn_endpoint, turn_payload, stop_event=stopper):
+                            if not _post_turn(
+                                turn_endpoint,
+                                turn_payload,
+                                stop_event=stopper,
+                                turn_ingest_callable=turn_ingest_callable,
+                            ):
                                 session_pos = line_start
                                 _persist_cursors()
                                 break
@@ -647,50 +711,53 @@ def watch_forever(stop_event: Optional[threading.Event] = None) -> None:
                                 last_session_flush = time.time()
                             committed_session_pos = handle.tell()
                             session_pos = committed_session_pos
+                            cursor_dirty = True
                             _persist_cursors()
                 except Exception:
                     pass
 
-        now = time.time()
-        if transcript_buffer and (now - last_transcript_flush) >= batch_seconds:
-            ok = _flush_buffer(
-                transcript_buffer,
-                source_label=source,
-                transcript_path=transcript_last_path,
-                timestamp=transcript_last_timestamp,
-                start_line=transcript_start_line,
-                end_line=transcript_end_line,
-                stop_event=stopper,
-            )
-            if ok:
-                transcript_start_line = None
-                transcript_end_line = None
-                last_transcript_flush = now
-        if session_buffer and (now - last_session_flush) >= batch_seconds:
-            ok = _flush_buffer(
-                session_buffer,
-                source_label="session",
-                transcript_path=session_last_path,
-                timestamp=session_last_timestamp,
-                start_line=session_start_line,
-                end_line=session_end_line,
-                stop_event=stopper,
-            )
-            if ok:
-                session_start_line = None
-                session_end_line = None
-                last_session_flush = now
-
-        poll_started = time.perf_counter()
-        if stopper.wait(poll_seconds):
-            if _SHUTDOWN_TRACE:
-                print(
-                    f"[ocmemog][watcher-poll] stop_wait timeout={poll_seconds:.3f}s elapsed={time.perf_counter()-poll_started:.3f}s",
-                    file=sys.stderr,
+            now = time.time()
+            if transcript_buffer and (now - last_transcript_flush) >= batch_seconds:
+                ok = _flush_buffer(
+                    transcript_buffer,
+                    source_label=source,
+                    transcript_path=transcript_last_path,
+                    timestamp=transcript_last_timestamp,
+                    start_line=transcript_start_line,
+                    end_line=transcript_end_line,
+                    stop_event=stopper,
                 )
-            return
+                if ok:
+                    transcript_start_line = None
+                    transcript_end_line = None
+                    last_transcript_flush = now
+            if session_buffer and (now - last_session_flush) >= batch_seconds:
+                ok = _flush_buffer(
+                    session_buffer,
+                    source_label="session",
+                    transcript_path=session_last_path,
+                    timestamp=session_last_timestamp,
+                    start_line=session_start_line,
+                    end_line=session_end_line,
+                    stop_event=stopper,
+                )
+                if ok:
+                    session_start_line = None
+                    session_end_line = None
+                    last_session_flush = now
+
+            _persist_cursors()
+            poll_started = time.perf_counter()
+            if stopper.wait(poll_seconds):
+                if _SHUTDOWN_TRACE:
+                    print(
+                        f"[ocmemog][watcher-poll] stop_wait timeout={poll_seconds:.3f}s elapsed={time.perf_counter()-poll_started:.3f}s",
+                        file=sys.stderr,
+                    )
+                break
+
     finally:
+        _persist_cursors(force=True)
         _WATCHER_STOP_EVENT = None
         if _SHUTDOWN_TRACE:
             print("[ocmemog][watcher] shutdown loop exiting", file=sys.stderr)
-        # no return value

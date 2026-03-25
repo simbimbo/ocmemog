@@ -73,10 +73,10 @@ The doctor command currently checks:
 
 ```bash
 # defaults:
-# - transcript mode: ~/.openclaw/workspace/memory/transcripts
-# - session mode: ~/.openclaw/agents/main/sessions (used when OCMEMOG_TRANSCRIPT_DIR is unset)
-export OCMEMOG_TRANSCRIPT_DIR="$HOME/.openclaw/workspace/memory/transcripts"
-export OCMEMOG_SESSION_DIR="$HOME/.openclaw/agents/main/sessions"
+# - transcript mode: <openclaw-home>/workspace/memory/transcripts
+# - session mode: <openclaw-home>/agents/main/sessions (used when OCMEMOG_TRANSCRIPT_DIR is unset)
+export OCMEMOG_TRANSCRIPT_DIR="${OPENCLAW_HOME:-$HOME/.openclaw}/workspace/memory/transcripts"
+export OCMEMOG_SESSION_DIR="${OPENCLAW_HOME:-$HOME/.openclaw}/agents/main/sessions"
 ./scripts/ocmemog-transcript-watcher.sh
 ```
 
@@ -117,9 +117,10 @@ Optional environment variables:
 - `OCMEMOG_EMBED_MODEL_LOCAL` (`simple` by default; legacy alias: `BRAIN_EMBED_MODEL_LOCAL`)
 - `OCMEMOG_EMBED_MODEL_PROVIDER` (`local-openai` to use the local llama.cpp embedding endpoint; `openai` remains available for hosted embeddings; legacy alias: `BRAIN_EMBED_MODEL_PROVIDER`)
 - `OCMEMOG_TRANSCRIPT_WATCHER` (`true` to auto-start transcript watcher inside the sidecar)
-- `OCMEMOG_TRANSCRIPT_ROOTS` (comma-separated allowed roots for transcript context retrieval; default: `~/.openclaw/workspace/memory`)
-- `OCMEMOG_TRANSCRIPT_DIR` (default: `~/.openclaw/workspace/memory/transcripts`)
-- `OCMEMOG_SESSION_DIR` (default: `~/.openclaw/agents/main/sessions`)
+- `OPENCLAW_HOME` / `OCMEMOG_OPENCLAW_HOME` (optional OpenClaw home override; default fallback is platform-aware: `~/.openclaw` on Unix, `XDG_DATA_HOME/openclaw` when set, or `%APPDATA%/OpenClaw` on Windows)
+- `OCMEMOG_TRANSCRIPT_ROOTS` (comma-separated allowed roots for transcript context retrieval; default: `<openclaw-home>/workspace/memory`)
+- `OCMEMOG_TRANSCRIPT_DIR` (default: `<openclaw-home>/workspace/memory/transcripts`)
+- `OCMEMOG_SESSION_DIR` (default: `<openclaw-home>/agents/main/sessions`)
 - `OCMEMOG_TRANSCRIPT_POLL_SECONDS` (poll interval for file/session watcher; default: `30`, or `120` in battery mode)
 - `OCMEMOG_INGEST_BATCH_SECONDS` (max lines per watcher batch; default: `30`, or `120` in battery mode)
 - `OCMEMOG_INGEST_BATCH_MAX` (max watcher batches before yield; default: `25`, or `10` in battery mode)
@@ -156,6 +157,14 @@ Boolean env values are parsed case-insensitively and support `1/0`, `true/false`
 
 - Sidecar binds to **127.0.0.1** by default. Keep it local unless you add auth + firewall rules.
 - If you expose the sidecar, set `OCMEMOG_API_TOKEN` and pass the header `x-ocmemog-token`.
+
+## Platform support
+
+- **Core Python package / sidecar:** intended to run cross-platform when Python + SQLite are available.
+- **Watcher path defaults:** now resolve from a platform-aware OpenClaw home (`OPENCLAW_HOME` / `OCMEMOG_OPENCLAW_HOME`, XDG, Windows AppData, then legacy `~/.openclaw`).
+- **Service/install helpers:** still split by platform.
+  - macOS: LaunchAgents supported in-tree
+  - Linux/Windows: run the sidecar directly with env overrides today; service wrappers are not yet first-class in this repo
 
 ## One‑shot installer (macOS / local dev)
 

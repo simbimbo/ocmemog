@@ -902,7 +902,7 @@ class OcmemogRegressionTests(unittest.TestCase):
 
         self.assertTrue(hydrate["ok"])
         self.assertEqual(hydrate["state"]["latest_user_ask"], "Keep the response path alive under queue pressure.")
-        self.assertTrue(any("state refresh was delayed" in item for item in hydrate["warnings"]))
+        self.assertTrue(any("without inline state refresh" in item or "state refresh was delayed" in item for item in hydrate["warnings"]))
 
     def test_internal_continuity_wrapper_is_ignored_on_ingest(self) -> None:
         response = app.conversation_ingest_turn(
@@ -1238,8 +1238,42 @@ class OcmemogRegressionTests(unittest.TestCase):
         self.assertEqual(int(checkpoint_total), 2)
         self.assertEqual(int(polluted_checkpoints), 0)
 
+    def test_session_source_turn_skips_inline_maintenance_by_default(self) -> None:
+        with mock.patch("ocmemog.runtime.memory.conversation_state.refresh_state") as refresh_state, \
+             mock.patch("ocmemog.runtime.memory.conversation_state.create_checkpoint") as create_checkpoint:
+            response = app.conversation_ingest_turn(
+                app.ConversationTurnRequest(
+                    role="user",
+                    content="watcher-originated turn",
+                    conversation_id="conv-session-source",
+                    session_id="sess-session-source",
+                    thread_id="thread-session-source",
+                    message_id="session-source-1",
+                    source="session",
+                    timestamp="2026-03-25 10:02:00",
+                )
+            )
+
+        self.assertTrue(response["ok"])
+        refresh_state.assert_not_called()
+        create_checkpoint.assert_not_called()
+
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(
+                conversation_id="conv-session-source",
+                session_id="sess-session-source",
+                thread_id="thread-session-source",
+                turns_limit=6,
+            )
+        )
+        self.assertTrue(hydrate["ok"])
+        self.assertEqual(hydrate["recent_turns"][-1]["content"], "watcher-originated turn")
+
     def test_vector_rebuild_does_not_break_mixed_conversation_flow(self) -> None:
-        with mock.patch("ocmemog.runtime.memory.embedding_engine.generate_embedding", side_effect=lambda text: [0.1, 0.2, float(len(text) % 7)]):
+        with mock.patch(
+            "ocmemog.runtime.memory.embedding_engine.generate_embedding",
+            side_effect=lambda text, *args, **kwargs: [0.1, 0.2, float(len(text) % 7)],
+        ):
             for idx in range(18):
                 api.store_memory("knowledge", f"vector rebuild seed {idx}", source="test")
 

@@ -562,6 +562,7 @@ function registerAutomaticContinuityHooks(api: OpenClawPluginApi, config: Plugin
   // failures if a host runtime persists prepended context into transcript history.
   // Keep the memory backend and sidecar tools active, but only prepend continuity
   // when explicitly enabled and after the host runtime has been validated.
+  api.logger.info(`ocmemog auto hydration env raw=${String(process.env.OCMEMOG_AUTO_HYDRATION ?? '<unset>')} computed=${String(AUTO_HYDRATION_ENABLED)}`);
   if (AUTO_HYDRATION_ENABLED) {
     api.on("before_prompt_build", async (event, ctx) => {
       try {
@@ -577,6 +578,9 @@ function registerAutomaticContinuityHooks(api: OpenClawPluginApi, config: Plugin
         const briefContext = buildPredictiveBriefContext(payload);
         const continuityContext = buildHydrationContext(payload);
         const prependContext = [briefContext, continuityContext].filter(Boolean).join("\n\n");
+        api.logger.info(
+          `ocmemog hydration prepend sizes brief=${briefContext.length} continuity=${continuityContext.length} combined=${prependContext.length}`,
+        );
         if (!prependContext) {
           return;
         }

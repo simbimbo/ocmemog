@@ -160,6 +160,20 @@ def _enable_local_embeddings() -> None:
     os.environ.setdefault("OCMEMOG_LOCAL_EMBED_MODEL", "nomic-embed-text-v1.5")
 
 
+def _default_openclaw_home() -> Path:
+    explicit = (os.environ.get("OPENCLAW_HOME") or os.environ.get("OCMEMOG_OPENCLAW_HOME") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    xdg = os.environ.get("XDG_DATA_HOME", "").strip()
+    if xdg:
+        return (Path(xdg).expanduser() / "openclaw").resolve()
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA", "").strip() or os.environ.get("LOCALAPPDATA", "").strip()
+        if appdata:
+            return (Path(appdata).expanduser() / "OpenClaw").resolve()
+    return (Path.home() / ".openclaw").resolve()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--endpoint", default=DEFAULT_ENDPOINT)
@@ -184,7 +198,7 @@ def main() -> int:
 
     _enable_local_embeddings()
 
-    default_workspace = Path.home() / ".openclaw" / "workspace"
+    default_workspace = _default_openclaw_home() / "workspace"
     roots = [default_workspace]
     env_roots = os.environ.get("OCMEMOG_TEST_RIG_ROOTS", "").strip()
     if env_roots:

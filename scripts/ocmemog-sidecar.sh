@@ -46,8 +46,30 @@ export BRAIN_EMBED_MODEL_PROVIDER="${BRAIN_EMBED_MODEL_PROVIDER:-${OCMEMOG_EMBED
 export BRAIN_EMBED_MODEL_LOCAL="${BRAIN_EMBED_MODEL_LOCAL:-${OCMEMOG_EMBED_MODEL_LOCAL}}"
 
 # battery-aware transcript watcher defaults
+default_openclaw_home() {
+  if [[ -n "${OPENCLAW_HOME:-}" ]]; then
+    printf '%s\n' "$OPENCLAW_HOME"
+    return
+  fi
+  if [[ -n "${OCMEMOG_OPENCLAW_HOME:-}" ]]; then
+    printf '%s\n' "$OCMEMOG_OPENCLAW_HOME"
+    return
+  fi
+  if [[ -n "${XDG_DATA_HOME:-}" ]]; then
+    printf '%s\n' "$XDG_DATA_HOME/openclaw"
+    return
+  fi
+  if [[ "$(uname -s)" =~ ^(MINGW|MSYS|CYGWIN|Windows_NT)$ ]] && [[ -n "${APPDATA:-${LOCALAPPDATA:-}}" ]]; then
+    printf '%s\n' "${APPDATA:-${LOCALAPPDATA}}/OpenClaw"
+    return
+  fi
+  printf '%s\n' "$HOME/.openclaw"
+}
+
+OPENCLAW_HOME_DIR="$(default_openclaw_home)"
 export OCMEMOG_TRANSCRIPT_WATCHER="${OCMEMOG_TRANSCRIPT_WATCHER:-true}"
-export OCMEMOG_SESSION_DIR="${OCMEMOG_SESSION_DIR:-$HOME/.openclaw/agents/main/sessions}"
+export OCMEMOG_TRANSCRIPT_DIR="${OCMEMOG_TRANSCRIPT_DIR:-$OPENCLAW_HOME_DIR/workspace/memory/transcripts}"
+export OCMEMOG_SESSION_DIR="${OCMEMOG_SESSION_DIR:-$OPENCLAW_HOME_DIR/agents/main/sessions}"
 if [[ "$LAPTOP_MODE" == "battery" ]]; then
   export OCMEMOG_TRANSCRIPT_POLL_SECONDS="${OCMEMOG_TRANSCRIPT_POLL_SECONDS:-120}"
   export OCMEMOG_INGEST_BATCH_SECONDS="${OCMEMOG_INGEST_BATCH_SECONDS:-120}"
@@ -75,4 +97,4 @@ if [[ -z "${PYTHON_BIN}" ]]; then
   fi
 fi
 
-exec "${PYTHON_BIN}" -m uvicorn ocmemog.sidecar.app:app --host "${HOST}" --port "${PORT}"
+exec -a ocmemog-sidecar "${PYTHON_BIN}" -m uvicorn ocmemog.sidecar.app:app --host "${HOST}" --port "${PORT}"

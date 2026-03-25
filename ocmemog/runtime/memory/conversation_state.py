@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
+import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ocmemog.runtime import state_store
@@ -17,6 +19,7 @@ _COMMITMENT_RE = re.compile(
 )
 _CHECKPOINT_EVERY = max(0, int(os.environ.get("OCMEMOG_CONVERSATION_CHECKPOINT_EVERY", "6") or "6"))
 _MAX_STATE_TURNS = max(6, int(os.environ.get("OCMEMOG_CONVERSATION_STATE_TURNS", "24") or "24"))
+_SESSION_SOURCE_INLINE_MAINTENANCE = os.environ.get("OCMEMOG_SESSION_SOURCE_INLINE_MAINTENANCE", "false").strip().lower() in {"1", "true", "yes", "on"}
 _SHORT_REPLY_NORMALIZED = {
     "yes",
     "yeah",
@@ -578,6 +581,17 @@ def _get_turns_between_ids(
     return _rows_to_turns(rows)
 
 
+def _normalized_turn_source(source: Optional[str]) -> str:
+    return str(source or "").strip().lower()
+
+
+def _should_run_inline_turn_maintenance(*, source: Optional[str]) -> bool:
+    normalized = _normalized_turn_source(source)
+    if normalized == "session" and not _SESSION_SOURCE_INLINE_MAINTENANCE:
+        return False
+    return True
+
+
 def record_turn(
     *,
     role: str,
@@ -711,34 +725,107 @@ def record_turn(
         finally:
             conn.close()
 
-    turn_id = int(store.submit_write(_write, timeout=30.0))
-    try:
-        refresh_state(
-            conversation_id=conversation_id,
-            session_id=session_id,
-            thread_id=thread_id,
-        )
-        if _CHECKPOINT_EVERY > 0:
-            counts = get_turn_counts(conversation_id=conversation_id, session_id=session_id, thread_id=thread_id)
-            if counts["total"] > 0 and counts["total"] % _CHECKPOINT_EVERY == 0:
-                latest = get_latest_checkpoint(conversation_id=conversation_id, session_id=session_id, thread_id=thread_id)
-                if not latest or int(latest.get("turn_end_id") or 0) < turn_id:
-                    create_checkpoint(
-                        conversation_id=conversation_id,
-                        session_id=session_id,
-                        thread_id=thread_id,
-                        upto_turn_id=turn_id,
-                        checkpoint_kind="rolling",
-                    )
-    except Exception as exc:
+    def _write_session_fast() -> int:
+        conn = store.connect()
+        try:
+            if timestamp:
+                cur = conn.execute(
+                    """
+                    INSERT INTO conversation_turns (
+                        timestamp, conversation_id, session_id, thread_id, message_id,
+                        role, content, transcript_path, transcript_offset, transcript_end_offset,
+                        source, metadata_json, schema_version
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        timestamp,
+                        conversation_id,
+                        session_id,
+                        thread_id,
+                        message_id,
+                        turn_role,
+                        turn_content,
+                        transcript_path,
+                        transcript_offset,
+                        transcript_end_offset,
+                        source,
+                        json.dumps(enriched_metadata, ensure_ascii=False),
+                        store.SCHEMA_VERSION,
+                    ),
+                )
+            else:
+                cur = conn.execute(
+                    """
+                    INSERT INTO conversation_turns (
+                        conversation_id, session_id, thread_id, message_id,
+                        role, content, transcript_path, transcript_offset, transcript_end_offset,
+                        source, metadata_json, schema_version
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        conversation_id,
+                        session_id,
+                        thread_id,
+                        message_id,
+                        turn_role,
+                        turn_content,
+                        transcript_path,
+                        transcript_offset,
+                        transcript_end_offset,
+                        source,
+                        json.dumps(enriched_metadata, ensure_ascii=False),
+                        store.SCHEMA_VERSION,
+                    ),
+                )
+            conn.commit()
+            return int(cur.lastrowid)
+        finally:
+            conn.close()
+
+    normalized_source = _normalized_turn_source(source)
+    writer = _write_session_fast if normalized_source == "session" else _write
+    turn_id = int(store.submit_write(writer, timeout=30.0))
+    maintenance_ran = False
+    if _should_run_inline_turn_maintenance(source=source):
+        try:
+            refresh_state(
+                conversation_id=conversation_id,
+                session_id=session_id,
+                thread_id=thread_id,
+                source="record_turn",
+            )
+            if _CHECKPOINT_EVERY > 0:
+                counts = get_turn_counts(conversation_id=conversation_id, session_id=session_id, thread_id=thread_id)
+                if counts["total"] > 0 and counts["total"] % _CHECKPOINT_EVERY == 0:
+                    latest = get_latest_checkpoint(conversation_id=conversation_id, session_id=session_id, thread_id=thread_id)
+                    if not latest or int(latest.get("turn_end_id") or 0) < turn_id:
+                        create_checkpoint(
+                            conversation_id=conversation_id,
+                            session_id=session_id,
+                            thread_id=thread_id,
+                            upto_turn_id=turn_id,
+                            checkpoint_kind="rolling",
+                        )
+            maintenance_ran = True
+        except Exception as exc:
+            if normalized_source != "session":
+                emit_event(
+                    LOGFILE,
+                    "brain_conversation_turn_post_write_maintenance_failed",
+                    status="warn",
+                    error=str(exc),
+                    turn_id=turn_id,
+                )
+    if normalized_source != "session":
         emit_event(
             LOGFILE,
-            "brain_conversation_turn_post_write_maintenance_failed",
-            status="warn",
-            error=str(exc),
+            "brain_conversation_turn_recorded",
+            status="ok",
+            role=turn_role,
             turn_id=turn_id,
+            source=source or "",
+            inline_maintenance=maintenance_ran,
         )
-    emit_event(LOGFILE, "brain_conversation_turn_recorded", status="ok", role=turn_role, turn_id=turn_id)
     return turn_id
 
 
@@ -1468,7 +1555,7 @@ def create_checkpoint(
     emit_event(LOGFILE, "brain_conversation_checkpoint_created", status="ok", checkpoint_id=checkpoint_id, checkpoint_kind=checkpoint_kind)
     payload = get_checkpoint_by_id(checkpoint_id)
     try:
-        refresh_state(conversation_id=conversation_id, session_id=session_id, thread_id=thread_id)
+        refresh_state(conversation_id=conversation_id, session_id=session_id, thread_id=thread_id, source="checkpoint")
     except Exception as exc:
         emit_event(
             LOGFILE,
@@ -1761,7 +1848,9 @@ def refresh_state(
     session_id: Optional[str] = None,
     thread_id: Optional[str] = None,
     tolerate_write_failure: bool = False,
+    source: str = "unknown",
 ) -> Optional[Dict[str, Any]]:
+    refresh_started = time.perf_counter()
     _self_heal_legacy_continuity_artifacts(
         conversation_id=conversation_id,
         session_id=session_id,
@@ -1795,8 +1884,9 @@ def refresh_state(
         latest_checkpoint=latest_checkpoint,
         linked_memories=[],
     )
+    result: Optional[Dict[str, Any]]
     try:
-        return _upsert_state(
+        result = _upsert_state(
             conversation_id=conversation_id,
             session_id=session_id,
             thread_id=thread_id,
@@ -1822,10 +1912,26 @@ def refresh_state(
         if existing:
             metadata = existing.get("metadata") if isinstance(existing.get("metadata"), dict) else {}
             existing["metadata"] = {**metadata, "state_status": "stale_persisted"}
-            return existing
-        return _state_from_payload(
-            payload,
-            conversation_id=conversation_id,
-            session_id=session_id,
-            thread_id=thread_id,
+            result = existing
+        else:
+            result = _state_from_payload(
+                payload,
+                conversation_id=conversation_id,
+                session_id=session_id,
+                thread_id=thread_id,
+            )
+    elapsed_ms = round((time.perf_counter() - refresh_started) * 1000, 3)
+    trace_refresh = str(os.environ.get("OCMEMOG_TRACE_REFRESH_STATE", "")).strip().lower() in {"1", "true", "yes", "on"}
+    warn_ms_raw = os.environ.get("OCMEMOG_TRACE_REFRESH_STATE_WARN_MS", "15").strip()
+    try:
+        warn_ms = max(0.0, float(warn_ms_raw))
+    except Exception:
+        warn_ms = 15.0
+    if trace_refresh or elapsed_ms >= warn_ms:
+        print(
+            "[ocmemog][state] refresh_state "
+            f"source={source or 'unknown'} elapsed_ms={elapsed_ms:.3f} turns={len(turns)} unresolved_items={len(unresolved_items)} "
+            f"conversation_id={conversation_id or '-'} session_id={session_id or '-'} thread_id={thread_id or '-'}",
+            file=sys.stderr,
         )
+    return result

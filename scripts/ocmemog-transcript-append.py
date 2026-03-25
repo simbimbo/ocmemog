@@ -5,8 +5,23 @@ import json
 from pathlib import Path
 from datetime import datetime
 import sys
+import os
 
-ROOT = Path.home() / ".openclaw" / "workspace" / "memory" / "transcripts"
+def _default_openclaw_home() -> Path:
+    explicit = (os.environ.get("OPENCLAW_HOME") or os.environ.get("OCMEMOG_OPENCLAW_HOME") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    xdg = os.environ.get("XDG_DATA_HOME", "").strip()
+    if xdg:
+        return (Path(xdg).expanduser() / "openclaw").resolve()
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA", "").strip() or os.environ.get("LOCALAPPDATA", "").strip()
+        if appdata:
+            return (Path(appdata).expanduser() / "OpenClaw").resolve()
+    return (Path.home() / ".openclaw").resolve()
+
+
+ROOT = (_default_openclaw_home() / "workspace" / "memory" / "transcripts").resolve()
 STATE = ROOT / "transcript-state.json"
 ROOT.mkdir(parents=True, exist_ok=True)
 

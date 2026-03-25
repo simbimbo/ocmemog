@@ -164,7 +164,8 @@ Boolean env values are parsed case-insensitively and support `1/0`, `true/false`
 - **Watcher path defaults:** now resolve from a platform-aware OpenClaw home (`OPENCLAW_HOME` / `OCMEMOG_OPENCLAW_HOME`, XDG, Windows AppData, then legacy `~/.openclaw`).
 - **Service/install helpers:** still split by platform.
   - macOS: LaunchAgents supported in-tree
-  - Linux/Windows: run the sidecar directly with env overrides today; service wrappers are not yet first-class in this repo
+  - Linux: run the sidecar directly with env overrides; if you want a service, create a systemd unit that calls `scripts/ocmemog-sidecar.sh` from your venv
+  - Windows: run the sidecar directly with env overrides; use Task Scheduler or NSSM if you need a persistent service
 
 ## One‑shot installer (macOS / local dev)
 
@@ -222,7 +223,7 @@ launchctl bootstrap gui/$UID scripts/launchagents/com.openclaw.ocmemog.guard.pli
 
 ## Recent changes
 
-### 0.1.15 (current main)
+### 0.1.16 (current main)
 
 Current main now includes:
 - integrated release-gate validation with a fresh-state memory contract proof

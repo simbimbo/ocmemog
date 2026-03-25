@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.16 — 2026-03-25
+
+Platform support doc clarification for Linux/Windows service guidance.
+
+### Highlights
+- documented Linux systemd and Windows service runner guidance (no new code changes)
+
 ## 0.1.15 — 2026-03-25
 
 Hydration stabilization + cross-platform default cleanup.

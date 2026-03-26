@@ -62,6 +62,7 @@ Queue/async ingest behavior note:
 
 - the async ingest queue is append-only on disk and processed in bounded batches
 - malformed queue lines are skipped and acknowledged rather than blocking valid entries behind them
+- valid payload failures are retried in-queue with a bounded retry counter before eventual drop/ack to avoid permanent poison-pill blockage
 - operational visibility for these cases remains in queue stats / doctor health rather than crashing the sidecar
 
 ## Write paths

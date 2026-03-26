@@ -129,6 +129,7 @@ def _parse_int_env(name: str, default: int, minimum: int | None = None) -> int:
 
 
 _SHUTDOWN_TIMING = _parse_bool_env("OCMEMOG_SHUTDOWN_TIMING", default=True)
+_QUEUE_RETRY_KEY = "_ocmemog_retry_count"
 
 
 @asynccontextmanager
@@ -390,6 +391,7 @@ def _process_queue(limit: Optional[int] = None) -> Dict[str, Any]:
     errors = 0
     last_error = None
     batch_limit = limit if limit is not None and limit > 0 else None
+    max_retries = _parse_int_env("OCMEMOG_INGEST_MAX_RETRIES", default=3, minimum=1)
 
     with QUEUE_PROCESS_LOCK:
         while True:
@@ -402,8 +404,8 @@ def _process_queue(limit: Optional[int] = None) -> Dict[str, Any]:
             if consumed_lines <= 0:
                 break
 
-            batch_processed = 0
             acknowledged = 0
+            requeue_payload: Dict[str, Any] | None = None
             for line_no, payload in batch:
                 try:
                     if isinstance(payload, dict) and payload.get(_POSTPROCESS_TASK_KEY) == _POSTPROCESS_TASK_VALUE:
@@ -412,16 +414,31 @@ def _process_queue(limit: Optional[int] = None) -> Dict[str, Any]:
                         req = IngestRequest(**payload)
                         _ingest_request(req)
                     processed += 1
-                    batch_processed += 1
                     acknowledged = line_no
                 except Exception as exc:
                     errors += 1
                     last_error = str(exc)
+                    retry_count = 0
+                    if isinstance(payload, dict):
+                        try:
+                            retry_count = int(payload.get(_QUEUE_RETRY_KEY, 0) or 0)
+                        except Exception:
+                            retry_count = 0
+                    retry_count += 1
+                    if retry_count >= max_retries:
+                        acknowledged = line_no
+                        QUEUE_STATS["last_error"] = f"{last_error} (dropped_after_retries={retry_count})"
+                    elif isinstance(payload, dict):
+                        acknowledged = line_no
+                        requeue_payload = dict(payload)
+                        requeue_payload[_QUEUE_RETRY_KEY] = retry_count
                     break
 
             if not errors:
                 acknowledged = consumed_lines
             _ack_queue_batch(acknowledged)
+            if requeue_payload is not None:
+                _enqueue_payload(requeue_payload)
 
             if errors:
                 break
@@ -433,10 +450,10 @@ def _process_queue(limit: Optional[int] = None) -> Dict[str, Any]:
     QUEUE_STATS["processed"] += processed
     if errors:
         QUEUE_STATS["errors"] += errors
-    if last_error:
+    if last_error and "dropped_after_retries=" not in str(QUEUE_STATS.get("last_error") or ""):
         QUEUE_STATS["last_error"] = last_error
     _save_queue_stats()
-    return {"processed": processed, "errors": errors, "last_error": last_error}
+    return {"processed": processed, "errors": errors, "last_error": QUEUE_STATS.get("last_error") or last_error}
 
 
 

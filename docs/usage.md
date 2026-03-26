@@ -83,7 +83,9 @@ On shutdown, set `OCMEMOG_SHUTDOWN_DRAIN_QUEUE=true` to synchronously flush queu
 
 Queue behavior notes:
 - malformed queue lines are now treated as durable queue errors and skipped/acknowledged so a single bad payload does not block later valid work
-- runtime queue stats keep the last queue parse error visible via `QUEUE_STATS["last_error"]`
+- valid payload failures are retried with a bounded in-queue retry marker (`_ocmemog_retry_count`) instead of blocking forever on the first poison item
+- `OCMEMOG_INGEST_MAX_RETRIES` controls how many failed attempts a queued payload gets before it is dropped and recorded as a retry-exhausted error
+- runtime queue stats keep the last queue parse/retry error visible via `QUEUE_STATS["last_error"]`
 
 ## Plugin API
 

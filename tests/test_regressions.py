@@ -94,6 +94,36 @@ class OcmemogRegressionTests(unittest.TestCase):
         self.assertEqual(app._queue_depth(), 0)
         self.assertEqual(app.QUEUE_STATS["last_error"], "invalid_queue_payload")
 
+    def test_queue_processing_requeues_transient_failure_with_retry_marker(self) -> None:
+        payload = {"content": "retry me", "kind": "memory", "memory_type": "knowledge"}
+        app._enqueue_payload(payload)
+
+        with mock.patch("ocmemog.sidecar.app._ingest_request", side_effect=RuntimeError("temporary_boom")):
+            with mock.patch.dict(os.environ, {"OCMEMOG_INGEST_MAX_RETRIES": "3"}, clear=False):
+                stats = app._process_queue(limit=10)
+
+        self.assertEqual(stats["errors"], 1)
+        self.assertEqual(app._queue_depth(), 1)
+        queued = app._read_queue_lines()
+        self.assertEqual(len(queued), 1)
+        self.assertIn('"_ocmemog_retry_count": 1', queued[0])
+
+    def test_queue_processing_drops_payload_after_max_retries(self) -> None:
+        app._enqueue_payload({
+            "content": "drop me after retries",
+            "kind": "memory",
+            "memory_type": "knowledge",
+            "_ocmemog_retry_count": 1,
+        })
+
+        with mock.patch("ocmemog.sidecar.app._ingest_request", side_effect=RuntimeError("still_boom")):
+            with mock.patch.dict(os.environ, {"OCMEMOG_INGEST_MAX_RETRIES": "2"}, clear=False):
+                stats = app._process_queue(limit=10)
+
+        self.assertEqual(stats["errors"], 1)
+        self.assertEqual(app._queue_depth(), 0)
+        self.assertIn("dropped_after_retries=2", str(stats["last_error"]))
+
     def test_memory_context_uses_transcript_range_anchor(self) -> None:
         transcript = Path(self.tempdir.name) / "sample.log"
         transcript.write_text("\n".join([f"line {idx}" for idx in range(1, 7)]) + "\n", encoding="utf-8")

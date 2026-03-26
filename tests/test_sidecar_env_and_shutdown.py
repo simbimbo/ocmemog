@@ -153,6 +153,16 @@ class SidecarIngestWorkerConfigTests(unittest.TestCase):
         process_queue.assert_called_once_with(25)
         wait.assert_called_once_with(5.0)
 
+    def test_process_queue_uses_default_retry_limit_for_invalid_env(self) -> None:
+        app._enqueue_payload({"content": "retry default", "kind": "memory", "memory_type": "knowledge"})
+        with mock.patch("ocmemog.sidecar.app._ingest_request", side_effect=RuntimeError("boom")):
+            with mock.patch.dict(os.environ, {"OCMEMOG_INGEST_MAX_RETRIES": "not-a-number"}, clear=False):
+                stats = app._process_queue(limit=10)
+
+        self.assertEqual(stats["errors"], 1)
+        self.assertEqual(app._queue_depth(), 1)
+        self.assertIn('"_ocmemog_retry_count": 1', app._read_queue_lines()[0])
+
 
 if __name__ == "__main__":
     unittest.main()

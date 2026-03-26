@@ -10,8 +10,9 @@ Retrieval ranking quality pass plus collateral/doc alignment.
 - added lightweight `searchDiagnostics` to `/memory/search` so retrieval strategy, lane, bucket counts, result compaction, timing, and vector-search scan/prefilter details are visible in the API response
 - added a bounded lexical prefilter inside `vector_index.search_memory()` so semantic ranking can prefer lexically relevant candidates before cosine scoring without introducing ANN complexity
 - aligned README and architecture/usage docs with the actual shipped hybrid retrieval behavior
-- added regression coverage for partial-phrase lexical matches, sidecar search diagnostics, vector prefilter behavior, and malformed queue-line recovery
+- added regression coverage for partial-phrase lexical matches, sidecar search diagnostics, vector prefilter behavior, malformed queue-line recovery, and bounded async retry behavior
 - hardened async queue processing so malformed queue JSON is skipped/acknowledged instead of blocking later valid entries in the same queue file
+- added bounded retry tracking for valid queue payload failures so poison items are retried a small number of times and then dropped/acknowledged instead of blocking the queue forever
 
 ## 0.1.16 — 2026-03-25
 

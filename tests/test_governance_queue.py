@@ -40,6 +40,10 @@ class GovernanceQueueTests(unittest.TestCase):
         self.assertIn("supersession_recommendation", kinds)
         # priority ordering should place supersession recommendations first
         self.assertEqual(items[0]["kind"], "supersession_recommendation")
+        self.assertIn("queueDiagnostics", result)
+        self.assertGreaterEqual(result["queueDiagnostics"]["item_count"], 1)
+        self.assertIn("knowledge", result["queueDiagnostics"]["bucket_counts"])
+        self.assertIn("critical", result["queueDiagnostics"]["priority_label_counts"])
 
 
 if __name__ == "__main__":

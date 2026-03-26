@@ -1496,11 +1496,42 @@ def memory_governance_summary(request: GovernanceSummaryRequest) -> dict[str, An
 def memory_governance_queue(request: GovernanceQueueRequest) -> dict[str, Any]:
     runtime = _runtime_payload()
     items = api.governance_queue(categories=request.categories, limit=request.limit)
+    kind_counts: Dict[str, int] = {}
+    bucket_counts: Dict[str, int] = {}
+    priority_label_counts: Dict[str, int] = {}
+    for item in items:
+        item_kind = str(item.get("kind") or "unknown")
+        item_bucket = str(item.get("bucket") or "unknown")
+        priority_value = int(item.get("priority") or 0)
+        if priority_value >= 90:
+            priority_label = "critical"
+        elif priority_value >= 70:
+            priority_label = "high"
+        elif priority_value >= 40:
+            priority_label = "medium"
+        elif priority_value > 0:
+            priority_label = "low"
+        else:
+            priority_label = "none"
+        kind_counts[item_kind] = kind_counts.get(item_kind, 0) + 1
+        bucket_counts[item_bucket] = bucket_counts.get(item_bucket, 0) + 1
+        priority_label_counts[priority_label] = priority_label_counts.get(priority_label, 0) + 1
+    diagnostics = {
+        "item_count": len(items),
+        "kind_counts": kind_counts,
+        "bucket_counts": bucket_counts,
+        "priority_label_counts": priority_label_counts,
+        "filters": {
+            "categories": list(request.categories or []),
+            "limit": int(request.limit),
+        },
+    }
     return {
         "ok": True,
         "categories": request.categories,
         "limit": request.limit,
         "items": items,
+        "queueDiagnostics": diagnostics,
         **runtime,
     }
 

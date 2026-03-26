@@ -521,6 +521,29 @@ function buildTurnMetadata(message: unknown, ctx: { agentId?: string; sessionKey
   };
 }
 
+function parseAgentIdList(raw: string | undefined): string[] {
+  return String(raw ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+export function shouldAutoHydrateForAgent(agentId?: string): boolean {
+  const normalized = String(agentId ?? "").trim();
+  const allowAgentIds = parseAgentIdList(process.env.OCMEMOG_AUTO_HYDRATION_ALLOW_AGENT_IDS);
+  const denyAgentIds = parseAgentIdList(process.env.OCMEMOG_AUTO_HYDRATION_DENY_AGENT_IDS);
+  if (!AUTO_HYDRATION_ENABLED) {
+    return false;
+  }
+  if (normalized && denyAgentIds.includes(normalized)) {
+    return false;
+  }
+  if (allowAgentIds.length > 0) {
+    return normalized ? allowAgentIds.includes(normalized) : false;
+  }
+  return true;
+}
+
 function registerAutomaticContinuityHooks(api: OpenClawPluginApi, config: PluginConfig) {
   void flushOutbox(api, config).catch((error) => {
     api.logger.warn(`ocmemog durable outbox startup flush failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -562,10 +585,18 @@ function registerAutomaticContinuityHooks(api: OpenClawPluginApi, config: Plugin
   // failures if a host runtime persists prepended context into transcript history.
   // Keep the memory backend and sidecar tools active, but only prepend continuity
   // when explicitly enabled and after the host runtime has been validated.
-  api.logger.info(`ocmemog auto hydration env raw=${String(process.env.OCMEMOG_AUTO_HYDRATION ?? '<unset>')} computed=${String(AUTO_HYDRATION_ENABLED)}`);
+  const allowAgentIds = parseAgentIdList(process.env.OCMEMOG_AUTO_HYDRATION_ALLOW_AGENT_IDS);
+  const denyAgentIds = parseAgentIdList(process.env.OCMEMOG_AUTO_HYDRATION_DENY_AGENT_IDS);
+  api.logger.info(
+    `ocmemog auto hydration env raw=${String(process.env.OCMEMOG_AUTO_HYDRATION ?? '<unset>')} computed=${String(AUTO_HYDRATION_ENABLED)} allow_agents=${allowAgentIds.join('|') || '<all>'} deny_agents=${denyAgentIds.join('|') || '<none>'}`,
+  );
   if (AUTO_HYDRATION_ENABLED) {
     api.on("before_prompt_build", async (event, ctx) => {
       try {
+        if (!shouldAutoHydrateForAgent(ctx.agentId)) {
+          api.logger.info(`ocmemog auto hydration skipped for agent=${String(ctx.agentId ?? '<none>')}`);
+          return;
+        }
         const scope = resolveHydrationScope(event.messages ?? [], ctx);
         if (!scope.session_id && !scope.thread_id && !scope.conversation_id) {
           return;

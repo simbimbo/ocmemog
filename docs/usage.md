@@ -233,6 +233,7 @@ Notes:
 ## What is safe to rely on
 
 - `store.init_db()` creates the local schema automatically
+- promotion decisions now return an `explanation` block describing why a candidate was promoted or rejected, what threshold applied, and which destination bucket was chosen
 - `retrieval.retrieve_for_queries()` is the main sidecar search path
 - search is hybrid-ranked, not substring-only:
   - lexical scoring blends exact match, token overlap, ordered phrase overlap, and light prefix matching

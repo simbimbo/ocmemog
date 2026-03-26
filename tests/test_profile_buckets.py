@@ -54,6 +54,8 @@ class ProfileBucketTests(unittest.TestCase):
 
         self.assertEqual(result["decision"], "promote")
         self.assertEqual(result["destination"], "preferences")
+        self.assertIn("explanation", result)
+        self.assertEqual(result["explanation"]["destination"], "preferences")
 
         conn = store.connect()
         try:
@@ -81,6 +83,8 @@ class ProfileBucketTests(unittest.TestCase):
 
         self.assertEqual(result["decision"], "promote")
         self.assertEqual(result["destination"], "identity")
+        self.assertIn("explanation", result)
+        self.assertEqual(result["explanation"]["destination"], "identity")
 
         conn = store.connect()
         try:

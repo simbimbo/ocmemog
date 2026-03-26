@@ -39,6 +39,8 @@ class PromotionGovernanceIntegrationTests(unittest.TestCase):
             result = promote.promote_candidate(candidate)
 
         self.assertEqual(result["decision"], "promote")
+        self.assertIn("explanation", result)
+        self.assertEqual(result["explanation"]["reason"], "confidence_threshold")
 
         conn = store.connect()
         try:

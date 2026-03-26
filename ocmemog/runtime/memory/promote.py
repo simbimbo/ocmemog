@@ -60,12 +60,30 @@ def _destination_table(summary: str) -> str:
     return "knowledge"
 
 
+def _promotion_explanation(*, decision: str, destination: str, confidence: float, threshold: float, summary: str) -> Dict[str, Any]:
+    if decision == "promote":
+        short = f"Promoted to {destination} because confidence {confidence:.2f} met threshold {threshold:.2f}."
+        reason = "confidence_threshold"
+    else:
+        short = f"Rejected because confidence {confidence:.2f} was below threshold {threshold:.2f}."
+        reason = "below_threshold"
+    return {
+        "short": short,
+        "reason": reason,
+        "destination": destination,
+        "confidence": round(confidence, 3),
+        "threshold": round(threshold, 3),
+        "summary_preview": summary[:160],
+    }
+
+
 def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
     from ocmemog.runtime.memory import api, reinforcement, vector_index
 
     emit_event(LOGFILE, "brain_memory_promote_start", status="ok")
     confidence = float(candidate.get("confidence_score", 0.0))
-    decision = "promote" if _should_promote(confidence) else "reject"
+    threshold = float(config.OCMEMOG_PROMOTION_THRESHOLD)
+    decision = "promote" if _should_promote(confidence, threshold=threshold) else "reject"
     candidate_id = str(candidate.get("candidate_id") or "")
 
     candidate_metadata = provenance.normalize_metadata(candidate.get("metadata", {}), source="promote")
@@ -185,7 +203,19 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
                     reference=promoted_reference,
                 )
 
-    return {"decision": decision, "confidence": confidence, "promotion_id": promotion_id, "destination": destination}
+    return {
+        "decision": decision,
+        "confidence": confidence,
+        "promotion_id": promotion_id,
+        "destination": destination,
+        "explanation": _promotion_explanation(
+            decision=decision,
+            destination=destination,
+            confidence=confidence,
+            threshold=threshold,
+            summary=str(candidate.get("distilled_summary", "") or ""),
+        ),
+    }
 
 
 def promote_candidate_by_id(candidate_id: str) -> Dict[str, Any]:

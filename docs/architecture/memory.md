@@ -76,6 +76,8 @@ Queue/async ingest behavior note:
 - valid payload failures are retried in-queue with a bounded retry counter before eventual drop/ack to avoid permanent poison-pill blockage
 - operational visibility for these cases remains in queue stats / doctor health rather than crashing the sidecar, and doctor now distinguishes malformed queue damage from retrying poison items
 
+Promotion decisions now expose a compact explanation object so operator surfaces can render why a candidate was promoted or rejected, what threshold applied, and which bucket was selected.
+
 ## Write paths
 
 The main repo-local write paths are:

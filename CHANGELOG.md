@@ -30,6 +30,7 @@ Retrieval ranking quality pass plus collateral/doc alignment.
 - made retrieval reinforcement scoring frequency-aware and exposed `reinforcement_count` in retrieval signals so repeated successful experience can influence ranking without unbounded growth
 - added light recency-aware reinforcement weighting and exposed `reinforcement_weighted_count` so newer successful experiences matter more than stale ones
 - added bounded negative reinforcement handling and exposed `reinforcement_negative_count` / `reinforcement_negative_penalty` so failed experience can depress ranking in an explainable way
+- added compact promotion decision explanations so distill/promote outcomes are easier to inspect and render
 - added compact reinforcement rollups to `/memory/search` diagnostics so operators can see visible and retrieval-side reinforcement totals, including per-bucket visible counts
 - extended retrieval-side reinforcement diagnostics with per-bucket totals for parity with other search/operator rollups
 - extended visible and retrieval-side reinforcement rollups with bounded negative/polarity totals so failed experience is inspectable too

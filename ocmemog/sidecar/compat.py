@@ -132,6 +132,9 @@ def _queue_runtime_summary() -> dict[str, Any]:
         hints.append("queue backlog is elevated")
 
     return {
+        "enabled": worker_enabled,
+        "status": severity,
+        "issues": config_issues,
         "depth": int(depth),
         "queue_depth": int(depth),
         "queue_backlog_severity": backlog_severity,
@@ -212,6 +215,9 @@ def probe_runtime() -> RuntimeStatus:
         "embedding_provider": provider or "local-simple",
         "embedding_local_model": local_model or "simple",
         "embedding_path_summary": {
+            "enabled": True,
+            "status": "provider" if provider_configured else ("local-simple" if using_hash_embeddings else "local"),
+            "issues": ["sentence-transformers missing"] if (not sentence_transformers_ready and not provider_configured) else [],
             "provider_configured": provider_configured,
             "provider_backend_hint": provider if provider else None,
             "local_model": local_model or "simple",
@@ -225,6 +231,8 @@ def probe_runtime() -> RuntimeStatus:
         "queue": _queue_runtime_summary(),
         "auto_hydration": {
             "enabled": str(os.environ.get("OCMEMOG_AUTO_HYDRATION", "false")).strip().lower() in {"1", "true", "yes"},
+            "status": "enabled" if str(os.environ.get("OCMEMOG_AUTO_HYDRATION", "false")).strip().lower() in {"1", "true", "yes"} else "disabled",
+            "issues": [],
             "allow_agent_ids": hydration_allow_agents,
             "deny_agent_ids": hydration_deny_agents,
             "scoped_by_agent": bool(hydration_allow_agents or hydration_deny_agents),

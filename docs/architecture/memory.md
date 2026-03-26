@@ -114,6 +114,7 @@ That queue snapshot now includes lightweight severity/hints so the normal runtim
 It also now distinguishes invalid queue lines from retrying payloads, which brings a compact slice of doctor-style queue diagnosis into ordinary runtime payloads.
 To reduce translation friction with doctor output, the runtime queue snapshot now also carries doctor-style aliases such as `queue_depth` and `queue_backlog_severity`.
 It now also carries compact worker-config issue reporting so invalid poll/batch settings can surface in normal runtime payloads without a separate doctor run.
+As part of the runtime-summary consistency pass, the main operator-facing sub-blocks now expose a small shared shape (`enabled`, `status`, `issues`) where it fits, which makes the overall summary easier to consume uniformly.
 
 Governance review summary responses now also expose lightweight diagnostics so operators can tell whether they are seeing cached data, how many review items are present, and how the queue splits across review kinds without scraping the full list.
 

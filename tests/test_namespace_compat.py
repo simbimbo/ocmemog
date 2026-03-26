@@ -190,6 +190,8 @@ class NamespaceCompatTests(unittest.TestCase):
 
         policy = status.runtime_summary["auto_hydration"]
         self.assertTrue(policy["enabled"])
+        self.assertEqual(policy["status"], "enabled")
+        self.assertEqual(policy["issues"], [])
         self.assertEqual(policy["allow_agent_ids"], ["main", "worker"])
         self.assertEqual(policy["deny_agent_ids"], ["chat-local"])
         self.assertTrue(policy["scoped_by_agent"])
@@ -203,6 +205,9 @@ class NamespaceCompatTests(unittest.TestCase):
                     status = probe_runtime()
 
         self.assertEqual(status.runtime_summary["embedding_local_model"], "simple")
+        self.assertTrue(status.runtime_summary["embedding_path_summary"]["enabled"])
+        self.assertEqual(status.runtime_summary["embedding_path_summary"]["status"], "local-simple")
+        self.assertIn("sentence-transformers missing", status.runtime_summary["embedding_path_summary"]["issues"])
         self.assertTrue(status.runtime_summary["embedding_path_summary"]["local_simple_only"])
         self.assertFalse(status.runtime_summary["embedding_path_summary"]["sentence_transformers_ready"])
         self.assertTrue(status.runtime_summary["using_hash_embeddings"])
@@ -223,6 +228,9 @@ class NamespaceCompatTests(unittest.TestCase):
             status = probe_runtime()
 
         queue = status.runtime_summary["queue"]
+        self.assertTrue(queue["enabled"])
+        self.assertEqual(queue["status"], "warn")
+        self.assertEqual(queue["issues"], [])
         self.assertEqual(queue["depth"], 3)
         self.assertEqual(queue["queue_depth"], 3)
         self.assertEqual(queue["queue_backlog_severity"], "low")
@@ -251,6 +259,8 @@ class NamespaceCompatTests(unittest.TestCase):
             status = probe_runtime()
 
         queue = status.runtime_summary["queue"]
+        self.assertFalse(queue["enabled"])
+        self.assertEqual(queue["status"], "warn")
         self.assertEqual(queue["severity"], "warn")
         self.assertEqual(queue["queue_backlog_severity"], "low")
         self.assertIn("queue has backlog but async worker is disabled", queue["hints"])
@@ -270,10 +280,12 @@ class NamespaceCompatTests(unittest.TestCase):
             status = probe_runtime()
 
         queue = status.runtime_summary["queue"]
-        self.assertEqual(queue["severity"], "warn")
+        self.assertTrue(queue["enabled"])
+        self.assertEqual(queue["status"], "warn")
         self.assertIn("queue worker config has invalid values", queue["hints"])
+        self.assertIn("OCMEMOG_INGEST_ASYNC_POLL_SECONDS must be >= 0", queue["issues"])
+        self.assertIn("OCMEMOG_INGEST_ASYNC_BATCH_MAX must be >= 1", queue["issues"])
         self.assertIn("OCMEMOG_INGEST_ASYNC_POLL_SECONDS must be >= 0", queue["config_issues"])
-        self.assertIn("OCMEMOG_INGEST_ASYNC_BATCH_MAX must be >= 1", queue["config_issues"])
 
     def test_sidecar_version_matches_package_version(self) -> None:
         from ocmemog import __version__

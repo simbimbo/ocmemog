@@ -1535,12 +1535,36 @@ def memory_governance_auto_resolve(request: GovernanceAutoResolveRequest) -> dic
         dry_run=request.dry_run,
         profile=request.profile,
     )
+    actions = list(result.get("actions") or []) if isinstance(result, dict) else []
+    reason_counts: Dict[str, int] = {}
+    kind_counts: Dict[str, int] = {}
+    applied_count = 0
+    skipped_count = 0
+    for action in actions:
+        reason = str(action.get("reason") or "unknown")
+        kind = str(action.get("kind") or "unknown")
+        reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        kind_counts[kind] = kind_counts.get(kind, 0) + 1
+        if bool(action.get("applied")):
+            applied_count += 1
+        else:
+            skipped_count += 1
+    diagnostics = {
+        "action_count": len(actions),
+        "applied_count": applied_count,
+        "skipped_count": skipped_count,
+        "reason_counts": reason_counts,
+        "kind_counts": kind_counts,
+        "policy_profile": ((result.get("policy") or {}).get("profile") if isinstance(result, dict) else None),
+        "dry_run": bool(request.dry_run),
+    }
     return {
         "ok": True,
         "categories": request.categories,
         "limit": request.limit,
         "dry_run": request.dry_run,
         "result": result,
+        "autoResolveDiagnostics": diagnostics,
         **runtime,
     }
 

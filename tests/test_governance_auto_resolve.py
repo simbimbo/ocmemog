@@ -38,6 +38,10 @@ class GovernanceAutoResolveTests(unittest.TestCase):
         actions = result["result"]["actions"]
         self.assertGreaterEqual(len(actions), 1)
         self.assertTrue(all(item["dry_run"] for item in actions))
+        self.assertIn("autoResolveDiagnostics", result)
+        self.assertGreaterEqual(result["autoResolveDiagnostics"]["action_count"], 1)
+        self.assertTrue(result["autoResolveDiagnostics"]["dry_run"])
+        self.assertIn("dry_run", result["autoResolveDiagnostics"]["reason_counts"])
 
         old_payload = provenance.fetch_reference("knowledge:1") or {}
         old_prov = (old_payload.get("metadata") or {}).get("provenance") or {}
@@ -56,6 +60,8 @@ class GovernanceAutoResolveTests(unittest.TestCase):
         )
         self.assertTrue(result["ok"])
         self.assertGreaterEqual(result["result"]["applied"], 1)
+        self.assertGreaterEqual(result["autoResolveDiagnostics"]["applied_count"], 1)
+        self.assertEqual(result["autoResolveDiagnostics"]["policy_profile"], "conservative")
 
         old_payload = provenance.fetch_reference("knowledge:1") or {}
         old_prov = (old_payload.get("metadata") or {}).get("provenance") or {}

@@ -1131,6 +1131,11 @@ def memory_search(request: SearchRequest) -> dict[str, Any]:
     query = request.query or ""
     active_lane = retrieval.infer_lane(query, explicit_lane=request.lane)
     skip_vector_provider = _parse_bool_env("OCMEMOG_SEARCH_SKIP_EMBEDDING_PROVIDER", default=True)
+    provider_hint = (
+        os.environ.get("OCMEMOG_EMBED_MODEL_PROVIDER", "").strip()
+        or os.environ.get("OCMEMOG_EMBED_PROVIDER", "").strip()
+        or os.environ.get("BRAIN_EMBED_MODEL_PROVIDER", "").strip()
+    )
     diagnostics = {
         "strategy": "hybrid",
         "fallback": False,
@@ -1139,6 +1144,14 @@ def memory_search(request: SearchRequest) -> dict[str, Any]:
         "metadata_filter_keys": sorted((request.metadata_filters or {}).keys()),
         "requested_limit": int(request.limit),
         "categories": list(categories),
+        "execution_path": {
+            "semantic_search_enabled": True,
+            "provider_configured": bool(provider_hint),
+            "provider_name": provider_hint or None,
+            "provider_skipped_by_request": bool(skip_vector_provider and provider_hint),
+            "local_semantic_fallback_expected": bool(skip_vector_provider or not provider_hint),
+            "route_exception_fallback": False,
+        },
     }
     try:
         results = retrieval.retrieve_for_queries(
@@ -1169,6 +1182,7 @@ def memory_search(request: SearchRequest) -> dict[str, Any]:
                 "fallback_reason": type(exc).__name__,
             }
         )
+        diagnostics["execution_path"]["route_exception_fallback"] = True
         used_fallback = True
         runtime["warnings"] = [*runtime["warnings"], f"search fallback enabled: {exc}"]
     elapsed_ms = round((time.perf_counter() - started) * 1000, 3)

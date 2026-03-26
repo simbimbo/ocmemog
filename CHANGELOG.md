@@ -15,6 +15,7 @@ Retrieval ranking quality pass plus collateral/doc alignment.
 - added bounded retry tracking for valid queue payload failures so poison items are retried a small number of times and then dropped/acknowledged instead of blocking the queue forever
 - improved doctor queue health output so malformed queue lines and retrying poison items are reported separately with clearer hints and samples
 - added `runtimeSummary` to sidecar/runtime payloads so provider path, hash-fallback state, degraded/ready mode, and compatibility residue are explicit to operators
+- expanded `/memory/search` diagnostics with a request-level `execution_path` block so provider-configured, provider-skipped, local-fallback-expected, and route-exception-fallback behavior is explicit per request
 
 ## 0.1.16 — 2026-03-25
 

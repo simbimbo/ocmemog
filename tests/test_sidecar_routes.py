@@ -118,8 +118,28 @@ class SidecarRouteTests(unittest.TestCase):
         self.assertEqual(payload["searchDiagnostics"]["requested_limit"], 2)
         self.assertIn("vector_search", payload["searchDiagnostics"])
         self.assertIn("scan_limit", payload["searchDiagnostics"]["vector_search"])
+        self.assertIn("execution_path", payload["searchDiagnostics"])
+        self.assertFalse(payload["searchDiagnostics"]["execution_path"]["route_exception_fallback"])
         retrieve_for_queries.assert_called_once()
         flatten_results.assert_called_once()
+
+    def test_memory_search_route_marks_exception_fallback_path(self) -> None:
+        with self._client() as client, mock.patch(
+            "ocmemog.sidecar.app.retrieval.retrieve_for_queries",
+            side_effect=RuntimeError("boom"),
+        ), mock.patch(
+            "ocmemog.sidecar.app._fallback_search",
+            return_value=[{"reference": "knowledge:77", "score": 0.2, "content": "fallback memory"}],
+        ):
+            response = client.post(
+                "/memory/search",
+                json={"query": "relevant", "limit": 2, "categories": ["knowledge"]},
+            )
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["usedFallback"])
+        self.assertTrue(payload["searchDiagnostics"]["execution_path"]["route_exception_fallback"])
 
     def test_memory_get_route_hydrates_reference(self) -> None:
         with self._client() as client, mock.patch(

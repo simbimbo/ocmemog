@@ -199,7 +199,7 @@ Notes:
 - `/memory/get` currently expects a `table:id` reference.
 - Runtime degradation is reported in every sidecar response.
 - Sidecar responses now also include `runtimeSummary`, a compact operator-facing summary of runtime mode, embedding provider, hash-embedding fallback state, shim surface count, and missing dependency count.
-- `/memory/search` now also returns `searchDiagnostics` with lightweight operator-facing retrieval metadata such as strategy, lane, bucket counts, result counts, query token count, elapsed time, and vector-search diagnostics (`scan_limit`, `prefilter_limit`, candidate rows, fallback usage).
+- `/memory/search` now also returns `searchDiagnostics` with lightweight operator-facing retrieval metadata such as strategy, lane, bucket counts, result counts, query token count, elapsed time, vector-search diagnostics (`scan_limit`, `prefilter_limit`, candidate rows, fallback usage), and an `execution_path` block that clarifies provider-configured vs provider-skipped vs local-fallback-expected vs route-exception-fallback behavior.
 
 ## What is safe to rely on
 

@@ -3,7 +3,7 @@
 **ocmemog** is an advanced memory engine for OpenClaw that combines durable long-term memory, transcript-backed continuity, conversation hydration, checkpoint expansion, and pondering inside a sidecar-based plugin architecture.
 
 It is designed to go beyond simple memory search by providing:
-- **durable memory and semantic retrieval**
+- **durable memory and hybrid retrieval (lexical + semantic)**
 - **lossless-style conversation continuity**
 - **checkpointing, branch-aware hydration, and turn expansion**
 - **transcript ingestion with anchored context recovery**

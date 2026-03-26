@@ -19,17 +19,53 @@ def _match_score(text: str, query: str) -> float:
     if not text or not query:
         return 0.0
     text_l = text.lower()
-    query_l = query.lower()
+    query_l = query.lower().strip()
+    if not query_l:
+        return 0.0
     if query_l in text_l:
         return 1.0
-    query_tokens = set(_tokenize(query_l))
+
+    query_tokens = _tokenize(query_l)
     if not query_tokens:
         return 0.0
-    text_tokens = set(_tokenize(text_l))
+    text_tokens = _tokenize(text_l)
     if not text_tokens:
         return 0.0
-    overlap = len(query_tokens & text_tokens) / max(1, len(query_tokens))
-    return round(min(0.95, overlap * 0.85), 3)
+
+    query_set = set(query_tokens)
+    text_set = set(text_tokens)
+    overlap_ratio = len(query_set & text_set) / max(1, len(query_set))
+
+    ordered_hits = 0
+    longest_run = 0
+    current_run = 0
+    text_len = len(text_tokens)
+    query_len = len(query_tokens)
+    for start in range(text_len):
+        if text_tokens[start] != query_tokens[0]:
+            continue
+        run = 0
+        while start + run < text_len and run < query_len and text_tokens[start + run] == query_tokens[run]:
+            run += 1
+        if run > 0:
+            ordered_hits += 1
+            longest_run = max(longest_run, run)
+            current_run = max(current_run, run)
+
+    sequence_ratio = longest_run / max(1, query_len)
+
+    prefix_hits = 0
+    for query_token in query_set:
+        if len(query_token) < 4:
+            continue
+        if any(text_token.startswith(query_token) or query_token.startswith(text_token) for text_token in text_set):
+            prefix_hits += 1
+    prefix_ratio = prefix_hits / max(1, len([token for token in query_set if len(token) >= 4])) if any(len(token) >= 4 for token in query_set) else 0.0
+
+    score = (overlap_ratio * 0.55) + (sequence_ratio * 0.30) + (prefix_ratio * 0.15)
+    if ordered_hits > 1 and longest_run >= 2:
+        score += 0.05
+    return round(min(0.98, score), 3)
 
 
 def _recency_score(timestamp: str | None) -> float:

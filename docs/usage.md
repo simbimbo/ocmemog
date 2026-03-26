@@ -196,7 +196,11 @@ Notes:
 
 - `store.init_db()` creates the local schema automatically
 - `retrieval.retrieve_for_queries()` is the main sidecar search path
-- `vector_index.search_memory()` provides a semantic fallback over `knowledge`, `runbooks`, `lessons`, `directives`, `reflections`, and `tasks` when keyword retrieval misses
+- search is hybrid-ranked, not substring-only:
+  - lexical scoring blends exact match, token overlap, ordered phrase overlap, and light prefix matching
+  - semantic scoring comes from `vector_index.search_memory()` across the selected embedded categories
+  - final ranking also considers reinforcement history, promotion confidence, recency, and optional lane bonuses
+- `vector_index.search_memory()` remains a bounded semantic scan rather than a full ANN index
 - `probe_runtime()` exposes missing shim replacements and optional embedding warnings
 
 ## What is not safe to rely on yet

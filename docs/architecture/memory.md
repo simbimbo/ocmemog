@@ -30,22 +30,31 @@ The main SQLite database owns these tables:
 
 ## Retrieval flow
 
-The current sidecar behavior is simpler than brAIn's full memory architecture:
+The current sidecar retrieval path is a bounded hybrid ranker rather than a pure substring search:
 
 1. `/memory/search` calls `retrieval.retrieve_for_queries()`.
-2. Retrieval scans `knowledge`, `reflections`, `directives`, and `tasks` for substring matches.
-3. Result scoring combines:
-   - keyword hit: `1.0` on substring match
-   - reinforcement bonus: `reward_score * 0.5`
-   - confidence bonus: `promotion confidence * 0.3`
-4. If `knowledge` has no keyword hit, retrieval falls back to `vector_index.search_memory()`.
-5. The sidecar flattens the bucketed results into a plugin-friendly response.
+2. Each query fans into `retrieval.retrieve()` across the selected categories.
+3. Lexical ranking now combines:
+   - exact substring hit (`1.0` when the full query appears)
+   - token overlap ratio
+   - ordered phrase/sequence overlap
+   - light prefix matching for partial-word queries
+4. Semantic ranking runs through `vector_index.search_memory()` across the selected embedded categories.
+5. Final scoring blends:
+   - keyword score
+   - semantic score
+   - reinforcement history
+   - promotion confidence
+   - recency
+   - optional lane bonus when lane-aware metadata matches
+6. Superseded / duplicate memories are filtered out, contested memories are penalized, and the sidecar flattens the ranked bucketed results into a plugin-friendly response.
 
 Operational limits:
 
-- Semantic fallback now rehydrates any embedded bucket (`knowledge`, `runbooks`, `lessons`) when there are no keyword hits.
+- Retrieval is still bounded to recent rows per category before ranking, so this is not a full-corpus search engine yet.
 - Default embeddings are local hash vectors (`OCMEMOG_EMBED_MODEL_LOCAL=simple`; legacy alias: `BRAIN_EMBED_MODEL_LOCAL`), which are deterministic but weak.
-- `runbooks`, `lessons`, `directives`, `reflections`, and `tasks` are now included in the default searchable categories and embedding index.
+- `runbooks`, `lessons`, `directives`, `reflections`, and `tasks` are included in the default searchable categories and embedding index.
+- Semantic ranking currently depends on the active embedding backend and the vector scan limit in `vector_index.search_memory()`.
 
 ## Write paths
 

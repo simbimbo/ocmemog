@@ -50,6 +50,16 @@ class HybridRetrievalTests(unittest.TestCase):
         self.assertIn("semantic", item["retrieval_signals"])
         self.assertIn("keyword", item["retrieval_signals"])
 
+    def test_lexical_score_handles_partial_phrases_and_prefix_matches(self) -> None:
+        row_id = api.store_memory("knowledge", "predictive hydration for checkpoint expansions", source="test")
+
+        with mock.patch("ocmemog.runtime.memory.vector_index.search_memory", return_value=[]):
+            results = retrieval.retrieve("predict hydr checkpoint expand", limit=5, categories=["knowledge"])
+
+        item = next(entry for entry in results["knowledge"] if entry["memory_reference"] == f"knowledge:{row_id}")
+        self.assertGreater(item["retrieval_signals"]["keyword"], 0.0)
+        self.assertEqual(item["selected_because"], "keyword")
+
 
 if __name__ == "__main__":
     unittest.main()

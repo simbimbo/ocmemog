@@ -124,6 +124,26 @@ def _governance_state(metadata: Dict[str, Any]) -> tuple[str, Dict[str, Any]]:
     return str(state["memory_status"] or "active"), state
 
 
+def _governance_summary(governance: Dict[str, Any]) -> Dict[str, Any]:
+    memory_status = str(governance.get("memory_status") or "active")
+    duplicate_of = governance.get("duplicate_of")
+    superseded_by = governance.get("superseded_by")
+    supersedes = governance.get("supersedes")
+    contradicts = governance.get("contradicts") if isinstance(governance.get("contradicts"), list) else []
+    contradiction_status = governance.get("contradiction_status")
+    needs_review = bool(memory_status == "contested" or contradiction_status == "contested" or contradicts)
+    return {
+        "memory_status": memory_status,
+        "canonical_reference": governance.get("canonical_reference") or duplicate_of,
+        "duplicate_of": duplicate_of,
+        "superseded_by": superseded_by,
+        "supersedes": supersedes,
+        "contradiction_status": contradiction_status,
+        "contradiction_count": len([item for item in contradicts if item]),
+        "needs_review": needs_review,
+    }
+
+
 def _flatten_strings(value: Any) -> List[str]:
     items: List[str] = []
     if isinstance(value, str):
@@ -341,6 +361,7 @@ def retrieve(
                 "timestamp": timestamp,
                 "memory_status": memory_status,
                 "governance": governance,
+                "governance_summary": _governance_summary(governance),
             }
         results[table] = sorted(candidates.values(), key=lambda x: x["score"], reverse=True)[:limit]
 

@@ -60,6 +60,23 @@ class HybridRetrievalTests(unittest.TestCase):
         self.assertGreater(item["retrieval_signals"]["keyword"], 0.0)
         self.assertEqual(item["selected_because"], "keyword")
 
+    def test_exposes_compact_governance_summary_in_retrieval_results(self) -> None:
+        first = api.store_memory("knowledge", "gateway should run on port 18789", source="test")
+        with mock.patch(
+            "ocmemog.runtime.memory.api._model_contradiction_hint",
+            return_value={"contradiction": True, "confidence": 0.99, "rationale": "same subject, different port"},
+        ):
+            second = api.store_memory("knowledge", "gateway should run on port 17890", source="test")
+
+        with mock.patch("ocmemog.runtime.memory.vector_index.search_memory", return_value=[]):
+            results = retrieval.retrieve("gateway port", limit=5, categories=["knowledge"])
+
+        item = next(entry for entry in results["knowledge"] if entry["memory_reference"] == f"knowledge:{second}")
+        self.assertIn("governance_summary", item)
+        self.assertEqual(item["governance_summary"]["memory_status"], item["memory_status"])
+        self.assertEqual(item["governance_summary"]["contradiction_count"], len(item["governance"].get("contradicts") or []))
+        self.assertIn("needs_review", item["governance_summary"])
+
 
 if __name__ == "__main__":
     unittest.main()

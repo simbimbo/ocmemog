@@ -49,6 +49,7 @@ The current sidecar retrieval path is a bounded hybrid ranker rather than a pure
    - optional lane bonus when lane-aware metadata matches
 6. Superseded / duplicate memories are filtered out, contested memories are penalized, and the sidecar flattens the ranked bucketed results into a plugin-friendly response.
 7. The sidecar response now includes lightweight `searchDiagnostics` so operators can inspect the active retrieval strategy, lane selection, per-bucket counts, result compaction, elapsed time, vector-search scan/prefilter behavior, and request-level execution path (provider-configured/provider-skipped/local-fallback-expected/route-exception-fallback) without scraping logs.
+8. Retrieval items now also carry a compact `governance_summary` so retrieval and governance surfaces share a simpler bridge for status/triage without forcing every consumer to parse the full governance/provenance structure.
 
 Operational limits:
 

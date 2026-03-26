@@ -17,6 +17,7 @@ It is designed to go beyond simple memory search by providing:
 - **governance review item explanations that make duplicate/contradiction/supersession rationale easier to render**
 - **normalized governance priority labels for easier operator triage**
 - **a sidecar hydration-policy diagnostics route for agent-specific continuity debugging**
+- **compact governance summaries in retrieval results to bridge search and review workflows**
 
 Architecture at a glance:
 - **OpenClaw plugin (`index.ts`)** handles tools and hook integration

@@ -412,14 +412,28 @@ def _run_queue_health(_: None) -> CheckResult:
 
         invalid = 0
         total = 0
+        retrying = 0
+        max_retry_seen = 0
         invalid_samples: list[dict[str, Any]] = []
+        retry_samples: list[dict[str, Any]] = []
         for raw_line in queue_path.read_text(encoding="utf-8").splitlines():
             line = raw_line.strip()
             if not line:
                 continue
             total += 1
             try:
-                json.loads(line)
+                payload = json.loads(line)
+                if isinstance(payload, dict):
+                    retry_count = int(payload.get("_ocmemog_retry_count", 0) or 0)
+                    if retry_count > 0:
+                        retrying += 1
+                        max_retry_seen = max(max_retry_seen, retry_count)
+                        if len(retry_samples) < 3:
+                            retry_samples.append({
+                                "line_no": total,
+                                "retry_count": retry_count,
+                                "kind": str(payload.get("kind") or payload.get("_ocmemog_task") or ""),
+                            })
             except Exception:
                 invalid += 1
                 if len(invalid_samples) < 3:
@@ -430,6 +444,9 @@ def _run_queue_health(_: None) -> CheckResult:
         if invalid:
             status = "warn"
             messages.append(f"Queue has {invalid} invalid line(s).")
+        if retrying:
+            status = "warn"
+            messages.append(f"Queue has {retrying} retrying payload(s) (max retry count {max_retry_seen}).")
         if depth > 25:
             status = "warn"
             messages.append(f"Queue backlog is elevated ({depth}).")
@@ -448,6 +465,8 @@ def _run_queue_health(_: None) -> CheckResult:
         hints: list[str] = []
         if invalid > 0:
             hints.append("Run --fix repair-queue to drop invalid queue entries.")
+        if retrying > 0:
+            hints.append("Inspect the queue retrying payloads; repeated retries usually indicate a poison item or downstream ingest/postprocess failure.")
         if depth > 0 and not worker_enabled:
             hints.append("Enable OCMEMOG_INGEST_ASYNC_WORKER or flush with POST /memory/ingest_flush.")
         if depth > 1000:
@@ -479,6 +498,8 @@ def _run_queue_health(_: None) -> CheckResult:
             "queue_depth": depth,
             "queue_path": str(queue_path),
             "invalid_lines": invalid,
+            "retrying_lines": retrying,
+            "max_retry_seen": max_retry_seen,
             "lines_seen": total,
             "stats": stats,
             "queue_bytes": queue_size,
@@ -487,6 +508,7 @@ def _run_queue_health(_: None) -> CheckResult:
             "queue_worker_batch_max": worker_batch_max,
             "queue_config_issues": queue_config,
             "invalid_payload_samples": invalid_samples,
+            "retrying_payload_samples": retry_samples,
             "ingest_worker_running": bool(app._INGEST_WORKER_THREAD and app._INGEST_WORKER_THREAD.is_alive()),
             "queue_backlog_severity": backlog_severity,
             "queue_hints": hints,

@@ -86,6 +86,7 @@ Queue behavior notes:
 - valid payload failures are retried with a bounded in-queue retry marker (`_ocmemog_retry_count`) instead of blocking forever on the first poison item
 - `OCMEMOG_INGEST_MAX_RETRIES` controls how many failed attempts a queued payload gets before it is dropped and recorded as a retry-exhausted error
 - runtime queue stats keep the last queue parse/retry error visible via `QUEUE_STATS["last_error"]`
+- `ocmemog-doctor` queue health now distinguishes invalid queue lines from retrying payloads so operators can tell parsing damage apart from poison-item retries
 
 ## Plugin API
 

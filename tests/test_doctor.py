@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
@@ -81,6 +82,27 @@ class DoctorQueueFixTests(unittest.TestCase):
         self.assertEqual(check["status"], "warn")
         self.assertIn(check["details"]["queue_backlog_severity"], ("medium", "high"))
         self.assertIn("queue_hints", check["details"])
+
+    def test_queue_health_reports_retrying_payloads(self) -> None:
+        from ocmemog.sidecar import app
+
+        queue_path = app._queue_path()
+        queue_path.write_text(
+            json.dumps({"kind": "memory", "content": "retry me", "_ocmemog_retry_count": 2}) + "\n",
+            encoding="utf-8",
+        )
+
+        report = doctor.run_doctor_checks(
+            include_checks={"queue/health"},
+            fix_actions=[],
+            state_dir=self.tempdir.name,
+        )
+        check = next(item for item in report["checks"] if item["key"] == "queue/health")
+        self.assertEqual(check["status"], "warn")
+        self.assertEqual(check["details"]["retrying_lines"], 1)
+        self.assertEqual(check["details"]["max_retry_seen"], 2)
+        self.assertEqual(len(check["details"]["retrying_payload_samples"]), 1)
+        self.assertIn("retrying payload", check["message"].lower())
 
 
 class DoctorInvocationTests(unittest.TestCase):

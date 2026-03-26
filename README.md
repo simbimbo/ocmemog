@@ -23,7 +23,8 @@ It is designed to go beyond simple memory search by providing:
 - **normalized governance priority labels for easier operator triage**
 - **a sidecar hydration-policy diagnostics route for agent-specific continuity debugging**
 - **compact governance summaries in retrieval results to bridge search and review workflows**
-- **promotion decision explanations and verification summaries for better distill/promote operator clarity, including richer rejection reasons**
+- **promotion decision explanations, verification summaries, and quality summaries for better distill/promote operator clarity**
+- **an explicit anti-cruft quality signal so weak generic memories are easier to spot and avoid keeping long-term**
 - **compact governance queue diagnostics for faster operator triage**
 - **governance review apply/dismiss + auto-apply flows that do not depend on dashboard approval input**
 - **governance queue item explanations that align queue and review surfaces**

@@ -60,6 +60,30 @@ def _destination_table(summary: str) -> str:
     return "knowledge"
 
 
+def _quality_summary(*, decision: str, confidence: float, threshold: float, destination: str) -> Dict[str, Any]:
+    margin = round(confidence - threshold, 3)
+    if decision == "promote":
+        quality = "high" if margin >= 0.2 else "medium"
+        keep_recommendation = "keep"
+        noise_risk = "low"
+    else:
+        if destination == "knowledge":
+            quality = "low"
+            keep_recommendation = "drop"
+            noise_risk = "high"
+        else:
+            quality = "medium"
+            keep_recommendation = "review"
+            noise_risk = "medium"
+    return {
+        "quality": quality,
+        "keep_recommendation": keep_recommendation,
+        "noise_risk": noise_risk,
+        "margin": margin,
+        "destination_specificity": "generic" if destination == "knowledge" else "specific",
+    }
+
+
 def _verification_summary(*, decision: str, confidence: float, threshold: float, destination: str) -> Dict[str, Any]:
     margin = round(confidence - threshold, 3)
     if decision == "promote":
@@ -232,6 +256,12 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
         "confidence": confidence,
         "promotion_id": promotion_id,
         "destination": destination,
+        "quality_summary": _quality_summary(
+            decision=decision,
+            confidence=confidence,
+            threshold=threshold,
+            destination=destination,
+        ),
         "verification_summary": _verification_summary(
             decision=decision,
             confidence=confidence,

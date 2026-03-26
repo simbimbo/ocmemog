@@ -54,6 +54,9 @@ class ProfileBucketTests(unittest.TestCase):
 
         self.assertEqual(result["decision"], "promote")
         self.assertEqual(result["destination"], "preferences")
+        self.assertIn("quality_summary", result)
+        self.assertIn(result["quality_summary"]["quality"], {"high", "medium"})
+        self.assertEqual(result["quality_summary"]["keep_recommendation"], "keep")
         self.assertIn("verification_summary", result)
         self.assertEqual(result["verification_summary"]["status"], "verified")
         self.assertIn("explanation", result)
@@ -116,6 +119,10 @@ class ProfileBucketTests(unittest.TestCase):
 
         self.assertEqual(result["decision"], "reject")
         self.assertEqual(result["destination"], "knowledge")
+        self.assertIn("quality_summary", result)
+        self.assertEqual(result["quality_summary"]["quality"], "low")
+        self.assertEqual(result["quality_summary"]["keep_recommendation"], "drop")
+        self.assertEqual(result["quality_summary"]["noise_risk"], "high")
         self.assertEqual(result["verification_summary"]["reason"], "below_threshold_generic_destination")
         self.assertEqual(result["explanation"]["reason"], "below_threshold_generic_destination")
 

@@ -80,6 +80,20 @@ Promotion decisions now expose a compact explanation object so operator surfaces
 They now also expose a compact verification summary so confidence/threshold semantics are easier to interpret uniformly.
 Rejected promotions also now distinguish generic-destination low-confidence cases from ordinary below-threshold destination-specific failures.
 
+To combat long-term memory cruft, promotion decisions now also expose a compact `quality_summary`.
+That summary is intentionally simple and operator-oriented:
+- `quality`: low / medium / high
+- `keep_recommendation`: drop / review / keep
+- `noise_risk`: high / medium / low
+- `destination_specificity`: generic / specific
+- `margin`: confidence minus threshold
+
+Design intent:
+- weak generic memories should be visibly low-quality and easier to reject/prune later
+- more specific, higher-margin memories should be visibly safer to keep
+- this is an explainability/control surface first, not a full retention-policy engine yet
+- it gives future automation a better input for “only good memories are remembered” without requiring a risky schema or policy rewrite first
+
 ## Write paths
 
 The main repo-local write paths are:

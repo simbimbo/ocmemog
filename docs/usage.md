@@ -237,6 +237,16 @@ Notes:
 - promotion decisions now return an `explanation` block describing why a candidate was promoted or rejected, what threshold applied, and which destination bucket was chosen
 - promotion decisions now also return a compact `verification_summary` (`status`, `reason`, `confidence`, `threshold`, `margin`) so verification/confidence semantics are easier to interpret consistently
 - rejected promotions now use slightly richer reasons, distinguishing plain below-threshold outcomes from below-threshold generic-destination cases
+- promotion decisions now also return a `quality_summary` designed specifically to fight long-term memory cruft:
+  - `quality` (`low|medium|high`)
+  - `keep_recommendation` (`drop|review|keep`)
+  - `noise_risk` (`high|medium|low`)
+  - `destination_specificity` (`generic|specific`)
+  - `margin` (confidence minus threshold)
+- practical meaning:
+  - low-confidence generic `knowledge` candidates are now explicitly labeled as high-risk noise and recommended for drop
+  - stronger, more specific promoted memories are labeled as keep-worthy
+  - this does not replace governance/review yet, but it gives operator surfaces and future automation a clearer signal for “remember this” vs “don’t keep this around”
 - `retrieval.retrieve_for_queries()` is the main sidecar search path
 - search is hybrid-ranked, not substring-only:
   - lexical scoring blends exact match, token overlap, ordered phrase overlap, and light prefix matching

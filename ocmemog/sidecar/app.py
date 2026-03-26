@@ -1246,6 +1246,16 @@ def memory_search(request: SearchRequest) -> dict[str, Any]:
     vector_diagnostics = vector_index.get_last_search_diagnostics()
     if vector_diagnostics:
         diagnostics["vector_search"] = vector_diagnostics
+        embedding_diag = vector_diagnostics.get("embedding") if isinstance(vector_diagnostics, dict) else None
+        if isinstance(embedding_diag, dict):
+            diagnostics["execution_path"].update(
+                {
+                    "provider_attempted": bool(embedding_diag.get("provider_attempted")),
+                    "embedding_generated": bool(embedding_diag.get("embedding_generated")),
+                    "embedding_path_used": embedding_diag.get("path_used"),
+                    "local_fallback_used": bool(embedding_diag.get("local_used")),
+                }
+            )
     retrieval_diagnostics = retrieval.get_last_retrieval_diagnostics()
     if retrieval_diagnostics:
         diagnostics["retrieval_governance"] = {

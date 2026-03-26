@@ -99,7 +99,18 @@ class SidecarRouteTests(unittest.TestCase):
         ) as flatten_results, mock.patch.object(
             sidecar_app.vector_index,
             "get_last_search_diagnostics",
-            return_value={"scan_limit": 1200, "prefilter_limit": 250, "candidate_rows": 1, "result_count": 1},
+            return_value={
+                "scan_limit": 1200,
+                "prefilter_limit": 250,
+                "candidate_rows": 1,
+                "result_count": 1,
+                "embedding": {
+                    "provider_attempted": True,
+                    "embedding_generated": True,
+                    "path_used": "provider",
+                    "local_used": False,
+                },
+            },
         ), mock.patch.object(
             sidecar_app.retrieval,
             "get_last_retrieval_diagnostics",
@@ -127,6 +138,10 @@ class SidecarRouteTests(unittest.TestCase):
         self.assertIn("scan_limit", payload["searchDiagnostics"]["vector_search"])
         self.assertIn("execution_path", payload["searchDiagnostics"])
         self.assertFalse(payload["searchDiagnostics"]["execution_path"]["route_exception_fallback"])
+        self.assertTrue(payload["searchDiagnostics"]["execution_path"]["provider_attempted"])
+        self.assertTrue(payload["searchDiagnostics"]["execution_path"]["embedding_generated"])
+        self.assertEqual(payload["searchDiagnostics"]["execution_path"]["embedding_path_used"], "provider")
+        self.assertFalse(payload["searchDiagnostics"]["execution_path"]["local_fallback_used"])
         self.assertIn("governance_rollup", payload["searchDiagnostics"])
         self.assertEqual(payload["searchDiagnostics"]["governance_rollup"]["status_counts"], {"active": 1})
         self.assertEqual(payload["searchDiagnostics"]["governance_rollup"]["by_bucket"], {"knowledge": {"status_counts": {"active": 1}, "needs_review_count": 0}})

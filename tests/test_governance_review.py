@@ -67,6 +67,7 @@ class GovernanceReviewTests(unittest.TestCase):
         self.assertIn("explanation", duplicate_item)
         self.assertIn("short", duplicate_item["explanation"])
         self.assertEqual(duplicate_item["explanation"]["source_status"], "active")
+        self.assertIn("priority_label", duplicate_item)
 
         supersession_item = next(item for item in items if item["kind"] == "supersession_recommendation")
         self.assertEqual(supersession_item["source"]["reference"], "knowledge:4")
@@ -165,6 +166,7 @@ class GovernanceReviewTests(unittest.TestCase):
         self.assertFalse(first["reviewDiagnostics"]["cache_hit"])
         self.assertGreaterEqual(first["reviewDiagnostics"]["item_count"], 1)
         self.assertIn("duplicate_candidate", first["reviewDiagnostics"]["kind_counts"])
+        self.assertIn("priority_label_counts", first["reviewDiagnostics"])
 
         second = app.memory_governance_review_summary(app.GovernanceReviewRequest(categories=["knowledge"], limit=20))
         self.assertTrue(second["cached"])

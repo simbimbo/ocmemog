@@ -108,6 +108,8 @@ Governance review summary responses now also expose lightweight diagnostics so o
 
 Individual governance review items now also carry a compact explanation object so operator surfaces can render human-readable rationale and status context without reverse-engineering the raw review payload.
 
+Review items and review-summary diagnostics now also expose normalized priority labels so operator surfaces can reason about urgency without inventing their own bucket thresholds.
+
 The sidecar exposes:
 
 - `GET /healthz`

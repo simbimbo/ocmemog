@@ -1067,6 +1067,18 @@ def _relationship_for_review(kind: str | None = None, relationship: str | None =
     return _REVIEW_KIND_METADATA.get(kind_key, {}).get("relationship", "")
 
 
+def _review_priority_label(priority: int) -> str:
+    if priority >= 90:
+        return "critical"
+    if priority >= 70:
+        return "high"
+    if priority >= 40:
+        return "medium"
+    if priority > 0:
+        return "low"
+    return "none"
+
+
 def list_governance_review_items(
     *,
     categories: Optional[List[str]] = None,
@@ -1092,12 +1104,14 @@ def list_governance_review_items(
                 summary = plain_english
         signal = float(item.get("signal") or 0.0)
         reason = str(item.get("reason") or "")
+        priority = int(item.get("priority") or 0)
         review_items.append({
             "review_id": f"{kind}:{reference}->{target_reference}",
             "kind": kind,
             "kind_label": _REVIEW_KIND_METADATA.get(kind, {}).get("label") or kind.replace("_", " "),
             "relationship": relationship,
-            "priority": int(item.get("priority") or 0),
+            "priority": priority,
+            "priority_label": _review_priority_label(priority),
             "timestamp": item.get("timestamp"),
             "bucket": item.get("bucket"),
             "signal": signal,

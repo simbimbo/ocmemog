@@ -15,6 +15,7 @@ It is designed to go beyond simple memory search by providing:
 - **request-level search execution diagnostics that show provider-skip vs local-fallback vs route-fallback behavior**
 - **governance review summary diagnostics for cache freshness and review-kind breakdowns**
 - **governance review item explanations that make duplicate/contradiction/supersession rationale easier to render**
+- **normalized governance priority labels for easier operator triage**
 
 Architecture at a glance:
 - **OpenClaw plugin (`index.ts`)** handles tools and hook integration

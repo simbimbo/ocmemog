@@ -1320,14 +1320,18 @@ def memory_governance_review_summary(request: GovernanceReviewRequest) -> dict[s
         scan_limit=scan_limit,
     )
     kind_counts: Dict[str, int] = {}
+    priority_label_counts: Dict[str, int] = {}
     for item in items:
         item_kind = str(item.get("kind") or "unknown")
         kind_counts[item_kind] = kind_counts.get(item_kind, 0) + 1
+        priority_label = str(item.get("priority_label") or "unknown")
+        priority_label_counts[priority_label] = priority_label_counts.get(priority_label, 0) + 1
     diagnostics = {
         "cache_hit": False,
         "cache_ttl_seconds": round(float(_GOVERNANCE_REVIEW_CACHE_TTL_SECONDS), 3),
         "item_count": len(items),
         "kind_counts": kind_counts,
+        "priority_label_counts": priority_label_counts,
         "filters": {
             "categories": list(request.categories or []),
             "limit": limit,

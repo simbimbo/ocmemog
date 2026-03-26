@@ -18,6 +18,7 @@ It is designed to go beyond simple memory search by providing:
 - **normalized governance priority labels for easier operator triage**
 - **a sidecar hydration-policy diagnostics route for agent-specific continuity debugging**
 - **compact governance summaries in retrieval results to bridge search and review workflows**
+- **governance rollups in search diagnostics for faster operator triage**
 
 Architecture at a glance:
 - **OpenClaw plugin (`index.ts`)** handles tools and hook integration

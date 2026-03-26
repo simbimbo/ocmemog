@@ -1205,6 +1205,19 @@ def memory_search(request: SearchRequest) -> dict[str, Any]:
         if len(flattened) > request.limit:
             flattened = flattened[: request.limit]
         diagnostics["result_count"] = len(flattened)
+        governance_rollup = {
+            "status_counts": {},
+            "needs_review_count": 0,
+        }
+        for item in flattened:
+            summary = item.get("governance_summary") if isinstance(item, dict) else {}
+            if not isinstance(summary, dict):
+                summary = {}
+            status = str(summary.get("memory_status") or item.get("memory_status") or "active")
+            governance_rollup["status_counts"][status] = governance_rollup["status_counts"].get(status, 0) + 1
+            if bool(summary.get("needs_review")):
+                governance_rollup["needs_review_count"] += 1
+        diagnostics["governance_rollup"] = governance_rollup
         used_fallback = False
     except Exception as exc:
         flattened = _fallback_search(request.query, request.limit, categories, metadata_filters=request.metadata_filters, lane=request.lane)

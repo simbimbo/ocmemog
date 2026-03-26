@@ -25,6 +25,7 @@ Retrieval ranking quality pass plus collateral/doc alignment.
 - added `/memory/auto_hydration/policy` so operators can query the current agent-specific prompt-hydration decision from the sidecar
 - improved plugin hydration observability with structured skip/apply decision logs that include agent id, decision reason, and prepend sizes
 - added compact `governance_summary` payloads to retrieval results so search consumers can triage governance state without unpacking the full provenance structure
+- added `governance_rollup` to `/memory/search` diagnostics so search consumers can quickly see visible result status counts and needs-review totals
 
 ## 0.1.16 — 2026-03-25
 

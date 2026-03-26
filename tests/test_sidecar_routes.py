@@ -95,7 +95,7 @@ class SidecarRouteTests(unittest.TestCase):
             return_value={"knowledge": [{"memory_reference": "knowledge:12", "content": "relevant memory", "score": 0.9}]},
         ) as retrieve_for_queries, mock.patch(
             "ocmemog.sidecar.app.flatten_results",
-            return_value=[{"reference": "knowledge:12", "score": 0.9, "content": "relevant memory"}],
+            return_value=[{"reference": "knowledge:12", "score": 0.9, "content": "relevant memory", "memory_status": "active", "governance_summary": {"memory_status": "active", "needs_review": False}}],
         ) as flatten_results, mock.patch.object(
             sidecar_app.vector_index,
             "get_last_search_diagnostics",
@@ -111,7 +111,7 @@ class SidecarRouteTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertFalse(payload["usedFallback"])
         self.assertEqual(payload["query"], "relevant")
-        self.assertEqual(payload["results"], [{"reference": "knowledge:12", "score": 0.9, "content": "relevant memory"}])
+        self.assertEqual(payload["results"], [{"reference": "knowledge:12", "score": 0.9, "content": "relevant memory", "memory_status": "active", "governance_summary": {"memory_status": "active", "needs_review": False}}])
         self.assertEqual(payload["searchDiagnostics"]["strategy"], "hybrid")
         self.assertEqual(payload["searchDiagnostics"]["bucket_counts"], {"knowledge": 1})
         self.assertEqual(payload["searchDiagnostics"]["result_count"], 1)
@@ -120,6 +120,8 @@ class SidecarRouteTests(unittest.TestCase):
         self.assertIn("scan_limit", payload["searchDiagnostics"]["vector_search"])
         self.assertIn("execution_path", payload["searchDiagnostics"])
         self.assertFalse(payload["searchDiagnostics"]["execution_path"]["route_exception_fallback"])
+        self.assertIn("governance_rollup", payload["searchDiagnostics"])
+        self.assertEqual(payload["searchDiagnostics"]["governance_rollup"]["status_counts"], {"active": 1})
         retrieve_for_queries.assert_called_once()
         flatten_results.assert_called_once()
 

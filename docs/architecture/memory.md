@@ -77,6 +77,7 @@ Queue/async ingest behavior note:
 - operational visibility for these cases remains in queue stats / doctor health rather than crashing the sidecar, and doctor now distinguishes malformed queue damage from retrying poison items
 
 Promotion decisions now expose a compact explanation object so operator surfaces can render why a candidate was promoted or rejected, what threshold applied, and which bucket was selected.
+They now also expose a compact verification summary so confidence/threshold semantics are easier to interpret uniformly.
 
 ## Write paths
 

@@ -234,6 +234,7 @@ Notes:
 
 - `store.init_db()` creates the local schema automatically
 - promotion decisions now return an `explanation` block describing why a candidate was promoted or rejected, what threshold applied, and which destination bucket was chosen
+- promotion decisions now also return a compact `verification_summary` (`status`, `reason`, `confidence`, `threshold`, `margin`) so verification/confidence semantics are easier to interpret consistently
 - `retrieval.retrieve_for_queries()` is the main sidecar search path
 - search is hybrid-ranked, not substring-only:
   - lexical scoring blends exact match, token overlap, ordered phrase overlap, and light prefix matching

@@ -60,6 +60,23 @@ def _destination_table(summary: str) -> str:
     return "knowledge"
 
 
+def _verification_summary(*, decision: str, confidence: float, threshold: float) -> Dict[str, Any]:
+    margin = round(confidence - threshold, 3)
+    if decision == "promote":
+        status = "verified"
+        reason = "meets_threshold"
+    else:
+        status = "needs_review"
+        reason = "below_threshold"
+    return {
+        "status": status,
+        "reason": reason,
+        "confidence": round(confidence, 3),
+        "threshold": round(threshold, 3),
+        "margin": margin,
+    }
+
+
 def _promotion_explanation(*, decision: str, destination: str, confidence: float, threshold: float, summary: str) -> Dict[str, Any]:
     if decision == "promote":
         short = f"Promoted to {destination} because confidence {confidence:.2f} met threshold {threshold:.2f}."
@@ -208,6 +225,11 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
         "confidence": confidence,
         "promotion_id": promotion_id,
         "destination": destination,
+        "verification_summary": _verification_summary(
+            decision=decision,
+            confidence=confidence,
+            threshold=threshold,
+        ),
         "explanation": _promotion_explanation(
             decision=decision,
             destination=destination,

@@ -54,6 +54,8 @@ class ProfileBucketTests(unittest.TestCase):
 
         self.assertEqual(result["decision"], "promote")
         self.assertEqual(result["destination"], "preferences")
+        self.assertIn("verification_summary", result)
+        self.assertEqual(result["verification_summary"]["status"], "verified")
         self.assertIn("explanation", result)
         self.assertEqual(result["explanation"]["destination"], "preferences")
 
@@ -83,6 +85,8 @@ class ProfileBucketTests(unittest.TestCase):
 
         self.assertEqual(result["decision"], "promote")
         self.assertEqual(result["destination"], "identity")
+        self.assertIn("verification_summary", result)
+        self.assertEqual(result["verification_summary"]["status"], "verified")
         self.assertIn("explanation", result)
         self.assertEqual(result["explanation"]["destination"], "identity")
 

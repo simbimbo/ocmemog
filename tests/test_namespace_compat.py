@@ -119,6 +119,7 @@ class NamespaceCompatTests(unittest.TestCase):
         self.assertFalse(any("sentence-transformers" in warning for warning in status.warnings))
         self.assertEqual(status.runtime_summary["embedding_provider"], "local-openai")
         self.assertFalse(status.runtime_summary["using_hash_embeddings"])
+        self.assertIn("auto_hydration", status.runtime_summary)
 
     def test_runtime_probe_honors_native_local_embed_alias(self) -> None:
         from ocmemog.sidecar.compat import probe_runtime
@@ -169,6 +170,26 @@ class NamespaceCompatTests(unittest.TestCase):
         self.assertEqual(status.runtime_summary["mode"], "degraded")
         self.assertEqual(status.runtime_summary["shim_surface_count"], 1)
         self.assertTrue(any("legacy compatibility surface" in warning for warning in status.warnings))
+
+    def test_runtime_probe_surfaces_auto_hydration_agent_policy(self) -> None:
+        from ocmemog.sidecar.compat import probe_runtime
+
+        with patch.dict(
+            "os.environ",
+            {
+                "OCMEMOG_AUTO_HYDRATION": "true",
+                "OCMEMOG_AUTO_HYDRATION_ALLOW_AGENT_IDS": "main,worker",
+                "OCMEMOG_AUTO_HYDRATION_DENY_AGENT_IDS": "chat-local",
+            },
+            clear=False,
+        ):
+            status = probe_runtime()
+
+        policy = status.runtime_summary["auto_hydration"]
+        self.assertTrue(policy["enabled"])
+        self.assertEqual(policy["allow_agent_ids"], ["main", "worker"])
+        self.assertEqual(policy["deny_agent_ids"], ["chat-local"])
+        self.assertTrue(policy["scoped_by_agent"])
 
     def test_sidecar_version_matches_package_version(self) -> None:
         from ocmemog import __version__

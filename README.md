@@ -146,6 +146,7 @@ Optional environment variables:
 - `OCMEMOG_AUTO_HYDRATION` (`true` to re-enable prompt-time continuity prepending; defaults to `false` as a safety guard until the host runtime is verified not to persist prepended context into session history)
 - `OCMEMOG_AUTO_HYDRATION_ALLOW_AGENT_IDS` (comma-separated `ctx.agentId` allowlist for prompt-time hydration; when set, only matching agents receive before-prompt hydration)
 - `OCMEMOG_AUTO_HYDRATION_DENY_AGENT_IDS` (comma-separated `ctx.agentId` denylist for prompt-time hydration; checked before the allowlist so specific agents can be blocked even when global hydration remains enabled)
+- `runtimeSummary.auto_hydration` now exposes the active auto-hydration policy so operators can verify agent scoping from sidecar/runtime payloads
 - `OCMEMOG_LAPTOP_MODE` (`auto` by default; on macOS battery power this slows watcher polling, reduces ingest batch size, and disables sentiment reinforcement unless explicitly overridden)
 - `OCMEMOG_LOCAL_LLM_BASE_URL` (default: `http://127.0.0.1:18080/v1`; local OpenAI-compatible text endpoint, e.g. llama.cpp)
 - `OCMEMOG_LOCAL_LLM_MODEL` (default: `qwen2.5-7b-instruct`; matches the active Qwen2.5-7B-Instruct GGUF runtime)

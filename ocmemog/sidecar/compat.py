@@ -37,6 +37,10 @@ _EMBEDDING_PROVIDER_BACKEND_HINTS = {
 }
 
 
+def _parse_agent_id_list(raw: str | None) -> list[str]:
+    return [item.strip() for item in str(raw or "").split(",") if item.strip()]
+
+
 def probe_runtime() -> RuntimeStatus:
     runtime_identity = identity.get_runtime_identity()
     capabilities = runtime_identity.get("capabilities", [])
@@ -83,6 +87,8 @@ def probe_runtime() -> RuntimeStatus:
     if missing_deps:
         mode = "degraded"
 
+    hydration_allow_agents = _parse_agent_id_list(os.environ.get("OCMEMOG_AUTO_HYDRATION_ALLOW_AGENT_IDS"))
+    hydration_deny_agents = _parse_agent_id_list(os.environ.get("OCMEMOG_AUTO_HYDRATION_DENY_AGENT_IDS"))
     runtime_summary = {
         "mode": mode,
         "embedding_provider": provider or "local-simple",
@@ -90,6 +96,12 @@ def probe_runtime() -> RuntimeStatus:
         "shim_surface_count": shim_count,
         "missing_dep_count": len(missing_deps),
         "warning_count": len(warnings),
+        "auto_hydration": {
+            "enabled": str(os.environ.get("OCMEMOG_AUTO_HYDRATION", "false")).strip().lower() in {"1", "true", "yes"},
+            "allow_agent_ids": hydration_allow_agents,
+            "deny_agent_ids": hydration_deny_agents,
+            "scoped_by_agent": bool(hydration_allow_agents or hydration_deny_agents),
+        },
     }
     return RuntimeStatus(
         mode=mode,

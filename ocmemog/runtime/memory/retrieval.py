@@ -301,8 +301,12 @@ def retrieve(
         current["count"] += 1.0
     for current in reinforcement.values():
         count = max(1.0, float(current.get("count") or 1.0))
-        current["reward_score"] = float(current.get("reward_score") or 0.0) / count
-        current["confidence"] = float(current.get("confidence") or 0.0) / count
+        avg_reward = float(current.get("reward_score") or 0.0) / count
+        avg_confidence = float(current.get("confidence") or 0.0) / count
+        reinforcement_strength = min(1.0, avg_reward * (1.0 + (min(count, 5.0) - 1.0) * 0.15))
+        current["reward_score"] = reinforcement_strength
+        current["confidence"] = avg_confidence
+        current["count"] = count
 
     semantic_scores: Dict[str, float] = {}
     if prompt.strip():
@@ -330,6 +334,7 @@ def retrieve(
             "keyword": round(keyword, 3),
             "semantic": round(semantic, 3),
             "reinforcement": round(reinf_score, 3),
+            "reinforcement_count": round(float(reinf.get("count", 0.0)), 3),
             "promotion": round(promo_score, 3),
             "recency": round(recency, 3),
             "lane_bonus": round(lane_bonus, 3),

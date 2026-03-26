@@ -52,6 +52,7 @@ The current sidecar retrieval path is a bounded hybrid ranker rather than a pure
    - vector search diagnostics now also carry the actual embedding execution outcome for the request (provider attempted, local fallback used, winning path, embedding generated)
    - the top-level execution-path summary now promotes the key embedding outcome fields for faster operator scanning
 8. Retrieval items now also carry a compact `governance_summary` so retrieval and governance surfaces share a simpler bridge for status/triage without forcing every consumer to parse the full governance/provenance structure.
+   - retrieval signals now also expose `reinforcement_count`, and reinforcement weighting is frequency-aware instead of pure flat averaging
 9. `/memory/search` diagnostics now include a governance rollup over the visible results so search consumers can quickly see how governance state is affecting the returned set.
    - this now includes both overall visible status counts and per-bucket visible rollups
 10. Retrieval diagnostics also track governance-suppressed candidates (`superseded` / `duplicate`) so the search response can explain what governance hid before the visible result set was assembled.

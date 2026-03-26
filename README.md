@@ -13,6 +13,7 @@ It is designed to go beyond simple memory search by providing:
 - **durable queue behavior that skips malformed queued payloads, bounds poison-item retries, and exposes clearer queue health diagnostics**
 - **compact runtime summaries that make provider/fallback/degraded state explicit in sidecar responses, including local embedding model/path readiness**
 - **request-level embedding path diagnostics inside search/vector-search responses, with promoted top-level execution summaries**
+- **frequency-aware reinforcement signals in retrieval ranking**
 - **more consistent runtime summary sub-blocks across embedding, queue, and auto-hydration surfaces**
 - **compact queue health snapshots in runtime summaries, including severity, hints, invalid/retrying indicators, doctor-style aliases, and worker-config issues**
 - **request-level search execution diagnostics that show provider-skip vs local-fallback vs route-fallback behavior**

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from ocmemog.runtime.memory import api, retrieval, store
+from ocmemog.runtime.memory import api, reinforcement, retrieval, store
 
 
 class HybridRetrievalTests(unittest.TestCase):
@@ -76,6 +76,26 @@ class HybridRetrievalTests(unittest.TestCase):
         self.assertEqual(item["governance_summary"]["memory_status"], item["memory_status"])
         self.assertEqual(item["governance_summary"]["contradiction_count"], len(item["governance"].get("contradicts") or []))
         self.assertIn("needs_review", item["governance_summary"])
+
+    def test_reinforcement_counts_influence_retrieval_signals(self) -> None:
+        row_id = api.store_memory("knowledge", "FortiGate hardening baseline", source="test")
+        for idx in range(3):
+            reinforcement.log_experience(
+                task_id=f"task-{idx}",
+                outcome="success",
+                confidence=1.0,
+                reward_score=1.0,
+                memory_reference=f"knowledge:{row_id}",
+                experience_type="retrieval_feedback",
+                source_module="test",
+            )
+
+        with mock.patch("ocmemog.runtime.memory.vector_index.search_memory", return_value=[]):
+            results = retrieval.retrieve("FortiGate baseline", limit=5, categories=["knowledge"])
+
+        item = next(entry for entry in results["knowledge"] if entry["memory_reference"] == f"knowledge:{row_id}")
+        self.assertGreater(item["retrieval_signals"]["reinforcement"], 0.0)
+        self.assertEqual(item["retrieval_signals"]["reinforcement_count"], 3.0)
 
 
 if __name__ == "__main__":

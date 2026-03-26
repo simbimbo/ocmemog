@@ -200,6 +200,7 @@ Notes:
 - Runtime degradation is reported in every sidecar response.
 - Sidecar responses now also include `runtimeSummary`, a compact operator-facing summary of runtime mode, embedding provider, local embedding model, embedding path readiness/fallback state, queue health snapshot, shim surface count, and missing dependency count.
 - `runtimeSummary.queue` now includes lightweight operational judgment too: `severity` (`ok|warn|high`) plus short `hints` for backlog/worker/error situations.
+- `runtimeSummary.queue` now also distinguishes `invalid_lines`, `retrying_lines`, and `max_retry_seen`, so normal runtime payloads can hint at queue corruption vs poison-item retry churn without a full doctor pass.
 - Prompt-time auto-hydration can now be scoped per OpenClaw agent via plugin env vars:
   - `OCMEMOG_AUTO_HYDRATION_ALLOW_AGENT_IDS=agent-a,agent-b`
   - `OCMEMOG_AUTO_HYDRATION_DENY_AGENT_IDS=agent-x`

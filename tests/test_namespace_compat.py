@@ -213,7 +213,7 @@ class NamespaceCompatTests(unittest.TestCase):
 
         data_dir = state_store.data_dir()
         data_dir.mkdir(parents=True, exist_ok=True)
-        (data_dir / "ingest_queue.jsonl").write_text('{"content":"one"}\n{"content":"two"}\n', encoding="utf-8")
+        (data_dir / "ingest_queue.jsonl").write_text('{"content":"one"}\n{"content":"two", "_ocmemog_retry_count": 2}\n{not-json}\n', encoding="utf-8")
         (data_dir / "queue_stats.json").write_text(
             '{"last_run": "2026-03-26 15:20:00", "last_batch": 2, "processed": 10, "errors": 1, "last_error": "invalid_queue_payload"}',
             encoding="utf-8",
@@ -223,14 +223,19 @@ class NamespaceCompatTests(unittest.TestCase):
             status = probe_runtime()
 
         queue = status.runtime_summary["queue"]
-        self.assertEqual(queue["depth"], 2)
+        self.assertEqual(queue["depth"], 3)
         self.assertEqual(queue["last_batch"], 2)
         self.assertEqual(queue["processed_total"], 10)
         self.assertEqual(queue["error_count"], 1)
         self.assertEqual(queue["last_error"], "invalid_queue_payload")
+        self.assertEqual(queue["invalid_lines"], 1)
+        self.assertEqual(queue["retrying_lines"], 1)
+        self.assertEqual(queue["max_retry_seen"], 2)
         self.assertTrue(queue["worker_enabled"])
         self.assertEqual(queue["severity"], "warn")
         self.assertIn("queue has recorded ingest/parse errors", queue["hints"])
+        self.assertIn("queue contains invalid lines", queue["hints"])
+        self.assertIn("queue contains retrying payloads", queue["hints"])
 
     def test_queue_runtime_summary_warns_when_backlog_exists_without_worker(self) -> None:
         from ocmemog.sidecar.compat import probe_runtime

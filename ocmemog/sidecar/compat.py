@@ -46,12 +46,33 @@ def _queue_runtime_summary() -> dict[str, Any]:
     queue_path = state_store.data_dir() / "ingest_queue.jsonl"
     stats_path = state_store.data_dir() / "queue_stats.json"
     depth = 0
+    invalid_lines = 0
+    retrying_lines = 0
+    max_retry_seen = 0
     try:
         if queue_path.exists():
+            import json
+
             with queue_path.open("r", encoding="utf-8", errors="ignore") as handle:
-                depth = sum(1 for line in handle if line.strip())
+                for raw_line in handle:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    depth += 1
+                    try:
+                        payload = json.loads(line)
+                        if isinstance(payload, dict):
+                            retry_count = int(payload.get("_ocmemog_retry_count", 0) or 0)
+                            if retry_count > 0:
+                                retrying_lines += 1
+                                max_retry_seen = max(max_retry_seen, retry_count)
+                    except Exception:
+                        invalid_lines += 1
     except Exception:
         depth = 0
+        invalid_lines = 0
+        retrying_lines = 0
+        max_retry_seen = 0
 
     stats: dict[str, Any] = {}
     try:
@@ -74,6 +95,12 @@ def _queue_runtime_summary() -> dict[str, Any]:
     if error_count > 0:
         severity = "warn"
         hints.append("queue has recorded ingest/parse errors")
+    if invalid_lines > 0:
+        severity = "warn"
+        hints.append("queue contains invalid lines")
+    if retrying_lines > 0:
+        severity = "warn"
+        hints.append("queue contains retrying payloads")
     if depth > 100:
         severity = "high"
         hints.append("queue backlog is high")
@@ -88,6 +115,9 @@ def _queue_runtime_summary() -> dict[str, Any]:
         "processed_total": int(stats.get("processed") or 0),
         "error_count": error_count,
         "last_error": stats.get("last_error"),
+        "invalid_lines": int(invalid_lines),
+        "retrying_lines": int(retrying_lines),
+        "max_retry_seen": int(max_retry_seen),
         "worker_enabled": worker_enabled,
         "severity": severity,
         "hints": hints,

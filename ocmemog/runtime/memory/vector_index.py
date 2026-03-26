@@ -27,6 +27,30 @@ _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
+def _tokenize(text: str) -> List[str]:
+    return [token for token in _WHITESPACE_RE.sub(" ", str(text or "").lower()).split(" ") if token]
+
+
+def _lexical_overlap_score(query: str, content: str) -> float:
+    query_tokens = {token for token in _tokenize(query) if len(token) >= 2}
+    content_tokens = {token for token in _tokenize(content) if len(token) >= 2}
+    if not query_tokens or not content_tokens:
+        return 0.0
+    overlap = len(query_tokens & content_tokens) / max(1, len(query_tokens))
+    if overlap > 0.0:
+        return round(min(1.0, overlap), 6)
+    prefix_hits = 0
+    sizable_query_tokens = [token for token in query_tokens if len(token) >= 4]
+    if not sizable_query_tokens:
+        return 0.0
+    for token in sizable_query_tokens:
+        if any(content_token.startswith(token) or token.startswith(content_token) for content_token in content_tokens):
+            prefix_hits += 1
+    if prefix_hits <= 0:
+        return 0.0
+    return round(min(0.75, prefix_hits / max(1, len(sizable_query_tokens))), 6)
+
+
 def _ensure_vector_table(conn) -> None:
     conn.execute(
         """
@@ -337,6 +361,14 @@ def search_memory(
         scan_limit = max(1, limit * 8)
     scan_limit = max(limit, scan_limit)
 
+    try:
+        lexical_prefilter_limit = int(os.environ.get("OCMEMOG_SEARCH_VECTOR_PREFILTER_LIMIT", 250))
+    except Exception:
+        lexical_prefilter_limit = 250
+    if lexical_prefilter_limit < 0:
+        lexical_prefilter_limit = 0
+    lexical_prefilter_limit = min(scan_limit, max(limit, lexical_prefilter_limit)) if lexical_prefilter_limit else 0
+
     if source_types is None:
         filtered_source_types = tuple(EMBEDDING_TABLES)
     else:
@@ -358,8 +390,29 @@ def search_memory(
 
     if query_embedding:
         rows = conn.execute(vector_query, scan_rows).fetchall()
-        scored: List[Dict[str, Any]] = []
+        lexical_ranked: List[tuple[float, Any]] = []
         for row in rows:
+            lexical_score = 0.0
+            if lexical_prefilter_limit:
+                source_ref = f"{row['source_type']}:{row['source_id']}"
+                memory_row = conn.execute(
+                    "SELECT content FROM memory_index WHERE source = ? ORDER BY id DESC LIMIT 1",
+                    (source_ref,),
+                ).fetchone()
+                content = str((memory_row[0] if memory_row else "") or "")
+                lexical_score = _lexical_overlap_score(query, content)
+            lexical_ranked.append((lexical_score, row))
+
+        candidate_rows = rows
+        if lexical_prefilter_limit and lexical_ranked:
+            lexical_hits = [row for score, row in sorted(lexical_ranked, key=lambda item: item[0], reverse=True) if score > 0.0]
+            if lexical_hits:
+                candidate_rows = lexical_hits[:lexical_prefilter_limit]
+            else:
+                candidate_rows = rows[:lexical_prefilter_limit]
+
+        scored: List[Dict[str, Any]] = []
+        for row in candidate_rows:
             try:
                 emb = json.loads(row["embedding"])
                 emb_list = [float(x) for x in emb]

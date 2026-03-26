@@ -202,6 +202,9 @@ Notes:
   - semantic scoring comes from `vector_index.search_memory()` across the selected embedded categories
   - final ranking also considers reinforcement history, promotion confidence, recency, and optional lane bonuses
 - `vector_index.search_memory()` remains a bounded semantic scan rather than a full ANN index
+  - it now supports a lightweight lexical prefilter before cosine ranking
+  - `OCMEMOG_SEARCH_VECTOR_SCAN_LIMIT` bounds the candidate window
+  - `OCMEMOG_SEARCH_VECTOR_PREFILTER_LIMIT` bounds the lexically-biased shortlist used before cosine scoring
 - `probe_runtime()` exposes missing shim replacements and optional embedding warnings
 
 ## What is not safe to rely on yet

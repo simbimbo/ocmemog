@@ -8,8 +8,9 @@ Retrieval ranking quality pass plus collateral/doc alignment.
 - improved lexical retrieval scoring to consider token overlap, ordered phrase overlap, and light prefix matching instead of relying on blunt substring-or-overlap behavior
 - kept the retrieval path bounded and hybrid by continuing to blend lexical, semantic, reinforcement, promotion, recency, and lane-aware signals
 - added lightweight `searchDiagnostics` to `/memory/search` so retrieval strategy, lane, bucket counts, result compaction, and timing are visible in the API response
+- added a bounded lexical prefilter inside `vector_index.search_memory()` so semantic ranking can prefer lexically relevant candidates before cosine scoring without introducing ANN complexity
 - aligned README and architecture/usage docs with the actual shipped hybrid retrieval behavior
-- added regression coverage for partial-phrase lexical matches and sidecar search diagnostics
+- added regression coverage for partial-phrase lexical matches, sidecar search diagnostics, and vector prefilter behavior
 
 ## 0.1.16 — 2026-03-25
 

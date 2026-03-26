@@ -651,6 +651,35 @@ class OcmemogRegressionTests(unittest.TestCase):
         self.assertEqual(results[0]["source_type"], "knowledge")
         self.assertEqual(results[0]["source_id"], "7")
 
+    def test_vector_search_prefers_lexically_relevant_candidates_before_cosine_rank(self) -> None:
+        conn = store.connect()
+        try:
+            conn.execute(
+                "INSERT INTO memory_index (source, confidence, metadata_json, content, schema_version) VALUES (?, ?, ?, ?, ?)",
+                ("knowledge:11", 0.6, json.dumps({}), "fortigate edge hardening baseline", store.SCHEMA_VERSION),
+            )
+            conn.execute(
+                "INSERT INTO memory_index (source, confidence, metadata_json, content, schema_version) VALUES (?, ?, ?, ?, ?)",
+                ("knowledge:12", 0.6, json.dumps({}), "garden tomato watering schedule", store.SCHEMA_VERSION),
+            )
+            conn.execute(
+                "INSERT INTO vector_embeddings (id, source_type, source_id, embedding) VALUES (?, ?, ?, ?)",
+                ("knowledge:11", "knowledge", "11", json.dumps([1.0, 0.0])),
+            )
+            conn.execute(
+                "INSERT INTO vector_embeddings (id, source_type, source_id, embedding) VALUES (?, ?, ?, ?)",
+                ("knowledge:12", "knowledge", "12", json.dumps([0.9, 0.1])),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        with mock.patch("ocmemog.runtime.memory.vector_index.embedding_engine.generate_embedding", return_value=[1.0, 0.0]):
+            with mock.patch.dict(os.environ, {"OCMEMOG_SEARCH_VECTOR_SCAN_LIMIT": "10", "OCMEMOG_SEARCH_VECTOR_PREFILTER_LIMIT": "1"}, clear=False):
+                results = vector_index.search_memory("fortigate hardening", limit=1)
+
+        self.assertEqual(results[0]["entry_id"], "knowledge:11")
+
     def test_retrieval_combines_lexical_and_semantic_signals_without_fallback_gate(self) -> None:
         first = api.store_memory("knowledge", "fortigate edge baseline hardening", source="test")
         second = api.store_memory("knowledge", "management plane lockdown and admin isolation", source="test")

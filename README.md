@@ -5,6 +5,7 @@
 It is designed to go beyond simple memory search by providing:
 - **durable memory and hybrid retrieval (lexical + semantic)**
 - **operator-visible search diagnostics for retrieval behavior**
+- **bounded vector search with lightweight lexical prefiltering**
 - **lossless-style conversation continuity**
 - **checkpointing, branch-aware hydration, and turn expansion**
 - **transcript ingestion with anchored context recovery**

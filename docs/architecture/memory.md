@@ -55,7 +55,8 @@ Operational limits:
 - Retrieval is still bounded to recent rows per category before ranking, so this is not a full-corpus search engine yet.
 - Default embeddings are local hash vectors (`OCMEMOG_EMBED_MODEL_LOCAL=simple`; legacy alias: `BRAIN_EMBED_MODEL_LOCAL`), which are deterministic but weak.
 - `runbooks`, `lessons`, `directives`, `reflections`, and `tasks` are included in the default searchable categories and embedding index.
-- Semantic ranking currently depends on the active embedding backend and the vector scan limit in `vector_index.search_memory()`.
+- Semantic ranking currently depends on the active embedding backend and the bounded candidate window in `vector_index.search_memory()`.
+- Vector search now supports a lightweight lexical prefilter over the bounded scan window before cosine ranking, which improves relevance without changing the no-ANN local-first design.
 
 ## Write paths
 

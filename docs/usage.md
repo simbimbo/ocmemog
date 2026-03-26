@@ -238,6 +238,7 @@ Notes:
   - semantic scoring comes from `vector_index.search_memory()` across the selected embedded categories
   - final ranking also considers reinforcement history, promotion confidence, recency, and optional lane bonuses
   - reinforcement is now frequency-aware rather than flat-average only; repeated successful experiences increase strength up to a bounded cap and expose `reinforcement_count` in retrieval signals
+  - reinforcement is also recency-aware: newer successful experiences count more than stale ones, and retrieval signals now expose `reinforcement_weighted_count`
 - `vector_index.search_memory()` remains a bounded semantic scan rather than a full ANN index
   - it now supports a lightweight lexical prefilter before cosine ranking
   - `OCMEMOG_SEARCH_VECTOR_SCAN_LIMIT` bounds the candidate window

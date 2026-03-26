@@ -96,6 +96,44 @@ class HybridRetrievalTests(unittest.TestCase):
         item = next(entry for entry in results["knowledge"] if entry["memory_reference"] == f"knowledge:{row_id}")
         self.assertGreater(item["retrieval_signals"]["reinforcement"], 0.0)
         self.assertEqual(item["retrieval_signals"]["reinforcement_count"], 3.0)
+        self.assertGreater(item["retrieval_signals"]["reinforcement_weighted_count"], 0.0)
+
+    def test_recent_reinforcement_outweighs_stale_reinforcement(self) -> None:
+        recent_id = api.store_memory("knowledge", "recent FortiGate baseline", source="test")
+        stale_id = api.store_memory("knowledge", "stale FortiGate baseline", source="test")
+        reinforcement.log_experience(
+            task_id="recent-task",
+            outcome="success",
+            confidence=1.0,
+            reward_score=1.0,
+            memory_reference=f"knowledge:{recent_id}",
+            experience_type="retrieval_feedback",
+            source_module="test",
+        )
+        reinforcement.log_experience(
+            task_id="stale-task",
+            outcome="success",
+            confidence=1.0,
+            reward_score=1.0,
+            memory_reference=f"knowledge:{stale_id}",
+            experience_type="retrieval_feedback",
+            source_module="test",
+        )
+
+        conn = store.connect()
+        conn.execute(
+            "UPDATE experiences SET timestamp='2025-01-01 00:00:00' WHERE task_id='stale-task'"
+        )
+        conn.commit()
+        conn.close()
+
+        with mock.patch("ocmemog.runtime.memory.vector_index.search_memory", return_value=[]):
+            results = retrieval.retrieve("FortiGate baseline", limit=10, categories=["knowledge"])
+
+        recent_item = next(entry for entry in results["knowledge"] if entry["memory_reference"] == f"knowledge:{recent_id}")
+        stale_item = next(entry for entry in results["knowledge"] if entry["memory_reference"] == f"knowledge:{stale_id}")
+        self.assertGreater(recent_item["retrieval_signals"]["reinforcement"], stale_item["retrieval_signals"]["reinforcement"])
+        self.assertGreater(recent_item["retrieval_signals"]["reinforcement_weighted_count"], stale_item["retrieval_signals"]["reinforcement_weighted_count"])
 
 
 if __name__ == "__main__":

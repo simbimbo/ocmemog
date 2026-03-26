@@ -28,6 +28,7 @@ Retrieval ranking quality pass plus collateral/doc alignment.
 - enriched `runtimeSummary` embedding observability with local embedding model and embedding path readiness details so provider vs local/simple fallback is clearer to operators
 - added request-level embedding execution diagnostics to vector/search responses so operators can tell whether provider embedding was attempted, whether local fallback ran, and which path actually produced the query embedding
 - made retrieval reinforcement scoring frequency-aware and exposed `reinforcement_count` in retrieval signals so repeated successful experience can influence ranking without unbounded growth
+- added light recency-aware reinforcement weighting and exposed `reinforcement_weighted_count` so newer successful experiences matter more than stale ones
 - added compact reinforcement rollups to `/memory/search` diagnostics so operators can see visible and retrieval-side reinforcement totals, including per-bucket visible counts
 - extended retrieval-side reinforcement diagnostics with per-bucket totals for parity with other search/operator rollups
 - promoted the key embedding outcome fields into `searchDiagnostics.execution_path` so request-level scanability is better without drilling into nested vector diagnostics

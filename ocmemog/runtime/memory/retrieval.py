@@ -71,16 +71,19 @@ def _match_score(text: str, query: str) -> float:
     return round(min(0.98, score), 3)
 
 
-def _recency_score(timestamp: str | None) -> float:
+def _parse_timestamp(timestamp: str | None) -> datetime | None:
     if not timestamp:
-        return 0.0
-    parsed = None
+        return None
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"):
         try:
-            parsed = datetime.strptime(timestamp, fmt).replace(tzinfo=timezone.utc)
-            break
+            return datetime.strptime(timestamp, fmt).replace(tzinfo=timezone.utc)
         except ValueError:
             continue
+    return None
+
+
+def _recency_score(timestamp: str | None) -> float:
+    parsed = _parse_timestamp(timestamp)
     if parsed is None:
         return 0.0
     age_days = max(0.0, (datetime.now(timezone.utc) - parsed).total_seconds() / 86400.0)
@@ -294,24 +297,43 @@ def retrieve(
         "selected_categories": list(selected_categories),
     }
 
-    reinf_rows = conn.execute("SELECT memory_reference, reward_score, confidence FROM experiences").fetchall()
+    reinf_rows = conn.execute("SELECT memory_reference, reward_score, confidence, timestamp FROM experiences").fetchall()
     reinforcement: Dict[str, Dict[str, float]] = {}
     for row in reinf_rows:
         reference = str(row[0] or "")
         if not reference:
             continue
-        current = reinforcement.setdefault(reference, {"reward_score": 0.0, "confidence": 0.0, "count": 0.0})
-        current["reward_score"] += float(row[1] or 0.0)
-        current["confidence"] += float(row[2] or 0.0)
+        reward = float(row[1] or 0.0)
+        confidence = float(row[2] or 0.0)
+        parsed_ts = _parse_timestamp(row[3]) if len(row) > 3 else None
+        recency_multiplier = 1.0
+        if parsed_ts is not None:
+            age_days = max(0.0, (datetime.now(timezone.utc) - parsed_ts).total_seconds() / 86400.0)
+            if age_days <= 1:
+                recency_multiplier = 1.0
+            elif age_days <= 7:
+                recency_multiplier = 0.9
+            elif age_days <= 30:
+                recency_multiplier = 0.75
+            elif age_days <= 180:
+                recency_multiplier = 0.55
+            else:
+                recency_multiplier = 0.35
+        current = reinforcement.setdefault(reference, {"reward_score": 0.0, "confidence": 0.0, "count": 0.0, "weighted_count": 0.0})
+        current["reward_score"] += reward * recency_multiplier
+        current["confidence"] += confidence * recency_multiplier
         current["count"] += 1.0
+        current["weighted_count"] += recency_multiplier
     for current in reinforcement.values():
         count = max(1.0, float(current.get("count") or 1.0))
-        avg_reward = float(current.get("reward_score") or 0.0) / count
-        avg_confidence = float(current.get("confidence") or 0.0) / count
-        reinforcement_strength = min(1.0, avg_reward * (1.0 + (min(count, 5.0) - 1.0) * 0.15))
+        weighted_count = max(0.001, float(current.get("weighted_count") or 0.0))
+        avg_reward = float(current.get("reward_score") or 0.0) / weighted_count
+        avg_confidence = float(current.get("confidence") or 0.0) / weighted_count
+        reinforcement_strength = min(1.0, avg_reward * (1.0 + (min(weighted_count, 5.0) - 1.0) * 0.15))
         current["reward_score"] = reinforcement_strength
         current["confidence"] = avg_confidence
         current["count"] = count
+        current["weighted_count"] = round(weighted_count, 3)
 
     semantic_scores: Dict[str, float] = {}
     if prompt.strip():
@@ -340,6 +362,7 @@ def retrieve(
             "semantic": round(semantic, 3),
             "reinforcement": round(reinf_score, 3),
             "reinforcement_count": round(float(reinf.get("count", 0.0)), 3),
+            "reinforcement_weighted_count": round(float(reinf.get("weighted_count", 0.0)), 3),
             "promotion": round(promo_score, 3),
             "recency": round(recency, 3),
             "lane_bonus": round(lane_bonus, 3),

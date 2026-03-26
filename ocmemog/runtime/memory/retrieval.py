@@ -286,6 +286,10 @@ def retrieve(
             "duplicate": 0,
         },
         "suppressed_by_governance_by_bucket": {},
+        "reinforcement": {
+            "reinforced_result_count": 0,
+            "total_reinforcement_count": 0.0,
+        },
         "selected_categories": list(selected_categories),
     }
 
@@ -379,6 +383,13 @@ def retrieve(
                 score = round(max(0.0, score - 0.15), 3)
                 signals["contradiction_penalty"] = 0.15
             selected_because = max(signals, key=signals.get) if signals else "keyword"
+            if float(signals.get("reinforcement_count") or 0.0) > 0.0:
+                _LAST_RETRIEVAL_DIAGNOSTICS["reinforcement"]["reinforced_result_count"] = int(
+                    _LAST_RETRIEVAL_DIAGNOSTICS["reinforcement"].get("reinforced_result_count") or 0
+                ) + 1
+                _LAST_RETRIEVAL_DIAGNOSTICS["reinforcement"]["total_reinforcement_count"] = float(
+                    _LAST_RETRIEVAL_DIAGNOSTICS["reinforcement"].get("total_reinforcement_count") or 0.0
+                ) + float(signals.get("reinforcement_count") or 0.0)
             candidates[mem_ref] = {
                 "content": content,
                 "score": score,

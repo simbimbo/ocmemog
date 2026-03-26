@@ -1223,6 +1223,25 @@ def memory_search(request: SearchRequest) -> dict[str, Any]:
                 governance_rollup["needs_review_count"] += 1
                 bucket_rollup["needs_review_count"] += 1
         diagnostics["governance_rollup"] = governance_rollup
+        reinforcement_rollup = {
+            "reinforced_result_count": 0,
+            "total_reinforcement_count": 0.0,
+            "by_bucket": {},
+        }
+        for item in flattened:
+            signals = item.get("retrieval_signals") if isinstance(item, dict) else {}
+            if not isinstance(signals, dict):
+                signals = {}
+            reinforcement_count = float(signals.get("reinforcement_count") or 0.0)
+            if reinforcement_count <= 0.0:
+                continue
+            reinforcement_rollup["reinforced_result_count"] += 1
+            reinforcement_rollup["total_reinforcement_count"] += reinforcement_count
+            bucket = str(item.get("bucket") or item.get("category") or item.get("source_type") or "unknown")
+            bucket_rollup = reinforcement_rollup["by_bucket"].setdefault(bucket, {"reinforced_result_count": 0, "total_reinforcement_count": 0.0})
+            bucket_rollup["reinforced_result_count"] += 1
+            bucket_rollup["total_reinforcement_count"] += reinforcement_count
+        diagnostics["reinforcement_rollup"] = reinforcement_rollup
         used_fallback = False
     except Exception as exc:
         flattened = _fallback_search(request.query, request.limit, categories, metadata_filters=request.metadata_filters, lane=request.lane)
@@ -1262,6 +1281,7 @@ def memory_search(request: SearchRequest) -> dict[str, Any]:
             "suppressed_by_governance": retrieval_diagnostics.get("suppressed_by_governance") or {},
             "suppressed_by_governance_by_bucket": retrieval_diagnostics.get("suppressed_by_governance_by_bucket") or {},
         }
+        diagnostics["retrieval_reinforcement"] = retrieval_diagnostics.get("reinforcement") or {}
     if elapsed_ms >= 10:
         print(
             f"[ocmemog][route] memory_search elapsed_ms={elapsed_ms:.3f} limit={request.limit} categories={','.join(categories)} fallback={used_fallback}",

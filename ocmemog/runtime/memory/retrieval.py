@@ -285,6 +285,7 @@ def retrieve(
             "superseded": 0,
             "duplicate": 0,
         },
+        "suppressed_by_governance_by_bucket": {},
         "selected_categories": list(selected_categories),
     }
 
@@ -361,6 +362,11 @@ def retrieve(
                 _LAST_RETRIEVAL_DIAGNOSTICS["suppressed_by_governance"][memory_status] = (
                     int(_LAST_RETRIEVAL_DIAGNOSTICS["suppressed_by_governance"].get(memory_status) or 0) + 1
                 )
+                bucket_counts = _LAST_RETRIEVAL_DIAGNOSTICS["suppressed_by_governance_by_bucket"].setdefault(
+                    table,
+                    {"superseded": 0, "duplicate": 0},
+                )
+                bucket_counts[memory_status] = int(bucket_counts.get(memory_status) or 0) + 1
                 continue
             metadata = provenance.fetch_reference(mem_ref)
             score, signals = score_record(content=content, memory_ref=mem_ref, promo_conf=promo_conf, timestamp=timestamp, metadata_payload=metadata_payload)

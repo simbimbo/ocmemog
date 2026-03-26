@@ -103,7 +103,10 @@ class SidecarRouteTests(unittest.TestCase):
         ), mock.patch.object(
             sidecar_app.retrieval,
             "get_last_retrieval_diagnostics",
-            return_value={"suppressed_by_governance": {"superseded": 1, "duplicate": 2}},
+            return_value={
+                "suppressed_by_governance": {"superseded": 1, "duplicate": 2},
+                "suppressed_by_governance_by_bucket": {"knowledge": {"superseded": 1, "duplicate": 2}},
+            },
         ):
             response = client.post(
                 "/memory/search",
@@ -126,7 +129,8 @@ class SidecarRouteTests(unittest.TestCase):
         self.assertFalse(payload["searchDiagnostics"]["execution_path"]["route_exception_fallback"])
         self.assertIn("governance_rollup", payload["searchDiagnostics"])
         self.assertEqual(payload["searchDiagnostics"]["governance_rollup"]["status_counts"], {"active": 1})
-        self.assertEqual(payload["searchDiagnostics"]["retrieval_governance"], {"superseded": 1, "duplicate": 2})
+        self.assertEqual(payload["searchDiagnostics"]["retrieval_governance"]["suppressed_by_governance"], {"superseded": 1, "duplicate": 2})
+        self.assertEqual(payload["searchDiagnostics"]["retrieval_governance"]["suppressed_by_governance_by_bucket"], {"knowledge": {"superseded": 1, "duplicate": 2}})
         retrieve_for_queries.assert_called_once()
         flatten_results.assert_called_once()
 

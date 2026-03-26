@@ -52,6 +52,7 @@ The current sidecar retrieval path is a bounded hybrid ranker rather than a pure
 8. Retrieval items now also carry a compact `governance_summary` so retrieval and governance surfaces share a simpler bridge for status/triage without forcing every consumer to parse the full governance/provenance structure.
 9. `/memory/search` diagnostics now include a governance rollup over the visible results so search consumers can quickly see how governance state is affecting the returned set.
 10. Retrieval diagnostics also track governance-suppressed candidates (`superseded` / `duplicate`) so the search response can explain what governance hid before the visible result set was assembled.
+11. Suppression diagnostics now include per-bucket breakdowns so operators can see which memory classes are carrying the most governance cleanup pressure.
 
 Operational limits:
 

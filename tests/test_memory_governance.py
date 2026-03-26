@@ -69,6 +69,8 @@ class MemoryGovernanceTests(unittest.TestCase):
         diagnostics = retrieval.get_last_retrieval_diagnostics()
         self.assertEqual(diagnostics["suppressed_by_governance"]["superseded"], 1)
         self.assertEqual(diagnostics["suppressed_by_governance"]["duplicate"], 1)
+        self.assertEqual(diagnostics["suppressed_by_governance_by_bucket"]["knowledge"]["superseded"], 1)
+        self.assertEqual(diagnostics["suppressed_by_governance_by_bucket"]["knowledge"]["duplicate"], 1)
 
 
 if __name__ == "__main__":

@@ -36,6 +36,7 @@ Retrieval ranking quality pass plus collateral/doc alignment.
 - normalized runtime summary sub-blocks so `queue`, `embedding_path_summary`, and `auto_hydration` all expose a small shared operator shape (`enabled`, `status`, `issues`) where appropriate
 - added compact `queueDiagnostics` to `/memory/governance/queue` so operators can quickly see item counts plus bucket/kind/priority-label breakdowns
 - added compact `explanation` blocks to governance queue items so queue consumers get short rationale and target-reference context without unpacking raw fields
+- added normalized `priority_label` values to governance queue items so queue and review surfaces share the same urgency vocabulary
 - added `governance_rollup` to `/memory/search` diagnostics so search consumers can quickly see visible result status counts and needs-review totals
 - extended visible governance rollups with per-bucket breakdowns so search consumers can see where visible governance pressure is concentrated
 - added retrieval governance suppression counts so `/memory/search` diagnostics can report how many candidates were hidden as `superseded` or `duplicate`

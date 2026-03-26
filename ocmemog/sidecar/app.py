@@ -1502,17 +1502,7 @@ def memory_governance_queue(request: GovernanceQueueRequest) -> dict[str, Any]:
     for item in items:
         item_kind = str(item.get("kind") or "unknown")
         item_bucket = str(item.get("bucket") or "unknown")
-        priority_value = int(item.get("priority") or 0)
-        if priority_value >= 90:
-            priority_label = "critical"
-        elif priority_value >= 70:
-            priority_label = "high"
-        elif priority_value >= 40:
-            priority_label = "medium"
-        elif priority_value > 0:
-            priority_label = "low"
-        else:
-            priority_label = "none"
+        priority_label = str(item.get("priority_label") or "unknown")
         kind_counts[item_kind] = kind_counts.get(item_kind, 0) + 1
         bucket_counts[item_bucket] = bucket_counts.get(item_bucket, 0) + 1
         priority_label_counts[priority_label] = priority_label_counts.get(priority_label, 0) + 1

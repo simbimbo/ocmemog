@@ -222,6 +222,7 @@ Notes:
 - Governance review items now also include a normalized `priority_label` (`none|low|medium|high|critical`), and review summary diagnostics include `priority_label_counts` for quick operator triage.
 - `/memory/governance/queue` now returns `queueDiagnostics` so operators can see item count plus bucket/kind/priority-label breakdowns without scanning the full queue manually.
 - Governance queue items now also include an `explanation` block with short human-facing rationale and target-reference context, so queue consumers do not have to reconstruct meaning from raw kind/priority fields alone.
+- Governance queue items now also carry the same normalized `priority_label` (`none|low|medium|high|critical`) used by governance review items.
 - `/memory/auto_hydration/policy` accepts an `agent_id` and returns the current prompt-time hydration decision (`allowed`, `reason`, allowlist, denylist, and scoping state) so agent-specific continuity policy can be debugged from the sidecar.
 
 ## What is safe to rely on

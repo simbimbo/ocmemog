@@ -44,6 +44,8 @@ class GovernanceQueueTests(unittest.TestCase):
         self.assertGreaterEqual(result["queueDiagnostics"]["item_count"], 1)
         self.assertIn("knowledge", result["queueDiagnostics"]["bucket_counts"])
         self.assertIn("critical", result["queueDiagnostics"]["priority_label_counts"])
+        self.assertIn("priority_label", items[0])
+        self.assertEqual(items[0]["priority_label"], "critical")
         self.assertIn("explanation", items[0])
         self.assertIn("short", items[0]["explanation"])
         self.assertEqual(items[0]["explanation"]["target_reference"], items[0]["target_reference"])

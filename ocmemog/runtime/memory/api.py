@@ -1021,6 +1021,26 @@ def _plain_english_supersession_summary(
     return summary
 
 
+def _review_explanation(kind: str, *, signal: float, reason: str, source: Dict[str, Any], target: Dict[str, Any]) -> Dict[str, Any]:
+    source_status = str(source.get("memory_status") or "active")
+    target_status = str(target.get("memory_status") or "active")
+    reason_text = str(reason or "").strip() or "no explicit rationale captured"
+    if kind == "duplicate_candidate":
+        short = f"Possible duplicate merge with signal {signal:.2f}."
+    elif kind == "contradiction_candidate":
+        short = f"Possible contradiction with signal {signal:.2f}."
+    elif kind == "supersession_recommendation":
+        short = f"Possible supersession with signal {signal:.2f}."
+    else:
+        short = f"Governance review item with signal {signal:.2f}."
+    return {
+        "short": short,
+        "reason": reason_text,
+        "source_status": source_status,
+        "target_status": target_status,
+    }
+
+
 def _review_actions(kind: str, relationship: str) -> List[Dict[str, Any]]:
     meta = _REVIEW_KIND_METADATA.get(kind, {})
     return [
@@ -1070,6 +1090,8 @@ def list_governance_review_items(
             plain_english = str(item.get("plain_english") or "").strip()
             if plain_english:
                 summary = plain_english
+        signal = float(item.get("signal") or 0.0)
+        reason = str(item.get("reason") or "")
         review_items.append({
             "review_id": f"{kind}:{reference}->{target_reference}",
             "kind": kind,
@@ -1078,11 +1100,12 @@ def list_governance_review_items(
             "priority": int(item.get("priority") or 0),
             "timestamp": item.get("timestamp"),
             "bucket": item.get("bucket"),
-            "signal": float(item.get("signal") or 0.0),
-            "reason": item.get("reason"),
+            "signal": signal,
+            "reason": reason,
             "reference": reference,
             "target_reference": target_reference,
             "summary": summary,
+            "explanation": _review_explanation(kind, signal=signal, reason=reason, source=source, target=target),
             "actions": _review_actions(kind, relationship),
             "source": source,
             "target": target,

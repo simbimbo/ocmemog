@@ -64,11 +64,15 @@ class GovernanceReviewTests(unittest.TestCase):
         self.assertEqual(duplicate_item["relationship"], "duplicate_of")
         self.assertEqual(duplicate_item["target"]["reference"], f"knowledge:{canonical}")
         self.assertEqual(duplicate_item["actions"][0]["decision"], "approve")
+        self.assertIn("explanation", duplicate_item)
+        self.assertIn("short", duplicate_item["explanation"])
+        self.assertEqual(duplicate_item["explanation"]["source_status"], "active")
 
         supersession_item = next(item for item in items if item["kind"] == "supersession_recommendation")
         self.assertEqual(supersession_item["source"]["reference"], "knowledge:4")
         self.assertEqual(supersession_item["target"]["reference"], f"knowledge:{first}")
         self.assertGreater(supersession_item["signal"], 0.0)
+        self.assertIn("Possible supersession", supersession_item["explanation"]["short"])
 
     def test_governance_decision_endpoint_can_promote_duplicate(self) -> None:
         canonical = api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")

@@ -17,6 +17,7 @@ Retrieval ranking quality pass plus collateral/doc alignment.
 - added `runtimeSummary` to sidecar/runtime payloads so provider path, hash-fallback state, degraded/ready mode, and compatibility residue are explicit to operators
 - expanded `/memory/search` diagnostics with a request-level `execution_path` block so provider-configured, provider-skipped, local-fallback-expected, and route-exception-fallback behavior is explicit per request
 - added `reviewDiagnostics` to `/memory/governance/review/summary` so cache freshness, item count, kind breakdown, and active filters are explicit to operators
+- added an `explanation` block to `/memory/governance/review` items so per-item rationale and source/target status context are easier to render and review
 
 ## 0.1.16 — 2026-03-25
 

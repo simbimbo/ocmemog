@@ -133,6 +133,7 @@ Governance queue items now also carry compact explanation blocks so queue surfac
 Queue items now also share the same normalized priority-label vocabulary as review items, reducing operator/UI translation work.
 
 Individual governance review items now also carry a compact explanation object so operator surfaces can render human-readable rationale and status context without reverse-engineering the raw review payload.
+The governance review flow is now framed as apply/dismiss plus optional auto-apply, rather than requiring a dashboard-bound human approval step for routine cases.
 
 Review items and review-summary diagnostics now also expose normalized priority labels so operator surfaces can reason about urgency without inventing their own bucket thresholds.
 

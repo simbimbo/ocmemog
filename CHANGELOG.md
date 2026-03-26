@@ -49,6 +49,7 @@ Retrieval ranking quality pass plus collateral/doc alignment.
 - added compact `autoResolveDiagnostics` to `/memory/governance/auto_resolve` so operators can quickly see action totals plus reason/kind breakdowns and the active policy profile
 - added compact `auditDiagnostics` to `/memory/governance/audit` so operators can quickly see audit item totals plus event/status breakdowns
 - added compact `rollbackDiagnostics` to `/memory/governance/rollback` so operators can quickly see whether rollback succeeded and how the outcome was classified
+- reframed governance review actions as apply/dismiss and added `/memory/governance/review/auto_apply` so routine review handling does not depend on dashboard/user approval input
 - added `governance_rollup` to `/memory/search` diagnostics so search consumers can quickly see visible result status counts and needs-review totals
 - extended visible governance rollups with per-bucket breakdowns so search consumers can see where visible governance pressure is concentrated
 - added retrieval governance suppression counts so `/memory/search` diagnostics can report how many candidates were hidden as `superseded` or `duplicate`

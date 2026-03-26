@@ -18,20 +18,20 @@ _REVIEW_KIND_METADATA: Dict[str, Dict[str, str]] = {
     "duplicate_candidate": {
         "relationship": "duplicate_of",
         "label": "Duplicate candidate",
-        "approve_label": "Approve duplicate merge",
-        "reject_label": "Reject duplicate merge",
+        "apply_label": "Apply duplicate merge",
+        "dismiss_label": "Dismiss duplicate merge",
     },
     "contradiction_candidate": {
         "relationship": "contradicts",
         "label": "Contradiction candidate",
-        "approve_label": "Mark as contradiction",
-        "reject_label": "Dismiss contradiction",
+        "apply_label": "Apply contradiction",
+        "dismiss_label": "Dismiss contradiction",
     },
     "supersession_recommendation": {
         "relationship": "supersedes",
         "label": "Supersession recommendation",
-        "approve_label": "Approve supersession",
-        "reject_label": "Dismiss supersession",
+        "apply_label": "Apply supersession",
+        "dismiss_label": "Dismiss supersession",
     },
 }
 
@@ -1045,16 +1045,16 @@ def _review_actions(kind: str, relationship: str) -> List[Dict[str, Any]]:
     meta = _REVIEW_KIND_METADATA.get(kind, {})
     return [
         {
-            "decision": "approve",
+            "decision": "apply",
             "approved": True,
             "relationship": relationship,
-            "label": meta.get("approve_label") or "Approve",
+            "label": meta.get("apply_label") or "Apply",
         },
         {
-            "decision": "reject",
+            "decision": "dismiss",
             "approved": False,
             "relationship": relationship,
-            "label": meta.get("reject_label") or "Reject",
+            "label": meta.get("dismiss_label") or "Dismiss",
         },
     ]
 

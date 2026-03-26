@@ -63,7 +63,7 @@ class GovernanceReviewTests(unittest.TestCase):
         duplicate_item = next(item for item in items if item["kind"] == "duplicate_candidate")
         self.assertEqual(duplicate_item["relationship"], "duplicate_of")
         self.assertEqual(duplicate_item["target"]["reference"], f"knowledge:{canonical}")
-        self.assertEqual(duplicate_item["actions"][0]["decision"], "approve")
+        self.assertEqual(duplicate_item["actions"][0]["decision"], "apply")
         self.assertIn("explanation", duplicate_item)
         self.assertIn("short", duplicate_item["explanation"])
         self.assertEqual(duplicate_item["explanation"]["source_status"], "active")
@@ -189,6 +189,18 @@ class GovernanceReviewTests(unittest.TestCase):
         self.assertIn("rollbackDiagnostics", result)
         self.assertTrue(result["rollbackDiagnostics"]["succeeded"])
         self.assertEqual(result["rollbackDiagnostics"]["result_kind"], "rolled_back")
+
+    def test_governance_review_auto_apply_route_applies_items_without_dashboard_input(self) -> None:
+        canonical = api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
+        duplicate = api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
+        api.mark_memory_relationship(f"knowledge:{duplicate}", relationship="duplicate_of", target_reference=f"knowledge:{canonical}")
+        result = app.memory_governance_review_auto_apply(
+            app.GovernanceReviewAutoApplyRequest(categories=["knowledge"], limit=20)
+        )
+        self.assertTrue(result["ok"])
+        self.assertIn("autoApplyDiagnostics", result)
+        self.assertGreaterEqual(result["autoApplyDiagnostics"]["item_count"], 1)
+        self.assertGreaterEqual(result["autoApplyDiagnostics"]["applied_count"], 1)
 
 
 if __name__ == "__main__":

@@ -646,6 +646,11 @@ class GovernanceReviewDecisionRequest(BaseModel):
     context_depth: int = Field(default=1, ge=0, le=2)
 
 
+class GovernanceReviewAutoApplyRequest(BaseModel):
+    categories: Optional[List[str]] = None
+    limit: int = Field(default=20, ge=1, le=200)
+
+
 class GovernanceSummaryRequest(BaseModel):
     categories: Optional[List[str]] = None
 
@@ -1513,6 +1518,52 @@ def memory_governance_review_decision(request: GovernanceReviewDecisionRequest) 
         "relationship": request.relationship,
         "context_depth": request.context_depth,
         "result": result,
+        **runtime,
+    }
+
+
+@app.post("/memory/governance/review/auto_apply")
+def memory_governance_review_auto_apply(request: GovernanceReviewAutoApplyRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    items = api.list_governance_review_items(
+        categories=request.categories or None,
+        limit=request.limit,
+        context_depth=1,
+    )
+    actions = []
+    applied = 0
+    for item in items:
+        result = api.apply_governance_review_decision(
+            item["reference"],
+            target_reference=item["target_reference"],
+            approved=True,
+            kind=item.get("kind"),
+            relationship=item.get("relationship"),
+            context_depth=1,
+        )
+        ok = result is not None
+        if ok:
+            applied += 1
+        actions.append(
+            {
+                "reference": item.get("reference"),
+                "target_reference": item.get("target_reference"),
+                "kind": item.get("kind"),
+                "relationship": item.get("relationship"),
+                "applied": ok,
+            }
+        )
+    diagnostics = {
+        "item_count": len(items),
+        "applied_count": applied,
+        "skipped_count": max(0, len(items) - applied),
+    }
+    return {
+        "ok": True,
+        "categories": request.categories,
+        "limit": request.limit,
+        "actions": actions,
+        "autoApplyDiagnostics": diagnostics,
         **runtime,
     }
 

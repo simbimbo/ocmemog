@@ -25,6 +25,7 @@ It is designed to go beyond simple memory search by providing:
 - **compact governance summaries in retrieval results to bridge search and review workflows**
 - **promotion decision explanations and verification summaries for better distill/promote operator clarity, including richer rejection reasons**
 - **compact governance queue diagnostics for faster operator triage**
+- **governance review apply/dismiss + auto-apply flows that do not depend on dashboard approval input**
 - **governance queue item explanations that align queue and review surfaces**
 - **shared normalized priority labels across governance queue and review items**
 - **compact governance auto-resolve diagnostics for faster operator triage**

@@ -222,6 +222,7 @@ Notes:
 - `/memory/governance/review/summary` now returns `reviewDiagnostics` so operators can see cache hit/freshness, item count, kind breakdown, and active filters without inferring from the raw item list.
 - `/memory/governance/review` items now include an `explanation` block with a short human-facing rationale plus source/target memory status, so dashboards and operators do not have to reconstruct meaning from raw fields alone.
 - Governance review items now also include a normalized `priority_label` (`none|low|medium|high|critical`), and review summary diagnostics include `priority_label_counts` for quick operator triage.
+- Governance review actions are now modeled as `apply` / `dismiss` rather than human-approval language, and `/memory/governance/review/auto_apply` can apply current review items directly without relying on dashboard/user approval input.
 - `/memory/governance/queue` now returns `queueDiagnostics` so operators can see item count plus bucket/kind/priority-label breakdowns without scanning the full queue manually.
 - Governance queue items now also include an `explanation` block with short human-facing rationale and target-reference context, so queue consumers do not have to reconstruct meaning from raw kind/priority fields alone.
 - Governance queue items now also carry the same normalized `priority_label` (`none|low|medium|high|critical`) used by governance review items.

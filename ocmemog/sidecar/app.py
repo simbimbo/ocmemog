@@ -1573,11 +1573,28 @@ def memory_governance_auto_resolve(request: GovernanceAutoResolveRequest) -> dic
 def memory_governance_audit(request: GovernanceAuditRequest) -> dict[str, Any]:
     runtime = _runtime_payload()
     items = api.governance_audit(limit=request.limit, kinds=request.kinds)
+    event_counts: Dict[str, int] = {}
+    status_counts: Dict[str, int] = {}
+    for item in items:
+        event_name = str(item.get("event") or "unknown")
+        event_counts[event_name] = event_counts.get(event_name, 0) + 1
+        status_value = str(item.get("status") or "unknown")
+        status_counts[status_value] = status_counts.get(status_value, 0) + 1
+    diagnostics = {
+        "item_count": len(items),
+        "event_counts": event_counts,
+        "status_counts": status_counts,
+        "filters": {
+            "limit": int(request.limit),
+            "kinds": list(request.kinds or []),
+        },
+    }
     return {
         "ok": True,
         "limit": request.limit,
         "kinds": request.kinds,
         "items": items,
+        "auditDiagnostics": diagnostics,
         **runtime,
     }
 

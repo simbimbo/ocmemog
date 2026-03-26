@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+from ocmemog.sidecar import app
 from ocmemog.runtime.memory import api, retrieval, store
 
 
@@ -71,6 +72,21 @@ class MemoryGovernanceTests(unittest.TestCase):
         self.assertEqual(diagnostics["suppressed_by_governance"]["duplicate"], 1)
         self.assertEqual(diagnostics["suppressed_by_governance_by_bucket"]["knowledge"]["superseded"], 1)
         self.assertEqual(diagnostics["suppressed_by_governance_by_bucket"]["knowledge"]["duplicate"], 1)
+
+    def test_governance_audit_route_exposes_diagnostics(self) -> None:
+        api.store_memory("knowledge", "Gateway should run on port 18789", source="test")
+        with mock.patch(
+            "ocmemog.runtime.memory.api._model_contradiction_hint",
+            return_value={"contradiction": True, "confidence": 0.99, "rationale": "same subject different port"},
+        ):
+            api.store_memory("knowledge", "Gateway should run on port 17890", source="test")
+
+        result = app.memory_governance_audit(app.GovernanceAuditRequest(limit=20, kinds=[]))
+        self.assertTrue(result["ok"])
+        self.assertIn("auditDiagnostics", result)
+        self.assertGreaterEqual(result["auditDiagnostics"]["item_count"], 1)
+        self.assertIn("filters", result["auditDiagnostics"])
+        self.assertTrue(result["auditDiagnostics"]["event_counts"])
 
 
 if __name__ == "__main__":

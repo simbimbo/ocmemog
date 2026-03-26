@@ -4,9 +4,10 @@ import importlib
 import importlib.util
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-from ocmemog.runtime import config, identity
+from ocmemog.runtime import config, identity, state_store
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,39 @@ _EMBEDDING_PROVIDER_BACKEND_HINTS = {
 
 def _parse_agent_id_list(raw: str | None) -> list[str]:
     return [item.strip() for item in str(raw or "").split(",") if item.strip()]
+
+
+def _queue_runtime_summary() -> dict[str, Any]:
+    queue_path = state_store.data_dir() / "ingest_queue.jsonl"
+    stats_path = state_store.data_dir() / "queue_stats.json"
+    depth = 0
+    try:
+        if queue_path.exists():
+            with queue_path.open("r", encoding="utf-8", errors="ignore") as handle:
+                depth = sum(1 for line in handle if line.strip())
+    except Exception:
+        depth = 0
+
+    stats: dict[str, Any] = {}
+    try:
+        if stats_path.exists():
+            import json
+
+            parsed = json.loads(stats_path.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict):
+                stats = parsed
+    except Exception:
+        stats = {}
+
+    return {
+        "depth": int(depth),
+        "last_run": stats.get("last_run"),
+        "last_batch": int(stats.get("last_batch") or 0),
+        "processed_total": int(stats.get("processed") or 0),
+        "error_count": int(stats.get("errors") or 0),
+        "last_error": stats.get("last_error"),
+        "worker_enabled": str(os.environ.get("OCMEMOG_INGEST_ASYNC_WORKER", "false")).strip().lower() in {"1", "true", "yes"},
+    }
 
 
 def probe_runtime() -> RuntimeStatus:
@@ -113,6 +147,7 @@ def probe_runtime() -> RuntimeStatus:
         "shim_surface_count": shim_count,
         "missing_dep_count": len(missing_deps),
         "warning_count": len(warnings),
+        "queue": _queue_runtime_summary(),
         "auto_hydration": {
             "enabled": str(os.environ.get("OCMEMOG_AUTO_HYDRATION", "false")).strip().lower() in {"1", "true", "yes"},
             "allow_agent_ids": hydration_allow_agents,

@@ -121,6 +121,7 @@ class NamespaceCompatTests(unittest.TestCase):
         self.assertFalse(status.runtime_summary["using_hash_embeddings"])
         self.assertEqual(status.runtime_summary["embedding_local_model"], "simple")
         self.assertTrue(status.runtime_summary["embedding_path_summary"]["provider_configured"])
+        self.assertIn("queue", status.runtime_summary)
         self.assertIn("auto_hydration", status.runtime_summary)
 
     def test_runtime_probe_honors_native_local_embed_alias(self) -> None:
@@ -205,6 +206,29 @@ class NamespaceCompatTests(unittest.TestCase):
         self.assertTrue(status.runtime_summary["embedding_path_summary"]["local_simple_only"])
         self.assertFalse(status.runtime_summary["embedding_path_summary"]["sentence_transformers_ready"])
         self.assertTrue(status.runtime_summary["using_hash_embeddings"])
+
+    def test_runtime_probe_surfaces_queue_runtime_summary(self) -> None:
+        from ocmemog.sidecar.compat import probe_runtime
+        from ocmemog.runtime import state_store
+
+        data_dir = state_store.data_dir()
+        data_dir.mkdir(parents=True, exist_ok=True)
+        (data_dir / "ingest_queue.jsonl").write_text('{"content":"one"}\n{"content":"two"}\n', encoding="utf-8")
+        (data_dir / "queue_stats.json").write_text(
+            '{"last_run": "2026-03-26 15:20:00", "last_batch": 2, "processed": 10, "errors": 1, "last_error": "invalid_queue_payload"}',
+            encoding="utf-8",
+        )
+
+        with patch.dict("os.environ", {"OCMEMOG_INGEST_ASYNC_WORKER": "true"}, clear=False):
+            status = probe_runtime()
+
+        queue = status.runtime_summary["queue"]
+        self.assertEqual(queue["depth"], 2)
+        self.assertEqual(queue["last_batch"], 2)
+        self.assertEqual(queue["processed_total"], 10)
+        self.assertEqual(queue["error_count"], 1)
+        self.assertEqual(queue["last_error"], "invalid_queue_payload")
+        self.assertTrue(queue["worker_enabled"])
 
     def test_sidecar_version_matches_package_version(self) -> None:
         from ocmemog import __version__

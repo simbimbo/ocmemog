@@ -28,6 +28,7 @@ Retrieval ranking quality pass plus collateral/doc alignment.
 - enriched `runtimeSummary` embedding observability with local embedding model and embedding path readiness details so provider vs local/simple fallback is clearer to operators
 - added request-level embedding execution diagnostics to vector/search responses so operators can tell whether provider embedding was attempted, whether local fallback ran, and which path actually produced the query embedding
 - promoted the key embedding outcome fields into `searchDiagnostics.execution_path` so request-level scanability is better without drilling into nested vector diagnostics
+- added compact queue health snapshots to `runtimeSummary` so operators can see queue depth, last run, processed totals, error counts, and worker status from normal sidecar payloads
 - added `governance_rollup` to `/memory/search` diagnostics so search consumers can quickly see visible result status counts and needs-review totals
 - extended visible governance rollups with per-bucket breakdowns so search consumers can see where visible governance pressure is concentrated
 - added retrieval governance suppression counts so `/memory/search` diagnostics can report how many candidates were hidden as `superseded` or `duplicate`

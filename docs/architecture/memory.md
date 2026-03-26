@@ -118,6 +118,7 @@ As part of the runtime-summary consistency pass, the main operator-facing sub-bl
 
 Governance review summary responses now also expose lightweight diagnostics so operators can tell whether they are seeing cached data, how many review items are present, and how the queue splits across review kinds without scraping the full list.
 Governance queue responses now also expose lightweight queue diagnostics so operators can quickly see item counts plus bucket/kind/priority-label breakdowns.
+Governance queue items now also carry compact explanation blocks so queue surfaces and review surfaces are more aligned in how they present rationale.
 
 Individual governance review items now also carry a compact explanation object so operator surfaces can render human-readable rationale and status context without reverse-engineering the raw review payload.
 

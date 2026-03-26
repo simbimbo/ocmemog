@@ -22,6 +22,7 @@ It is designed to go beyond simple memory search by providing:
 - **a sidecar hydration-policy diagnostics route for agent-specific continuity debugging**
 - **compact governance summaries in retrieval results to bridge search and review workflows**
 - **compact governance queue diagnostics for faster operator triage**
+- **governance queue item explanations that align queue and review surfaces**
 - **governance rollups in search diagnostics for faster operator triage, including per-bucket visible breakdowns**
 - **hidden-by-governance suppression counts in retrieval diagnostics, including per-bucket breakdowns**
 

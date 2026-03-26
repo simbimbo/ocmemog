@@ -1271,6 +1271,27 @@ def rollback_governance_decision(
     return None
 
 
+def _governance_queue_explanation(kind: str, *, target_reference: str | None, priority: int, reason: str | None = None, signal: float | None = None) -> Dict[str, Any]:
+    reason_text = str(reason or "").strip() or "no explicit rationale captured"
+    if kind == "duplicate_candidate":
+        short = f"Possible duplicate relationship queued at priority {priority}."
+    elif kind == "contradiction_candidate":
+        short = f"Possible contradiction queued at priority {priority}."
+    elif kind == "supersession_recommendation":
+        short = f"Possible supersession queued at priority {priority}."
+    else:
+        short = f"Governance queue item queued at priority {priority}."
+    payload = {
+        "short": short,
+        "reason": reason_text,
+        "target_reference": target_reference,
+        "priority": priority,
+    }
+    if signal is not None:
+        payload["signal"] = float(signal)
+    return payload
+
+
 def governance_queue(*, categories: Optional[List[str]] = None, limit: int = 100, scan_limit: int = 3000) -> List[Dict[str, Any]]:
     allowed = set(store.MEMORY_TABLES)
     tables = [table for table in (categories or list(allowed)) if table in allowed]
@@ -1297,36 +1318,59 @@ def governance_queue(*, categories: Optional[List[str]] = None, limit: int = 100
                 supersession_recommendation = prov.get("supersession_recommendation") or {}
 
                 for target in duplicate_candidates:
+                    priority = 40
                     items.append({
                         "reference": reference,
                         "target_reference": target,
                         "kind": "duplicate_candidate",
-                        "priority": 40,
+                        "priority": priority,
                         "timestamp": timestamp,
                         "bucket": table,
                         "content": content,
+                        "explanation": _governance_queue_explanation(
+                            "duplicate_candidate",
+                            target_reference=target,
+                            priority=priority,
+                        ),
                     })
                 for target in contradiction_candidates:
+                    priority = 70
                     items.append({
                         "reference": reference,
                         "target_reference": target,
                         "kind": "contradiction_candidate",
-                        "priority": 70,
+                        "priority": priority,
                         "timestamp": timestamp,
                         "bucket": table,
                         "content": content,
+                        "explanation": _governance_queue_explanation(
+                            "contradiction_candidate",
+                            target_reference=target,
+                            priority=priority,
+                        ),
                     })
                 if isinstance(supersession_recommendation, dict) and supersession_recommendation.get("recommended"):
+                    priority = 90
+                    signal = float(supersession_recommendation.get("signal") or 0.0)
+                    reason = supersession_recommendation.get("reason")
+                    target_reference = supersession_recommendation.get("target_reference")
                     items.append({
                         "reference": reference,
-                        "target_reference": supersession_recommendation.get("target_reference"),
+                        "target_reference": target_reference,
                         "kind": "supersession_recommendation",
-                        "priority": 90,
+                        "priority": priority,
                         "timestamp": timestamp,
                         "bucket": table,
-                        "signal": float(supersession_recommendation.get("signal") or 0.0),
-                        "reason": supersession_recommendation.get("reason"),
+                        "signal": signal,
+                        "reason": reason,
                         "content": content,
+                        "explanation": _governance_queue_explanation(
+                            "supersession_recommendation",
+                            target_reference=target_reference,
+                            priority=priority,
+                            reason=reason,
+                            signal=signal,
+                        ),
                     })
         items.sort(key=lambda item: (int(item.get("priority") or 0), str(item.get("timestamp") or "")), reverse=True)
         return items[:limit]

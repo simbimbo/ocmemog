@@ -31,6 +31,7 @@ Retrieval ranking quality pass plus collateral/doc alignment.
 - added compact queue health snapshots to `runtimeSummary` so operators can see queue depth, last run, processed totals, error counts, and worker status from normal sidecar payloads
 - extended `runtimeSummary.queue` with lightweight severity/hints so backlog/worker/error conditions are easier to judge from normal runtime payloads
 - added compact invalid-line and retrying-payload indicators to `runtimeSummary.queue` so normal runtime payloads can distinguish queue corruption from poison-item retry churn
+- added doctor-style queue aliases (`queue_depth`, `queue_backlog_severity`) to `runtimeSummary.queue` to reduce translation friction between runtime payloads and doctor output
 - added `governance_rollup` to `/memory/search` diagnostics so search consumers can quickly see visible result status counts and needs-review totals
 - extended visible governance rollups with per-bucket breakdowns so search consumers can see where visible governance pressure is concentrated
 - added retrieval governance suppression counts so `/memory/search` diagnostics can report how many candidates were hidden as `superseded` or `duplicate`

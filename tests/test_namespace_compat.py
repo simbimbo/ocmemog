@@ -224,6 +224,8 @@ class NamespaceCompatTests(unittest.TestCase):
 
         queue = status.runtime_summary["queue"]
         self.assertEqual(queue["depth"], 3)
+        self.assertEqual(queue["queue_depth"], 3)
+        self.assertEqual(queue["queue_backlog_severity"], "low")
         self.assertEqual(queue["last_batch"], 2)
         self.assertEqual(queue["processed_total"], 10)
         self.assertEqual(queue["error_count"], 1)
@@ -250,6 +252,7 @@ class NamespaceCompatTests(unittest.TestCase):
 
         queue = status.runtime_summary["queue"]
         self.assertEqual(queue["severity"], "warn")
+        self.assertEqual(queue["queue_backlog_severity"], "low")
         self.assertIn("queue has backlog but async worker is disabled", queue["hints"])
 
     def test_sidecar_version_matches_package_version(self) -> None:

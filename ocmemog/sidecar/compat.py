@@ -89,6 +89,7 @@ def _queue_runtime_summary() -> dict[str, Any]:
     error_count = int(stats.get("errors") or 0)
     hints: list[str] = []
     severity = "ok"
+    backlog_severity = "low"
     if depth > 0 and not worker_enabled:
         severity = "warn"
         hints.append("queue has backlog but async worker is disabled")
@@ -101,6 +102,12 @@ def _queue_runtime_summary() -> dict[str, Any]:
     if retrying_lines > 0:
         severity = "warn"
         hints.append("queue contains retrying payloads")
+    if depth > 1000:
+        backlog_severity = "critical"
+    elif depth > 100:
+        backlog_severity = "high"
+    elif depth > 25:
+        backlog_severity = "medium"
     if depth > 100:
         severity = "high"
         hints.append("queue backlog is high")
@@ -110,6 +117,8 @@ def _queue_runtime_summary() -> dict[str, Any]:
 
     return {
         "depth": int(depth),
+        "queue_depth": int(depth),
+        "queue_backlog_severity": backlog_severity,
         "last_run": stats.get("last_run"),
         "last_batch": int(stats.get("last_batch") or 0),
         "processed_total": int(stats.get("processed") or 0),

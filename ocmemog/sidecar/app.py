@@ -821,6 +821,7 @@ def _runtime_payload() -> Dict[str, Any]:
         "capabilities": status.capabilities,
         "todo": status.todo,
         "warnings": status.warnings,
+        "runtimeSummary": status.runtime_summary,
     }
 
 

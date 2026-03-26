@@ -17,6 +17,7 @@ class RuntimeStatus:
     warnings: list[str]
     identity: dict[str, Any]
     capabilities: list[dict[str, Any]]
+    runtime_summary: dict[str, Any]
 
 
 TODO_ITEMS = [
@@ -81,6 +82,15 @@ def probe_runtime() -> RuntimeStatus:
 
     if missing_deps:
         mode = "degraded"
+
+    runtime_summary = {
+        "mode": mode,
+        "embedding_provider": provider or "local-simple",
+        "using_hash_embeddings": bool(importlib.util.find_spec("sentence_transformers") is None and provider not in _EMBEDDING_PROVIDER_BACKEND_HINTS),
+        "shim_surface_count": shim_count,
+        "missing_dep_count": len(missing_deps),
+        "warning_count": len(warnings),
+    }
     return RuntimeStatus(
         mode=mode,
         missing_deps=missing_deps,
@@ -88,6 +98,7 @@ def probe_runtime() -> RuntimeStatus:
         warnings=warnings,
         identity=runtime_identity,
         capabilities=capabilities,
+        runtime_summary=runtime_summary,
     )
 
 

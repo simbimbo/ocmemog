@@ -117,6 +117,8 @@ class NamespaceCompatTests(unittest.TestCase):
                 status = probe_runtime()
 
         self.assertFalse(any("sentence-transformers" in warning for warning in status.warnings))
+        self.assertEqual(status.runtime_summary["embedding_provider"], "local-openai")
+        self.assertFalse(status.runtime_summary["using_hash_embeddings"])
 
     def test_runtime_probe_honors_native_local_embed_alias(self) -> None:
         from ocmemog.sidecar.compat import probe_runtime
@@ -164,6 +166,8 @@ class NamespaceCompatTests(unittest.TestCase):
             status = probe_runtime()
 
         self.assertEqual(status.mode, "degraded")
+        self.assertEqual(status.runtime_summary["mode"], "degraded")
+        self.assertEqual(status.runtime_summary["shim_surface_count"], 1)
         self.assertTrue(any("legacy compatibility surface" in warning for warning in status.warnings))
 
     def test_sidecar_version_matches_package_version(self) -> None:

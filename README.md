@@ -11,6 +11,7 @@ It is designed to go beyond simple memory search by providing:
 - **transcript ingestion with anchored context recovery**
 - **pondering and reflection generation**
 - **durable queue behavior that skips malformed queued payloads, bounds poison-item retries, and exposes clearer queue health diagnostics**
+- **compact runtime summaries that make provider/fallback/degraded state explicit in sidecar responses**
 
 Architecture at a glance:
 - **OpenClaw plugin (`index.ts`)** handles tools and hook integration

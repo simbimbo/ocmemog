@@ -20,6 +20,14 @@ class SidecarRouteTests(unittest.TestCase):
             warnings=[],
             identity={"engine": "ocmemog-native"},
             capabilities=[],
+            runtime_summary={
+                "mode": "ready",
+                "embedding_provider": "local-openai",
+                "using_hash_embeddings": False,
+                "shim_surface_count": 0,
+                "missing_dep_count": 0,
+                "warning_count": 0,
+            },
         )
 
     @contextmanager
@@ -52,6 +60,7 @@ class SidecarRouteTests(unittest.TestCase):
         self.assertTrue(payload["ready"])
         self.assertEqual(payload["mode"], "ready")
         self.assertIn("identity", payload)
+        self.assertIn("runtimeSummary", payload)
         self.assertEqual(payload["identity"]["engine"], "ocmemog-native")
 
     def test_healthz_route_marks_non_ready_runtime(self) -> None:
@@ -62,6 +71,14 @@ class SidecarRouteTests(unittest.TestCase):
             warnings=["Runtime is bridged through compatibility shims."],
             identity={"engine": "ocmemog-native"},
             capabilities=[],
+            runtime_summary={
+                "mode": "degraded",
+                "embedding_provider": "local-simple",
+                "using_hash_embeddings": True,
+                "shim_surface_count": 1,
+                "missing_dep_count": 0,
+                "warning_count": 1,
+            },
         )
         with self._client(runtime_status=degraded) as client:
             response = client.get("/healthz")

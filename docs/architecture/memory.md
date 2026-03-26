@@ -102,6 +102,8 @@ Known caveat:
 
 ## Sidecar contract
 
+The sidecar exposes a compact runtime summary in route payloads so operators can quickly tell whether the sidecar is in ready/degraded mode, which embedding provider path is active, whether hash-embedding fallback is in effect, and how much compatibility residue remains.
+
 The sidecar exposes:
 
 - `GET /healthz`

@@ -117,7 +117,7 @@ class SidecarRouteTests(unittest.TestCase):
             return_value={
                 "suppressed_by_governance": {"superseded": 1, "duplicate": 2},
                 "suppressed_by_governance_by_bucket": {"knowledge": {"superseded": 1, "duplicate": 2}},
-                "reinforcement": {"reinforced_result_count": 1, "total_reinforcement_count": 3.0},
+                "reinforcement": {"reinforced_result_count": 1, "total_reinforcement_count": 3.0, "by_bucket": {"knowledge": {"reinforced_result_count": 1, "total_reinforcement_count": 3.0}}},
             },
         ):
             response = client.post(
@@ -151,7 +151,7 @@ class SidecarRouteTests(unittest.TestCase):
         self.assertEqual(payload["searchDiagnostics"]["reinforcement_rollup"]["by_bucket"], {"knowledge": {"reinforced_result_count": 1, "total_reinforcement_count": 3.0}})
         self.assertEqual(payload["searchDiagnostics"]["retrieval_governance"]["suppressed_by_governance"], {"superseded": 1, "duplicate": 2})
         self.assertEqual(payload["searchDiagnostics"]["retrieval_governance"]["suppressed_by_governance_by_bucket"], {"knowledge": {"superseded": 1, "duplicate": 2}})
-        self.assertEqual(payload["searchDiagnostics"]["retrieval_reinforcement"], {"reinforced_result_count": 1, "total_reinforcement_count": 3.0})
+        self.assertEqual(payload["searchDiagnostics"]["retrieval_reinforcement"], {"reinforced_result_count": 1, "total_reinforcement_count": 3.0, "by_bucket": {"knowledge": {"reinforced_result_count": 1, "total_reinforcement_count": 3.0}}})
         retrieve_for_queries.assert_called_once()
         flatten_results.assert_called_once()
 

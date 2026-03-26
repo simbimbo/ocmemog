@@ -289,6 +289,7 @@ def retrieve(
         "reinforcement": {
             "reinforced_result_count": 0,
             "total_reinforcement_count": 0.0,
+            "by_bucket": {},
         },
         "selected_categories": list(selected_categories),
     }
@@ -384,12 +385,19 @@ def retrieve(
                 signals["contradiction_penalty"] = 0.15
             selected_because = max(signals, key=signals.get) if signals else "keyword"
             if float(signals.get("reinforcement_count") or 0.0) > 0.0:
+                reinforcement_count = float(signals.get("reinforcement_count") or 0.0)
                 _LAST_RETRIEVAL_DIAGNOSTICS["reinforcement"]["reinforced_result_count"] = int(
                     _LAST_RETRIEVAL_DIAGNOSTICS["reinforcement"].get("reinforced_result_count") or 0
                 ) + 1
                 _LAST_RETRIEVAL_DIAGNOSTICS["reinforcement"]["total_reinforcement_count"] = float(
                     _LAST_RETRIEVAL_DIAGNOSTICS["reinforcement"].get("total_reinforcement_count") or 0.0
-                ) + float(signals.get("reinforcement_count") or 0.0)
+                ) + reinforcement_count
+                bucket_reinf = _LAST_RETRIEVAL_DIAGNOSTICS["reinforcement"]["by_bucket"].setdefault(
+                    table,
+                    {"reinforced_result_count": 0, "total_reinforcement_count": 0.0},
+                )
+                bucket_reinf["reinforced_result_count"] = int(bucket_reinf.get("reinforced_result_count") or 0) + 1
+                bucket_reinf["total_reinforcement_count"] = float(bucket_reinf.get("total_reinforcement_count") or 0.0) + reinforcement_count
             candidates[mem_ref] = {
                 "content": content,
                 "score": score,

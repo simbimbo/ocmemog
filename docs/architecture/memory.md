@@ -58,6 +58,7 @@ The current sidecar retrieval path is a bounded hybrid ranker rather than a pure
 10. Retrieval diagnostics also track governance-suppressed candidates (`superseded` / `duplicate`) so the search response can explain what governance hid before the visible result set was assembled.
 11. Suppression diagnostics now include per-bucket breakdowns so operators can see which memory classes are carrying the most governance cleanup pressure.
 12. Search diagnostics now also include compact reinforcement rollups so operators can see how much visible retrieval weight is coming from repeated successful experience, overall and by bucket.
+    - retrieval-side reinforcement diagnostics now mirror that with their own per-bucket totals for parity with governance suppression reporting
 
 Operational limits:
 

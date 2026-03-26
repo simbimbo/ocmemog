@@ -10,6 +10,7 @@ It is designed to go beyond simple memory search by providing:
 - **checkpointing, branch-aware hydration, and turn expansion**
 - **transcript ingestion with anchored context recovery**
 - **pondering and reflection generation**
+- **durable queue behavior that skips malformed queued payloads instead of stalling later valid work**
 
 Architecture at a glance:
 - **OpenClaw plugin (`index.ts`)** handles tools and hook integration

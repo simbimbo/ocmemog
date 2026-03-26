@@ -58,6 +58,12 @@ Operational limits:
 - Semantic ranking currently depends on the active embedding backend and the bounded candidate window in `vector_index.search_memory()`.
 - Vector search now supports a lightweight lexical prefilter over the bounded scan window before cosine ranking, which improves relevance without changing the no-ANN local-first design.
 
+Queue/async ingest behavior note:
+
+- the async ingest queue is append-only on disk and processed in bounded batches
+- malformed queue lines are skipped and acknowledged rather than blocking valid entries behind them
+- operational visibility for these cases remains in queue stats / doctor health rather than crashing the sidecar
+
 ## Write paths
 
 The main repo-local write paths are:

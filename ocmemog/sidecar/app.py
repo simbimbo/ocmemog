@@ -330,6 +330,7 @@ def _peek_queue_batch(limit: Optional[int] = None) -> tuple[List[tuple[int, Dict
         except Exception:
             QUEUE_STATS["errors"] += 1
             QUEUE_STATS["last_error"] = "invalid_queue_payload"
+            continue
     return batch, consumed_lines
 
 

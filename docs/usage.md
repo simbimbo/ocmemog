@@ -81,6 +81,10 @@ Default state location in this repo is `.ocmemog-state/`.
 
 On shutdown, set `OCMEMOG_SHUTDOWN_DRAIN_QUEUE=true` to synchronously flush queued ingest entries before exit. This is useful for short-running deployments and tests that expect strong delivery guarantees.
 
+Queue behavior notes:
+- malformed queue lines are now treated as durable queue errors and skipped/acknowledged so a single bad payload does not block later valid work
+- runtime queue stats keep the last queue parse error visible via `QUEUE_STATS["last_error"]`
+
 ## Plugin API
 
 Health:

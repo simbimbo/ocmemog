@@ -76,6 +76,24 @@ class OcmemogRegressionTests(unittest.TestCase):
         self.assertEqual(stats["processed"], 4)
         self.assertEqual(app._queue_depth(), 0)
 
+    def test_queue_processing_skips_invalid_json_and_continues_valid_entries(self) -> None:
+        queue_path = app._queue_path()
+        queue_path.write_text(
+            '{not-valid-json}\n'
+            + json.dumps({"content": "valid one", "kind": "memory", "memory_type": "knowledge"})
+            + "\n"
+            + json.dumps({"content": "valid two", "kind": "memory", "memory_type": "knowledge"})
+            + "\n",
+            encoding="utf-8",
+        )
+
+        stats = app._process_queue(limit=10)
+
+        self.assertEqual(stats["errors"], 0)
+        self.assertEqual(stats["processed"], 4)
+        self.assertEqual(app._queue_depth(), 0)
+        self.assertEqual(app.QUEUE_STATS["last_error"], "invalid_queue_payload")
+
     def test_memory_context_uses_transcript_range_anchor(self) -> None:
         transcript = Path(self.tempdir.name) / "sample.log"
         transcript.write_text("\n".join([f"line {idx}" for idx in range(1, 7)]) + "\n", encoding="utf-8")

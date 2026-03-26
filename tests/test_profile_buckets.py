@@ -123,8 +123,8 @@ class ProfileBucketTests(unittest.TestCase):
         self.assertEqual(result["quality_summary"]["quality"], "low")
         self.assertEqual(result["quality_summary"]["keep_recommendation"], "drop")
         self.assertEqual(result["quality_summary"]["noise_risk"], "high")
-        self.assertEqual(result["verification_summary"]["reason"], "below_threshold_generic_destination")
-        self.assertEqual(result["explanation"]["reason"], "below_threshold_generic_destination")
+        self.assertEqual(result["verification_summary"]["reason"], "rejected_as_generic_cruft")
+        self.assertEqual(result["explanation"]["reason"], "rejected_as_generic_cruft")
 
 
 if __name__ == "__main__":

@@ -212,8 +212,7 @@
 
 - Assumption: keyword match is the primary retrieval mode; semantic search is a fallback for empty knowledge hits.
 - Updated: semantic fallback now rehydrates `knowledge`, `runbooks`, and `lessons` when there are no keyword hits.
-- Updated later: lexical scoring now includes token overlap, ordered phrase overlap, and light prefix matching, bounded vector search exposes clearer diagnostics, and retrieval now emits compact governance summaries / visible governance rollups / hidden suppression counts.
-- Gap: reinforcement lookup uses a plain dict keyed by `memory_reference`, so multiple experiences for the same memory overwrite each other instead of aggregating.
+- Updated later: lexical scoring now includes token overlap, ordered phrase overlap, and light prefix matching, bounded vector search exposes clearer diagnostics, retrieval now emits compact governance summaries / visible governance rollups / hidden suppression counts, and reinforcement scoring is now frequency-aware / recency-aware / polarity-aware with operator rollups.
 - Gap: stemming and broader fuzzy matching are still absent.
 
 ### `brain/runtime/memory/semantic_search.py`
@@ -255,6 +254,13 @@
 - Important boundary: ingest/checkpoint continuity remains global; only prompt-time prepend hydration is agent-scoped.
 - Updated later: hydration policy is now visible in `runtimeSummary`, queryable through `/memory/auto_hydration/policy`, and logged with explicit skip/apply decision reasons.
 - Reason: prevents stale continuity from one agent/session flavor (for example `chat-local`) from leaking into another when global auto-hydration is enabled.
+
+### `promote.py` anti-cruft direction
+
+- Updated: promotion outcomes now expose explanation, verification summary, and quality summary.
+- Updated later: low-confidence candidates that only resolve to generic `knowledge` are now actively rejected as `rejected_as_generic_cruft`.
+- Product intent: durable memory should preferentially keep high-signal, destination-specific memories and make weak generic memories easy to drop.
+- This is intentionally a narrow first gate, not a full retention-policy engine yet.
 
 ### `brain/runtime/memory/vector_index.py`
 

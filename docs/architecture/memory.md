@@ -91,8 +91,16 @@ That summary is intentionally simple and operator-oriented:
 Design intent:
 - weak generic memories should be visibly low-quality and easier to reject/prune later
 - more specific, higher-margin memories should be visibly safer to keep
-- this is an explainability/control surface first, not a full retention-policy engine yet
+- this started as an explainability/control surface, but it now also drives a small active anti-cruft gate
 - it gives future automation a better input for “only good memories are remembered” without requiring a risky schema or policy rewrite first
+
+Current active anti-cruft rule:
+- if a candidate is below the promotion threshold **and** only resolves to the generic `knowledge` destination,
+  it is treated as likely cruft and rejected with `rejected_as_generic_cruft`
+- why this is the right first rule:
+  - generic low-confidence memories are among the easiest ways for memory stores to accumulate junk
+  - specific, higher-signal memories still flow through the normal promote/reject path
+  - the rule is intentionally narrow to reduce surprise and avoid over-pruning while the quality system matures
 
 ## Write paths
 

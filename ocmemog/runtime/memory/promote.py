@@ -60,6 +60,10 @@ def _destination_table(summary: str) -> str:
     return "knowledge"
 
 
+def _should_reject_as_cruft(*, confidence: float, threshold: float, destination: str) -> bool:
+    return destination == "knowledge" and confidence < threshold
+
+
 def _quality_summary(*, decision: str, confidence: float, threshold: float, destination: str) -> Dict[str, Any]:
     margin = round(confidence - threshold, 3)
     if decision == "promote":
@@ -92,7 +96,7 @@ def _verification_summary(*, decision: str, confidence: float, threshold: float,
     else:
         status = "needs_review"
         if destination == "knowledge":
-            reason = "below_threshold_generic_destination"
+            reason = "rejected_as_generic_cruft"
         else:
             reason = "below_threshold"
     return {
@@ -110,8 +114,8 @@ def _promotion_explanation(*, decision: str, destination: str, confidence: float
         reason = "confidence_threshold"
     else:
         if destination == "knowledge":
-            short = f"Rejected because confidence {confidence:.2f} was below threshold {threshold:.2f} and the summary did not strongly fit a more specific bucket."
-            reason = "below_threshold_generic_destination"
+            short = f"Rejected as likely memory cruft because confidence {confidence:.2f} was below threshold {threshold:.2f} and the summary did not strongly fit a more specific bucket."
+            reason = "rejected_as_generic_cruft"
         else:
             short = f"Rejected because confidence {confidence:.2f} was below threshold {threshold:.2f} for destination {destination}."
             reason = "below_threshold"
@@ -131,7 +135,6 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
     emit_event(LOGFILE, "brain_memory_promote_start", status="ok")
     confidence = float(candidate.get("confidence_score", 0.0))
     threshold = float(config.OCMEMOG_PROMOTION_THRESHOLD)
-    decision = "promote" if _should_promote(confidence, threshold=threshold) else "reject"
     candidate_id = str(candidate.get("candidate_id") or "")
 
     candidate_metadata = provenance.normalize_metadata(candidate.get("metadata", {}), source="promote")

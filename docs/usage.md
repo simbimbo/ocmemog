@@ -247,6 +247,10 @@ Notes:
   - low-confidence generic `knowledge` candidates are now explicitly labeled as high-risk noise and recommended for drop
   - stronger, more specific promoted memories are labeled as keep-worthy
   - this does not replace governance/review yet, but it gives operator surfaces and future automation a clearer signal for “remember this” vs “don’t keep this around”
+- the anti-cruft gate is now partially active, not just advisory:
+  - low-confidence candidates that only resolve to the generic `knowledge` destination are rejected as likely cruft instead of being treated like ordinary generic rejects
+  - this shows up explicitly as `rejected_as_generic_cruft` in both `verification_summary.reason` and `explanation.reason`
+  - intent: weak generic memories should fail earlier so they do not accumulate as low-value long-term memory objects
 - `retrieval.retrieve_for_queries()` is the main sidecar search path
 - search is hybrid-ranked, not substring-only:
   - lexical scoring blends exact match, token overlap, ordered phrase overlap, and light prefix matching

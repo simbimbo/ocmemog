@@ -12,9 +12,6 @@ type PluginConfig = {
   token?: string;
 };
 
-const AUTO_HYDRATION_ENABLED = ["1", "true", "yes"].includes(
-  String(process.env.OCMEMOG_AUTO_HYDRATION ?? "false").trim().toLowerCase(),
-);
 const DURABLE_OUTBOX_ENABLED = !["0", "false", "no"].includes(
   String(process.env.OCMEMOG_DURABLE_OUTBOX ?? "true").trim().toLowerCase(),
 );
@@ -521,6 +518,10 @@ function buildTurnMetadata(message: unknown, ctx: { agentId?: string; sessionKey
   };
 }
 
+function autoHydrationEnabled(): boolean {
+  return ["1", "true", "yes"].includes(String(process.env.OCMEMOG_AUTO_HYDRATION ?? "false").trim().toLowerCase());
+}
+
 function parseAgentIdList(raw: string | undefined): string[] {
   return String(raw ?? "")
     .split(",")
@@ -528,20 +529,65 @@ function parseAgentIdList(raw: string | undefined): string[] {
     .filter(Boolean);
 }
 
-export function shouldAutoHydrateForAgent(agentId?: string): boolean {
-  const normalized = String(agentId ?? "").trim();
+export function getAutoHydrationDecision(agentId?: string): {
+  enabled: boolean;
+  allowed: boolean;
+  reason:
+    | 'disabled_globally'
+    | 'denied_by_agent_id'
+    | 'not_in_allowlist'
+    | 'allowed_by_allowlist'
+    | 'allowed_globally';
+  agentId?: string;
+  allowAgentIds: string[];
+  denyAgentIds: string[];
+} {
+  const normalized = String(agentId ?? '').trim() || undefined;
   const allowAgentIds = parseAgentIdList(process.env.OCMEMOG_AUTO_HYDRATION_ALLOW_AGENT_IDS);
   const denyAgentIds = parseAgentIdList(process.env.OCMEMOG_AUTO_HYDRATION_DENY_AGENT_IDS);
-  if (!AUTO_HYDRATION_ENABLED) {
-    return false;
+  if (!autoHydrationEnabled()) {
+    return {
+      enabled: false,
+      allowed: false,
+      reason: 'disabled_globally',
+      agentId: normalized,
+      allowAgentIds,
+      denyAgentIds,
+    };
   }
   if (normalized && denyAgentIds.includes(normalized)) {
-    return false;
+    return {
+      enabled: true,
+      allowed: false,
+      reason: 'denied_by_agent_id',
+      agentId: normalized,
+      allowAgentIds,
+      denyAgentIds,
+    };
   }
   if (allowAgentIds.length > 0) {
-    return normalized ? allowAgentIds.includes(normalized) : false;
+    const allowed = Boolean(normalized && allowAgentIds.includes(normalized));
+    return {
+      enabled: true,
+      allowed,
+      reason: allowed ? 'allowed_by_allowlist' : 'not_in_allowlist',
+      agentId: normalized,
+      allowAgentIds,
+      denyAgentIds,
+    };
   }
-  return true;
+  return {
+    enabled: true,
+    allowed: true,
+    reason: 'allowed_globally',
+    agentId: normalized,
+    allowAgentIds,
+    denyAgentIds,
+  };
+}
+
+export function shouldAutoHydrateForAgent(agentId?: string): boolean {
+  return getAutoHydrationDecision(agentId).allowed;
 }
 
 function registerAutomaticContinuityHooks(api: OpenClawPluginApi, config: PluginConfig) {
@@ -587,14 +633,18 @@ function registerAutomaticContinuityHooks(api: OpenClawPluginApi, config: Plugin
   // when explicitly enabled and after the host runtime has been validated.
   const allowAgentIds = parseAgentIdList(process.env.OCMEMOG_AUTO_HYDRATION_ALLOW_AGENT_IDS);
   const denyAgentIds = parseAgentIdList(process.env.OCMEMOG_AUTO_HYDRATION_DENY_AGENT_IDS);
+  const hydrationEnabled = autoHydrationEnabled();
   api.logger.info(
-    `ocmemog auto hydration env raw=${String(process.env.OCMEMOG_AUTO_HYDRATION ?? '<unset>')} computed=${String(AUTO_HYDRATION_ENABLED)} allow_agents=${allowAgentIds.join('|') || '<all>'} deny_agents=${denyAgentIds.join('|') || '<none>'}`,
+    `ocmemog auto hydration env raw=${String(process.env.OCMEMOG_AUTO_HYDRATION ?? '<unset>')} computed=${String(hydrationEnabled)} allow_agents=${allowAgentIds.join('|') || '<all>'} deny_agents=${denyAgentIds.join('|') || '<none>'}`,
   );
-  if (AUTO_HYDRATION_ENABLED) {
+  if (hydrationEnabled) {
     api.on("before_prompt_build", async (event, ctx) => {
       try {
-        if (!shouldAutoHydrateForAgent(ctx.agentId)) {
-          api.logger.info(`ocmemog auto hydration skipped for agent=${String(ctx.agentId ?? '<none>')}`);
+        const hydrationDecision = getAutoHydrationDecision(ctx.agentId);
+        if (!hydrationDecision.allowed) {
+          api.logger.info(
+            `ocmemog auto hydration skipped for agent=${String(ctx.agentId ?? '<none>')} reason=${hydrationDecision.reason}`,
+          );
           return;
         }
         const scope = resolveHydrationScope(event.messages ?? [], ctx);

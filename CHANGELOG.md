@@ -21,6 +21,7 @@ Retrieval ranking quality pass plus collateral/doc alignment.
 - added normalized governance `priority_label` values on review items and `priority_label_counts` in review summary diagnostics for simpler operator triage
 - added per-agent auto-hydration controls (`OCMEMOG_AUTO_HYDRATION_ALLOW_AGENT_IDS` / `OCMEMOG_AUTO_HYDRATION_DENY_AGENT_IDS`) so prompt-time continuity can be scoped by `ctx.agentId` without disabling global ingest/checkpoint behavior
 - surfaced the active auto-hydration agent policy in `runtimeSummary.auto_hydration` for easier operator verification and debugging
+- added explicit plugin-side hydration decision reasons so skips can be traced to global disable vs denylist vs allowlist mismatch
 
 ## 0.1.16 — 2026-03-25
 

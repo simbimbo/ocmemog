@@ -229,6 +229,23 @@ class NamespaceCompatTests(unittest.TestCase):
         self.assertEqual(queue["error_count"], 1)
         self.assertEqual(queue["last_error"], "invalid_queue_payload")
         self.assertTrue(queue["worker_enabled"])
+        self.assertEqual(queue["severity"], "warn")
+        self.assertIn("queue has recorded ingest/parse errors", queue["hints"])
+
+    def test_queue_runtime_summary_warns_when_backlog_exists_without_worker(self) -> None:
+        from ocmemog.sidecar.compat import probe_runtime
+        from ocmemog.runtime import state_store
+
+        data_dir = state_store.data_dir()
+        data_dir.mkdir(parents=True, exist_ok=True)
+        (data_dir / "ingest_queue.jsonl").write_text('{"content":"one"}\n', encoding="utf-8")
+
+        with patch.dict("os.environ", {"OCMEMOG_INGEST_ASYNC_WORKER": "false"}, clear=False):
+            status = probe_runtime()
+
+        queue = status.runtime_summary["queue"]
+        self.assertEqual(queue["severity"], "warn")
+        self.assertIn("queue has backlog but async worker is disabled", queue["hints"])
 
     def test_sidecar_version_matches_package_version(self) -> None:
         from ocmemog import __version__

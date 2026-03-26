@@ -13,7 +13,7 @@ It is designed to go beyond simple memory search by providing:
 - **durable queue behavior that skips malformed queued payloads, bounds poison-item retries, and exposes clearer queue health diagnostics**
 - **compact runtime summaries that make provider/fallback/degraded state explicit in sidecar responses, including local embedding model/path readiness**
 - **request-level embedding path diagnostics inside search/vector-search responses, with promoted top-level execution summaries**
-- **compact queue health snapshots in runtime summaries**
+- **compact queue health snapshots in runtime summaries, including severity and hints**
 - **request-level search execution diagnostics that show provider-skip vs local-fallback vs route-fallback behavior**
 - **governance review summary diagnostics for cache freshness and review-kind breakdowns**
 - **governance review item explanations that make duplicate/contradiction/supersession rationale easier to render**

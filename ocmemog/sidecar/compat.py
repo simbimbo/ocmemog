@@ -64,14 +64,33 @@ def _queue_runtime_summary() -> dict[str, Any]:
     except Exception:
         stats = {}
 
+    worker_enabled = str(os.environ.get("OCMEMOG_INGEST_ASYNC_WORKER", "false")).strip().lower() in {"1", "true", "yes"}
+    error_count = int(stats.get("errors") or 0)
+    hints: list[str] = []
+    severity = "ok"
+    if depth > 0 and not worker_enabled:
+        severity = "warn"
+        hints.append("queue has backlog but async worker is disabled")
+    if error_count > 0:
+        severity = "warn"
+        hints.append("queue has recorded ingest/parse errors")
+    if depth > 100:
+        severity = "high"
+        hints.append("queue backlog is high")
+    elif depth > 25 and severity == "ok":
+        severity = "warn"
+        hints.append("queue backlog is elevated")
+
     return {
         "depth": int(depth),
         "last_run": stats.get("last_run"),
         "last_batch": int(stats.get("last_batch") or 0),
         "processed_total": int(stats.get("processed") or 0),
-        "error_count": int(stats.get("errors") or 0),
+        "error_count": error_count,
         "last_error": stats.get("last_error"),
-        "worker_enabled": str(os.environ.get("OCMEMOG_INGEST_ASYNC_WORKER", "false")).strip().lower() in {"1", "true", "yes"},
+        "worker_enabled": worker_enabled,
+        "severity": severity,
+        "hints": hints,
     }
 
 

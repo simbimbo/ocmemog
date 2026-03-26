@@ -212,8 +212,9 @@
 
 - Assumption: keyword match is the primary retrieval mode; semantic search is a fallback for empty knowledge hits.
 - Updated: semantic fallback now rehydrates `knowledge`, `runbooks`, and `lessons` when there are no keyword hits.
+- Updated later: lexical scoring now includes token overlap, ordered phrase overlap, and light prefix matching, and bounded vector search now exposes clearer diagnostics.
 - Gap: reinforcement lookup uses a plain dict keyed by `memory_reference`, so multiple experiences for the same memory overwrite each other instead of aggregating.
-- Gap: only exact substring matching gets a keyword score. Token overlap, stemming, and fuzzy matching are absent.
+- Gap: stemming and broader fuzzy matching are still absent.
 
 ### `brain/runtime/memory/semantic_search.py`
 
@@ -246,6 +247,13 @@
 - Assumption: unresolved cognitive items intentionally live in a separate DB.
 - Gap: there is no link back into the main memory graph or sidecar endpoints.
 - Gap: all unresolved states are treated equally; there is no priority/urgency field.
+
+### `index.ts` plugin auto-hydration scoping
+
+- Updated: prompt-time auto-hydration is no longer effectively all-or-nothing once enabled.
+- Added: `OCMEMOG_AUTO_HYDRATION_ALLOW_AGENT_IDS` and `OCMEMOG_AUTO_HYDRATION_DENY_AGENT_IDS` gate only the `before_prompt_build` hydration hook by `ctx.agentId`.
+- Important boundary: ingest/checkpoint continuity remains global; only prompt-time prepend hydration is agent-scoped.
+- Reason: prevents stale continuity from one agent/session flavor (for example `chat-local`) from leaking into another when global auto-hydration is enabled.
 
 ### `brain/runtime/memory/vector_index.py`
 

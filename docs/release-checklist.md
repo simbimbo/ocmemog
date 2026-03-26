@@ -17,6 +17,7 @@ The release gate is now codified by:
 ## Validation
 - [ ] Install test deps for sidecar route tests: `python3 -m pip install -r requirements-test.txt`
 - [ ] `./scripts/ocmemog-release-check.sh`
+- [ ] If prompt-time hydration behavior changed, validate the plugin gating path too (for example `node --test tests/test_auto_hydration_agent_scope.ts`) so agent-scoped `before_prompt_build` controls are covered
 - [ ] Verify `tests/test_doctor.py` still passes for doctor health surfaces if you changed check coverage
 - [ ] Verify `reports/release-gate-proof.json` exists after a passing gate and documents:
   - live ingest/search/get/hydrate verification
@@ -34,6 +35,7 @@ GitHub CI runs the same release check command so local and CI validation remain 
 - [ ] Verify optional prereq install path is documented correctly
 - [ ] Verify LaunchAgent load path still matches repo scripts
 - [ ] Verify sidecar health check passes after install
+- [ ] Verify any new plugin env controls are documented in README/usage/release notes (for example `OCMEMOG_AUTO_HYDRATION_ALLOW_AGENT_IDS` / `OCMEMOG_AUTO_HYDRATION_DENY_AGENT_IDS`)
 
 ## Public artifacts
 - [ ] Push `main`

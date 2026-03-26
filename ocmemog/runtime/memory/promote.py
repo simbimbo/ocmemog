@@ -60,14 +60,17 @@ def _destination_table(summary: str) -> str:
     return "knowledge"
 
 
-def _verification_summary(*, decision: str, confidence: float, threshold: float) -> Dict[str, Any]:
+def _verification_summary(*, decision: str, confidence: float, threshold: float, destination: str) -> Dict[str, Any]:
     margin = round(confidence - threshold, 3)
     if decision == "promote":
         status = "verified"
         reason = "meets_threshold"
     else:
         status = "needs_review"
-        reason = "below_threshold"
+        if destination == "knowledge":
+            reason = "below_threshold_generic_destination"
+        else:
+            reason = "below_threshold"
     return {
         "status": status,
         "reason": reason,
@@ -82,8 +85,12 @@ def _promotion_explanation(*, decision: str, destination: str, confidence: float
         short = f"Promoted to {destination} because confidence {confidence:.2f} met threshold {threshold:.2f}."
         reason = "confidence_threshold"
     else:
-        short = f"Rejected because confidence {confidence:.2f} was below threshold {threshold:.2f}."
-        reason = "below_threshold"
+        if destination == "knowledge":
+            short = f"Rejected because confidence {confidence:.2f} was below threshold {threshold:.2f} and the summary did not strongly fit a more specific bucket."
+            reason = "below_threshold_generic_destination"
+        else:
+            short = f"Rejected because confidence {confidence:.2f} was below threshold {threshold:.2f} for destination {destination}."
+            reason = "below_threshold"
     return {
         "short": short,
         "reason": reason,
@@ -229,6 +236,7 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
             decision=decision,
             confidence=confidence,
             threshold=threshold,
+            destination=destination,
         ),
         "explanation": _promotion_explanation(
             decision=decision,

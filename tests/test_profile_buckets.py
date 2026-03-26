@@ -103,6 +103,22 @@ class ProfileBucketTests(unittest.TestCase):
         self.assertIsNotNone(row)
         self.assertEqual(vector["source_type"], "identity")
 
+    def test_reject_candidate_uses_richer_reason_for_generic_destination(self) -> None:
+        result = promote.promote_candidate(
+            {
+                "candidate_id": "cand-reject-generic",
+                "source_event_id": "event-reject-generic",
+                "distilled_summary": "There was a conversation about something important.",
+                "confidence_score": 0.25,
+                "metadata": {"source_labels": ["distill"]},
+            }
+        )
+
+        self.assertEqual(result["decision"], "reject")
+        self.assertEqual(result["destination"], "knowledge")
+        self.assertEqual(result["verification_summary"]["reason"], "below_threshold_generic_destination")
+        self.assertEqual(result["explanation"]["reason"], "below_threshold_generic_destination")
+
 
 if __name__ == "__main__":
     unittest.main()

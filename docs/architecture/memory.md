@@ -78,6 +78,7 @@ Queue/async ingest behavior note:
 
 Promotion decisions now expose a compact explanation object so operator surfaces can render why a candidate was promoted or rejected, what threshold applied, and which bucket was selected.
 They now also expose a compact verification summary so confidence/threshold semantics are easier to interpret uniformly.
+Rejected promotions also now distinguish generic-destination low-confidence cases from ordinary below-threshold destination-specific failures.
 
 ## Write paths
 

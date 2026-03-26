@@ -319,18 +319,37 @@ def retrieve(
                 recency_multiplier = 0.55
             else:
                 recency_multiplier = 0.35
-        current = reinforcement.setdefault(reference, {"reward_score": 0.0, "confidence": 0.0, "count": 0.0, "weighted_count": 0.0})
-        current["reward_score"] += reward * recency_multiplier
+        current = reinforcement.setdefault(
+            reference,
+            {
+                "positive_reward": 0.0,
+                "negative_reward": 0.0,
+                "confidence": 0.0,
+                "count": 0.0,
+                "weighted_count": 0.0,
+                "negative_count": 0.0,
+            },
+        )
+        weighted_reward = reward * recency_multiplier
+        if weighted_reward >= 0.0:
+            current["positive_reward"] += weighted_reward
+        else:
+            current["negative_reward"] += abs(weighted_reward)
+            current["negative_count"] += 1.0
         current["confidence"] += confidence * recency_multiplier
         current["count"] += 1.0
         current["weighted_count"] += recency_multiplier
     for current in reinforcement.values():
         count = max(1.0, float(current.get("count") or 1.0))
         weighted_count = max(0.001, float(current.get("weighted_count") or 0.0))
-        avg_reward = float(current.get("reward_score") or 0.0) / weighted_count
+        positive_reward = float(current.get("positive_reward") or 0.0)
+        negative_reward = float(current.get("negative_reward") or 0.0)
+        avg_positive_reward = positive_reward / weighted_count
         avg_confidence = float(current.get("confidence") or 0.0) / weighted_count
-        reinforcement_strength = min(1.0, avg_reward * (1.0 + (min(weighted_count, 5.0) - 1.0) * 0.15))
-        current["reward_score"] = reinforcement_strength
+        positive_strength = min(1.0, avg_positive_reward * (1.0 + (min(weighted_count, 5.0) - 1.0) * 0.15))
+        negative_penalty = min(0.75, negative_reward / weighted_count)
+        current["reward_score"] = max(-0.75, positive_strength - negative_penalty)
+        current["negative_penalty"] = round(negative_penalty, 3)
         current["confidence"] = avg_confidence
         current["count"] = count
         current["weighted_count"] = round(weighted_count, 3)
@@ -363,6 +382,8 @@ def retrieve(
             "reinforcement": round(reinf_score, 3),
             "reinforcement_count": round(float(reinf.get("count", 0.0)), 3),
             "reinforcement_weighted_count": round(float(reinf.get("weighted_count", 0.0)), 3),
+            "reinforcement_negative_count": round(float(reinf.get("negative_count", 0.0)), 3),
+            "reinforcement_negative_penalty": round(float(reinf.get("negative_penalty", 0.0)), 3),
             "promotion": round(promo_score, 3),
             "recency": round(recency, 3),
             "lane_bonus": round(lane_bonus, 3),

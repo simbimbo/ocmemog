@@ -135,6 +135,37 @@ class HybridRetrievalTests(unittest.TestCase):
         self.assertGreater(recent_item["retrieval_signals"]["reinforcement"], stale_item["retrieval_signals"]["reinforcement"])
         self.assertGreater(recent_item["retrieval_signals"]["reinforcement_weighted_count"], stale_item["retrieval_signals"]["reinforcement_weighted_count"])
 
+    def test_negative_reinforcement_depresses_signal(self) -> None:
+        positive_id = api.store_memory("knowledge", "positive FortiGate baseline", source="test")
+        negative_id = api.store_memory("knowledge", "negative FortiGate baseline", source="test")
+        reinforcement.log_experience(
+            task_id="positive-task",
+            outcome="success",
+            confidence=1.0,
+            reward_score=1.0,
+            memory_reference=f"knowledge:{positive_id}",
+            experience_type="retrieval_feedback",
+            source_module="test",
+        )
+        reinforcement.log_experience(
+            task_id="negative-task",
+            outcome="failure",
+            confidence=1.0,
+            reward_score=-1.0,
+            memory_reference=f"knowledge:{negative_id}",
+            experience_type="retrieval_feedback",
+            source_module="test",
+        )
+
+        with mock.patch("ocmemog.runtime.memory.vector_index.search_memory", return_value=[]):
+            results = retrieval.retrieve("FortiGate baseline", limit=10, categories=["knowledge"])
+
+        positive_item = next(entry for entry in results["knowledge"] if entry["memory_reference"] == f"knowledge:{positive_id}")
+        negative_item = next(entry for entry in results["knowledge"] if entry["memory_reference"] == f"knowledge:{negative_id}")
+        self.assertGreater(positive_item["retrieval_signals"]["reinforcement"], negative_item["retrieval_signals"]["reinforcement"])
+        self.assertGreater(negative_item["retrieval_signals"]["reinforcement_negative_count"], 0.0)
+        self.assertGreater(negative_item["retrieval_signals"]["reinforcement_negative_penalty"], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -119,6 +119,8 @@ class NamespaceCompatTests(unittest.TestCase):
         self.assertFalse(any("sentence-transformers" in warning for warning in status.warnings))
         self.assertEqual(status.runtime_summary["embedding_provider"], "local-openai")
         self.assertFalse(status.runtime_summary["using_hash_embeddings"])
+        self.assertEqual(status.runtime_summary["embedding_local_model"], "simple")
+        self.assertTrue(status.runtime_summary["embedding_path_summary"]["provider_configured"])
         self.assertIn("auto_hydration", status.runtime_summary)
 
     def test_runtime_probe_honors_native_local_embed_alias(self) -> None:
@@ -190,6 +192,19 @@ class NamespaceCompatTests(unittest.TestCase):
         self.assertEqual(policy["allow_agent_ids"], ["main", "worker"])
         self.assertEqual(policy["deny_agent_ids"], ["chat-local"])
         self.assertTrue(policy["scoped_by_agent"])
+
+    def test_runtime_probe_surfaces_local_embedding_path_summary(self) -> None:
+        from ocmemog.sidecar.compat import probe_runtime
+
+        with patch.dict("os.environ", {}, clear=False):
+            with patch("ocmemog.sidecar.compat.importlib.util.find_spec", return_value=None):
+                with patch("ocmemog.sidecar.compat.config.OCMEMOG_EMBED_MODEL_LOCAL", "simple", create=True):
+                    status = probe_runtime()
+
+        self.assertEqual(status.runtime_summary["embedding_local_model"], "simple")
+        self.assertTrue(status.runtime_summary["embedding_path_summary"]["local_simple_only"])
+        self.assertFalse(status.runtime_summary["embedding_path_summary"]["sentence_transformers_ready"])
+        self.assertTrue(status.runtime_summary["using_hash_embeddings"])
 
     def test_sidecar_version_matches_package_version(self) -> None:
         from ocmemog import __version__

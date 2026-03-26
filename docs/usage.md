@@ -198,7 +198,7 @@ Notes:
 - Valid sidecar categories today are `knowledge`, `reflections`, `directives`, `tasks`, `runbooks`, and `lessons`.
 - `/memory/get` currently expects a `table:id` reference.
 - Runtime degradation is reported in every sidecar response.
-- Sidecar responses now also include `runtimeSummary`, a compact operator-facing summary of runtime mode, embedding provider, hash-embedding fallback state, shim surface count, and missing dependency count.
+- Sidecar responses now also include `runtimeSummary`, a compact operator-facing summary of runtime mode, embedding provider, local embedding model, embedding path readiness/fallback state, shim surface count, and missing dependency count.
 - Prompt-time auto-hydration can now be scoped per OpenClaw agent via plugin env vars:
   - `OCMEMOG_AUTO_HYDRATION_ALLOW_AGENT_IDS=agent-a,agent-b`
   - `OCMEMOG_AUTO_HYDRATION_DENY_AGENT_IDS=agent-x`

@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from ocmemog.runtime import identity
+from ocmemog.runtime import config, identity
 
 
 @dataclass(frozen=True)
@@ -64,7 +64,16 @@ def probe_runtime() -> RuntimeStatus:
         or os.environ.get("OCMEMOG_EMBED_PROVIDER", "")
         or os.environ.get("BRAIN_EMBED_MODEL_PROVIDER", "")
     ).strip().lower()
-    if importlib.util.find_spec("sentence_transformers") is None and provider not in _EMBEDDING_PROVIDER_BACKEND_HINTS:
+    local_model = str(
+        getattr(config, "OCMEMOG_EMBED_MODEL_LOCAL", "")
+        or getattr(config, "BRAIN_EMBED_MODEL_LOCAL", getattr(config, "OCMEMOG_EMBED_LOCAL_MODEL", "simple"))
+        or ""
+    ).strip().lower()
+    sentence_transformers_ready = importlib.util.find_spec("sentence_transformers") is not None
+    local_simple_only = local_model in {"", "simple", "hash"}
+    provider_configured = provider in _EMBEDDING_PROVIDER_BACKEND_HINTS
+    using_hash_embeddings = bool(not provider_configured and local_model in {"", "simple", "hash"} and not sentence_transformers_ready)
+    if not sentence_transformers_ready and provider not in _EMBEDDING_PROVIDER_BACKEND_HINTS:
         warnings.append("Optional dependency missing: sentence-transformers; using local hash embeddings.")
 
     try:
@@ -92,7 +101,15 @@ def probe_runtime() -> RuntimeStatus:
     runtime_summary = {
         "mode": mode,
         "embedding_provider": provider or "local-simple",
-        "using_hash_embeddings": bool(importlib.util.find_spec("sentence_transformers") is None and provider not in _EMBEDDING_PROVIDER_BACKEND_HINTS),
+        "embedding_local_model": local_model or "simple",
+        "embedding_path_summary": {
+            "provider_configured": provider_configured,
+            "provider_backend_hint": provider if provider else None,
+            "local_model": local_model or "simple",
+            "local_simple_only": local_simple_only,
+            "sentence_transformers_ready": sentence_transformers_ready,
+        },
+        "using_hash_embeddings": using_hash_embeddings,
         "shim_surface_count": shim_count,
         "missing_dep_count": len(missing_deps),
         "warning_count": len(warnings),

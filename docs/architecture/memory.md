@@ -107,7 +107,7 @@ Known caveat:
 
 ## Sidecar contract
 
-The sidecar exposes a compact runtime summary in route payloads so operators can quickly tell whether the sidecar is in ready/degraded mode, which embedding provider path is active, whether hash-embedding fallback is in effect, and how much compatibility residue remains.
+The sidecar exposes a compact runtime summary in route payloads so operators can quickly tell whether the sidecar is in ready/degraded mode, which embedding provider path is active, which local embedding model is configured, whether hash-embedding fallback is in effect, and how much compatibility residue remains.
 
 Governance review summary responses now also expose lightweight diagnostics so operators can tell whether they are seeing cached data, how many review items are present, and how the queue splits across review kinds without scraping the full list.
 

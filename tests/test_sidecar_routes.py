@@ -95,7 +95,7 @@ class SidecarRouteTests(unittest.TestCase):
             return_value={"knowledge": [{"memory_reference": "knowledge:12", "content": "relevant memory", "score": 0.9}]},
         ) as retrieve_for_queries, mock.patch(
             "ocmemog.sidecar.app.flatten_results",
-            return_value=[{"reference": "knowledge:12", "score": 0.9, "content": "relevant memory", "bucket": "knowledge", "memory_status": "active", "governance_summary": {"memory_status": "active", "needs_review": False}, "retrieval_signals": {"reinforcement_count": 3.0}}],
+            return_value=[{"reference": "knowledge:12", "score": 0.9, "content": "relevant memory", "bucket": "knowledge", "memory_status": "active", "governance_summary": {"memory_status": "active", "needs_review": False}, "retrieval_signals": {"reinforcement_count": 3.0, "reinforcement_negative_penalty": 0.2}}],
         ) as flatten_results, mock.patch.object(
             sidecar_app.vector_index,
             "get_last_search_diagnostics",
@@ -117,7 +117,7 @@ class SidecarRouteTests(unittest.TestCase):
             return_value={
                 "suppressed_by_governance": {"superseded": 1, "duplicate": 2},
                 "suppressed_by_governance_by_bucket": {"knowledge": {"superseded": 1, "duplicate": 2}},
-                "reinforcement": {"reinforced_result_count": 1, "total_reinforcement_count": 3.0, "by_bucket": {"knowledge": {"reinforced_result_count": 1, "total_reinforcement_count": 3.0}}},
+                "reinforcement": {"reinforced_result_count": 1, "negative_reinforcement_result_count": 1, "total_reinforcement_count": 3.0, "total_negative_penalty": 0.2, "by_bucket": {"knowledge": {"reinforced_result_count": 1, "negative_reinforcement_result_count": 1, "total_reinforcement_count": 3.0, "total_negative_penalty": 0.2}}},
             },
         ):
             response = client.post(
@@ -130,7 +130,7 @@ class SidecarRouteTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertFalse(payload["usedFallback"])
         self.assertEqual(payload["query"], "relevant")
-        self.assertEqual(payload["results"], [{"reference": "knowledge:12", "score": 0.9, "content": "relevant memory", "bucket": "knowledge", "memory_status": "active", "governance_summary": {"memory_status": "active", "needs_review": False}, "retrieval_signals": {"reinforcement_count": 3.0}}])
+        self.assertEqual(payload["results"], [{"reference": "knowledge:12", "score": 0.9, "content": "relevant memory", "bucket": "knowledge", "memory_status": "active", "governance_summary": {"memory_status": "active", "needs_review": False}, "retrieval_signals": {"reinforcement_count": 3.0, "reinforcement_negative_penalty": 0.2}}])
         self.assertEqual(payload["searchDiagnostics"]["strategy"], "hybrid")
         self.assertEqual(payload["searchDiagnostics"]["bucket_counts"], {"knowledge": 1})
         self.assertEqual(payload["searchDiagnostics"]["result_count"], 1)
@@ -147,11 +147,13 @@ class SidecarRouteTests(unittest.TestCase):
         self.assertEqual(payload["searchDiagnostics"]["governance_rollup"]["status_counts"], {"active": 1})
         self.assertEqual(payload["searchDiagnostics"]["governance_rollup"]["by_bucket"], {"knowledge": {"status_counts": {"active": 1}, "needs_review_count": 0}})
         self.assertEqual(payload["searchDiagnostics"]["reinforcement_rollup"]["reinforced_result_count"], 1)
+        self.assertEqual(payload["searchDiagnostics"]["reinforcement_rollup"]["negative_reinforcement_result_count"], 1)
         self.assertEqual(payload["searchDiagnostics"]["reinforcement_rollup"]["total_reinforcement_count"], 3.0)
-        self.assertEqual(payload["searchDiagnostics"]["reinforcement_rollup"]["by_bucket"], {"knowledge": {"reinforced_result_count": 1, "total_reinforcement_count": 3.0}})
+        self.assertEqual(payload["searchDiagnostics"]["reinforcement_rollup"]["total_negative_penalty"], 0.2)
+        self.assertEqual(payload["searchDiagnostics"]["reinforcement_rollup"]["by_bucket"], {"knowledge": {"reinforced_result_count": 1, "negative_reinforcement_result_count": 1, "total_reinforcement_count": 3.0, "total_negative_penalty": 0.2}})
         self.assertEqual(payload["searchDiagnostics"]["retrieval_governance"]["suppressed_by_governance"], {"superseded": 1, "duplicate": 2})
         self.assertEqual(payload["searchDiagnostics"]["retrieval_governance"]["suppressed_by_governance_by_bucket"], {"knowledge": {"superseded": 1, "duplicate": 2}})
-        self.assertEqual(payload["searchDiagnostics"]["retrieval_reinforcement"], {"reinforced_result_count": 1, "total_reinforcement_count": 3.0, "by_bucket": {"knowledge": {"reinforced_result_count": 1, "total_reinforcement_count": 3.0}}})
+        self.assertEqual(payload["searchDiagnostics"]["retrieval_reinforcement"], {"reinforced_result_count": 1, "negative_reinforcement_result_count": 1, "total_reinforcement_count": 3.0, "total_negative_penalty": 0.2, "by_bucket": {"knowledge": {"reinforced_result_count": 1, "negative_reinforcement_result_count": 1, "total_reinforcement_count": 3.0, "total_negative_penalty": 0.2}}})
         retrieve_for_queries.assert_called_once()
         flatten_results.assert_called_once()
 

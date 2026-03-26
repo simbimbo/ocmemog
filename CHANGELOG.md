@@ -32,6 +32,7 @@ Retrieval ranking quality pass plus collateral/doc alignment.
 - added bounded negative reinforcement handling and exposed `reinforcement_negative_count` / `reinforcement_negative_penalty` so failed experience can depress ranking in an explainable way
 - added compact reinforcement rollups to `/memory/search` diagnostics so operators can see visible and retrieval-side reinforcement totals, including per-bucket visible counts
 - extended retrieval-side reinforcement diagnostics with per-bucket totals for parity with other search/operator rollups
+- extended visible and retrieval-side reinforcement rollups with bounded negative/polarity totals so failed experience is inspectable too
 - promoted the key embedding outcome fields into `searchDiagnostics.execution_path` so request-level scanability is better without drilling into nested vector diagnostics
 - added compact queue health snapshots to `runtimeSummary` so operators can see queue depth, last run, processed totals, error counts, and worker status from normal sidecar payloads
 - extended `runtimeSummary.queue` with lightweight severity/hints so backlog/worker/error conditions are easier to judge from normal runtime payloads

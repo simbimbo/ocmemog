@@ -1225,7 +1225,9 @@ def memory_search(request: SearchRequest) -> dict[str, Any]:
         diagnostics["governance_rollup"] = governance_rollup
         reinforcement_rollup = {
             "reinforced_result_count": 0,
+            "negative_reinforcement_result_count": 0,
             "total_reinforcement_count": 0.0,
+            "total_negative_penalty": 0.0,
             "by_bucket": {},
         }
         for item in flattened:
@@ -1233,14 +1235,29 @@ def memory_search(request: SearchRequest) -> dict[str, Any]:
             if not isinstance(signals, dict):
                 signals = {}
             reinforcement_count = float(signals.get("reinforcement_count") or 0.0)
-            if reinforcement_count <= 0.0:
+            negative_penalty = float(signals.get("reinforcement_negative_penalty") or 0.0)
+            if reinforcement_count <= 0.0 and negative_penalty <= 0.0:
                 continue
-            reinforcement_rollup["reinforced_result_count"] += 1
-            reinforcement_rollup["total_reinforcement_count"] += reinforcement_count
             bucket = str(item.get("bucket") or item.get("category") or item.get("source_type") or "unknown")
-            bucket_rollup = reinforcement_rollup["by_bucket"].setdefault(bucket, {"reinforced_result_count": 0, "total_reinforcement_count": 0.0})
-            bucket_rollup["reinforced_result_count"] += 1
-            bucket_rollup["total_reinforcement_count"] += reinforcement_count
+            bucket_rollup = reinforcement_rollup["by_bucket"].setdefault(
+                bucket,
+                {
+                    "reinforced_result_count": 0,
+                    "negative_reinforcement_result_count": 0,
+                    "total_reinforcement_count": 0.0,
+                    "total_negative_penalty": 0.0,
+                },
+            )
+            if reinforcement_count > 0.0:
+                reinforcement_rollup["reinforced_result_count"] += 1
+                reinforcement_rollup["total_reinforcement_count"] += reinforcement_count
+                bucket_rollup["reinforced_result_count"] += 1
+                bucket_rollup["total_reinforcement_count"] += reinforcement_count
+            if negative_penalty > 0.0:
+                reinforcement_rollup["negative_reinforcement_result_count"] += 1
+                reinforcement_rollup["total_negative_penalty"] += negative_penalty
+                bucket_rollup["negative_reinforcement_result_count"] += 1
+                bucket_rollup["total_negative_penalty"] += negative_penalty
         diagnostics["reinforcement_rollup"] = reinforcement_rollup
         used_fallback = False
     except Exception as exc:

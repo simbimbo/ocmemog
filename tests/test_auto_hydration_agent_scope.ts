@@ -51,3 +51,21 @@ test('auto hydration decision reports global disable explicitly', async () => {
 
   delete process.env.OCMEMOG_AUTO_HYDRATION;
 });
+
+test('auto hydration log formatter includes decision context', async () => {
+  process.env.OCMEMOG_AUTO_HYDRATION = 'true';
+  process.env.OCMEMOG_AUTO_HYDRATION_ALLOW_AGENT_IDS = 'main';
+  process.env.OCMEMOG_AUTO_HYDRATION_DENY_AGENT_IDS = 'chat-local';
+
+  const mod = await loadPluginModule();
+  const allowedLog = mod.formatAutoHydrationDecisionLog(mod.getAutoHydrationDecision('main'));
+  const deniedLog = mod.formatAutoHydrationDecisionLog(mod.getAutoHydrationDecision('chat-local'));
+  assert.match(allowedLog, /agent=main/);
+  assert.match(allowedLog, /reason=allowed_by_allowlist/);
+  assert.match(deniedLog, /agent=chat-local/);
+  assert.match(deniedLog, /reason=denied_by_agent_id/);
+
+  delete process.env.OCMEMOG_AUTO_HYDRATION;
+  delete process.env.OCMEMOG_AUTO_HYDRATION_ALLOW_AGENT_IDS;
+  delete process.env.OCMEMOG_AUTO_HYDRATION_DENY_AGENT_IDS;
+});

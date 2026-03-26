@@ -586,6 +586,11 @@ export function getAutoHydrationDecision(agentId?: string): {
   };
 }
 
+export function formatAutoHydrationDecisionLog(decision: ReturnType<typeof getAutoHydrationDecision>): string {
+  const agent = decision.agentId ?? '<none>';
+  return `agent=${agent} allowed=${String(decision.allowed)} reason=${decision.reason} allow_agents=${decision.allowAgentIds.join('|') || '<all>'} deny_agents=${decision.denyAgentIds.join('|') || '<none>'}`;
+}
+
 export function shouldAutoHydrateForAgent(agentId?: string): boolean {
   return getAutoHydrationDecision(agentId).allowed;
 }
@@ -642,9 +647,7 @@ function registerAutomaticContinuityHooks(api: OpenClawPluginApi, config: Plugin
       try {
         const hydrationDecision = getAutoHydrationDecision(ctx.agentId);
         if (!hydrationDecision.allowed) {
-          api.logger.info(
-            `ocmemog auto hydration skipped for agent=${String(ctx.agentId ?? '<none>')} reason=${hydrationDecision.reason}`,
-          );
+          api.logger.info(`ocmemog auto hydration skipped ${formatAutoHydrationDecisionLog(hydrationDecision)}`);
           return;
         }
         const scope = resolveHydrationScope(event.messages ?? [], ctx);
@@ -660,7 +663,7 @@ function registerAutomaticContinuityHooks(api: OpenClawPluginApi, config: Plugin
         const continuityContext = buildHydrationContext(payload);
         const prependContext = [briefContext, continuityContext].filter(Boolean).join("\n\n");
         api.logger.info(
-          `ocmemog hydration prepend sizes brief=${briefContext.length} continuity=${continuityContext.length} combined=${prependContext.length}`,
+          `ocmemog auto hydration applied ${formatAutoHydrationDecisionLog(hydrationDecision)} brief=${briefContext.length} continuity=${continuityContext.length} combined=${prependContext.length}`,
         );
         if (!prependContext) {
           return;

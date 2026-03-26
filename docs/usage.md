@@ -205,6 +205,7 @@ Notes:
   - ingest/checkpoint hooks remain global; only `before_prompt_build` hydration is agent-scoped
   - the active auto-hydration policy is surfaced in `runtimeSummary.auto_hydration`
   - plugin-side decision reasons now distinguish `disabled_globally`, `denied_by_agent_id`, `not_in_allowlist`, `allowed_by_allowlist`, and `allowed_globally` for easier debugging
+  - plugin logs now include structured decision context for both skipped and applied prompt hydration, including agent id, reason, and prepend sizes
 - `/memory/search` now also returns `searchDiagnostics` with lightweight operator-facing retrieval metadata such as strategy, lane, bucket counts, result counts, query token count, elapsed time, vector-search diagnostics (`scan_limit`, `prefilter_limit`, candidate rows, fallback usage), and an `execution_path` block that clarifies provider-configured vs provider-skipped vs local-fallback-expected vs route-exception-fallback behavior.
 - `/memory/governance/review/summary` now returns `reviewDiagnostics` so operators can see cache hit/freshness, item count, kind breakdown, and active filters without inferring from the raw item list.
 - `/memory/governance/review` items now include an `explanation` block with a short human-facing rationale plus source/target memory status, so dashboards and operators do not have to reconstruct meaning from raw fields alone.

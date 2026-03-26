@@ -23,6 +23,7 @@ Retrieval ranking quality pass plus collateral/doc alignment.
 - surfaced the active auto-hydration agent policy in `runtimeSummary.auto_hydration` for easier operator verification and debugging
 - added explicit plugin-side hydration decision reasons so skips can be traced to global disable vs denylist vs allowlist mismatch
 - added `/memory/auto_hydration/policy` so operators can query the current agent-specific prompt-hydration decision from the sidecar
+- improved plugin hydration observability with structured skip/apply decision logs that include agent id, decision reason, and prepend sizes
 
 ## 0.1.16 — 2026-03-25
 

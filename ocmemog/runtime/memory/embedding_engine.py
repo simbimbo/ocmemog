@@ -9,6 +9,7 @@ from ocmemog.runtime.providers import provider_execute
 
 LOGFILE = state_store.report_log_path()
 _MODEL_CACHE: dict[str, Any] = {}
+_LAST_EMBEDDING_DIAGNOSTICS: dict[str, Any] = {}
 
 
 def _local_embedding(text: str, local_model: str) -> List[float] | None:
@@ -53,11 +54,16 @@ def _provider_embedding(text: str, model_name: str) -> tuple[List[float] | None,
     return None, meta
 
 
+def get_last_embedding_diagnostics() -> dict[str, Any]:
+    return dict(_LAST_EMBEDDING_DIAGNOSTICS)
+
+
 def generate_embedding(
     text: str,
     *,
     skip_provider: bool = False,
 ) -> List[float] | None:
+    global _LAST_EMBEDDING_DIAGNOSTICS
     emit_event(LOGFILE, "brain_embedding_start", status="ok")
     if not isinstance(text, str) or not text.strip():
         emit_event(LOGFILE, "brain_embedding_failed", status="error", reason="empty_text")
@@ -72,10 +78,22 @@ def generate_embedding(
         or getattr(config, "OCMEMOG_EMBED_MODEL_PROVIDER", "")
         or getattr(config, "BRAIN_EMBED_MODEL_PROVIDER", "")
     )
+    _LAST_EMBEDDING_DIAGNOSTICS = {
+        "provider_configured": bool(provider_model),
+        "provider_attempted": False,
+        "provider_skipped": bool(provider_model and skip_provider),
+        "provider_succeeded": False,
+        "local_model": local_model or "simple",
+        "local_used": False,
+        "local_mode": "local_simple" if (local_model or "simple") in {"simple", "hash"} else "local_model",
+        "path_used": None,
+        "embedding_generated": False,
+    }
     embedding: List[float] | None = None
     provider_meta: dict[str, str] = {}
 
     if provider_model and not skip_provider:
+        _LAST_EMBEDDING_DIAGNOSTICS["provider_attempted"] = True
         try:
             embedding, provider_meta = _provider_embedding(text, provider_model)
         except TimeoutError as exc:
@@ -113,6 +131,9 @@ def generate_embedding(
                 fallback="local" if local_model else "disabled",
             )
         elif embedding:
+            _LAST_EMBEDDING_DIAGNOSTICS["provider_succeeded"] = True
+            _LAST_EMBEDDING_DIAGNOSTICS["path_used"] = "provider"
+            _LAST_EMBEDDING_DIAGNOSTICS["embedding_generated"] = True
             emit_event(
                 LOGFILE,
                 "brain_embedding_complete",
@@ -144,6 +165,9 @@ def generate_embedding(
         embedding = _local_embedding(text, local_model)
         if embedding:
             provider = "local_simple" if local_model in {"simple", "hash"} else "local_model"
+            _LAST_EMBEDDING_DIAGNOSTICS["local_used"] = True
+            _LAST_EMBEDDING_DIAGNOSTICS["path_used"] = provider
+            _LAST_EMBEDDING_DIAGNOSTICS["embedding_generated"] = True
             emit_event(LOGFILE, "brain_embedding_complete", status="ok", provider=provider)
             emit_event(LOGFILE, "brain_embedding_generated", status="ok", provider=provider, dimensions=len(embedding))
             return embedding

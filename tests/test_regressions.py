@@ -722,11 +722,15 @@ class OcmemogRegressionTests(unittest.TestCase):
         finally:
             conn.close()
 
-        with mock.patch("ocmemog.runtime.memory.vector_index.embedding_engine.generate_embedding", return_value=[1.0, 0.0]):
+        with mock.patch("ocmemog.runtime.memory.vector_index.embedding_engine.generate_embedding", return_value=[1.0, 0.0]), mock.patch(
+            "ocmemog.runtime.memory.vector_index.embedding_engine.get_last_embedding_diagnostics",
+            return_value={"provider_attempted": False, "local_used": True, "path_used": "local_simple", "embedding_generated": True},
+        ):
             with mock.patch.dict(os.environ, {"OCMEMOG_SEARCH_VECTOR_SCAN_LIMIT": "10", "OCMEMOG_SEARCH_VECTOR_PREFILTER_LIMIT": "1"}, clear=False):
                 results = vector_index.search_memory("fortigate hardening", limit=1)
 
         self.assertEqual(results[0]["entry_id"], "knowledge:11")
+        self.assertEqual(vector_index.get_last_search_diagnostics()["embedding"]["path_used"], "local_simple")
 
     def test_retrieval_combines_lexical_and_semantic_signals_without_fallback_gate(self) -> None:
         first = api.store_memory("knowledge", "fortigate edge baseline hardening", source="test")

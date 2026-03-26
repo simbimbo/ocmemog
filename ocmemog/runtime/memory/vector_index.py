@@ -388,6 +388,7 @@ def search_memory(
         "prefilter_limit": int(lexical_prefilter_limit),
         "source_types": list(filtered_source_types),
         "query_embedding_ready": bool(query_embedding),
+        "embedding": embedding_engine.get_last_embedding_diagnostics(),
         "scanned_rows": 0,
         "prefilter_hits": 0,
         "candidate_rows": 0,

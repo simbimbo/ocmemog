@@ -212,7 +212,7 @@
 
 - Assumption: keyword match is the primary retrieval mode; semantic search is a fallback for empty knowledge hits.
 - Updated: semantic fallback now rehydrates `knowledge`, `runbooks`, and `lessons` when there are no keyword hits.
-- Updated later: lexical scoring now includes token overlap, ordered phrase overlap, and light prefix matching, and bounded vector search now exposes clearer diagnostics.
+- Updated later: lexical scoring now includes token overlap, ordered phrase overlap, and light prefix matching, bounded vector search exposes clearer diagnostics, and retrieval now emits compact governance summaries / visible governance rollups / hidden suppression counts.
 - Gap: reinforcement lookup uses a plain dict keyed by `memory_reference`, so multiple experiences for the same memory overwrite each other instead of aggregating.
 - Gap: stemming and broader fuzzy matching are still absent.
 
@@ -253,6 +253,7 @@
 - Updated: prompt-time auto-hydration is no longer effectively all-or-nothing once enabled.
 - Added: `OCMEMOG_AUTO_HYDRATION_ALLOW_AGENT_IDS` and `OCMEMOG_AUTO_HYDRATION_DENY_AGENT_IDS` gate only the `before_prompt_build` hydration hook by `ctx.agentId`.
 - Important boundary: ingest/checkpoint continuity remains global; only prompt-time prepend hydration is agent-scoped.
+- Updated later: hydration policy is now visible in `runtimeSummary`, queryable through `/memory/auto_hydration/policy`, and logged with explicit skip/apply decision reasons.
 - Reason: prevents stale continuity from one agent/session flavor (for example `chat-local`) from leaking into another when global auto-hydration is enabled.
 
 ### `brain/runtime/memory/vector_index.py`

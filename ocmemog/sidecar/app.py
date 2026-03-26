@@ -1607,12 +1607,20 @@ def memory_governance_rollback(request: GovernanceRollbackRequest) -> dict[str, 
         relationship=request.relationship,
         target_reference=request.target_reference,
     )
+    diagnostics = {
+        "requested_relationship": str(request.relationship or ""),
+        "succeeded": result is not None,
+        "result_kind": "rolled_back" if result is not None else "rollback_not_applied",
+        "reference": request.reference,
+        "target_reference": request.target_reference,
+    }
     return {
         "ok": result is not None,
         "reference": request.reference,
         "relationship": request.relationship,
         "target_reference": request.target_reference,
         "result": result,
+        "rollbackDiagnostics": diagnostics,
         **runtime,
     }
 

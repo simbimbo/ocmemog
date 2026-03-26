@@ -173,6 +173,23 @@ class GovernanceReviewTests(unittest.TestCase):
         self.assertTrue(second["reviewDiagnostics"]["cache_hit"])
         self.assertGreaterEqual(second["reviewDiagnostics"]["cache_ttl_seconds"], 0.0)
 
+    def test_governance_rollback_route_exposes_diagnostics(self) -> None:
+        canonical = api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
+        duplicate = api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
+        api.mark_memory_relationship(f"knowledge:{duplicate}", relationship="duplicate_of", target_reference=f"knowledge:{canonical}")
+
+        result = app.memory_governance_rollback(
+            app.GovernanceRollbackRequest(
+                reference=f"knowledge:{duplicate}",
+                relationship="duplicate_of",
+                target_reference=f"knowledge:{canonical}",
+            )
+        )
+        self.assertTrue(result["ok"])
+        self.assertIn("rollbackDiagnostics", result)
+        self.assertTrue(result["rollbackDiagnostics"]["succeeded"])
+        self.assertEqual(result["rollbackDiagnostics"]["result_kind"], "rolled_back")
+
 
 if __name__ == "__main__":
     unittest.main()

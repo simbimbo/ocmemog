@@ -120,6 +120,7 @@ Governance review summary responses now also expose lightweight diagnostics so o
 Governance queue responses now also expose lightweight queue diagnostics so operators can quickly see item counts plus bucket/kind/priority-label breakdowns.
 Governance auto-resolve responses now also expose lightweight diagnostics so operators can quickly see action totals plus reason/kind breakdowns and the active policy profile.
 Governance audit responses now also expose lightweight diagnostics so operators can quickly see audit item totals plus event/status breakdowns.
+Governance rollback responses now also expose lightweight diagnostics so operators can quickly see whether rollback succeeded and how the outcome was classified.
 Governance queue items now also carry compact explanation blocks so queue surfaces and review surfaces are more aligned in how they present rationale.
 Queue items now also share the same normalized priority-label vocabulary as review items, reducing operator/UI translation work.
 

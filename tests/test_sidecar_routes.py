@@ -91,6 +91,10 @@ class SidecarRouteTests(unittest.TestCase):
         self.assertFalse(payload["usedFallback"])
         self.assertEqual(payload["query"], "relevant")
         self.assertEqual(payload["results"], [{"reference": "knowledge:12", "score": 0.9, "content": "relevant memory"}])
+        self.assertEqual(payload["searchDiagnostics"]["strategy"], "hybrid")
+        self.assertEqual(payload["searchDiagnostics"]["bucket_counts"], {"knowledge": 1})
+        self.assertEqual(payload["searchDiagnostics"]["result_count"], 1)
+        self.assertEqual(payload["searchDiagnostics"]["requested_limit"], 2)
         retrieve_for_queries.assert_called_once()
         flatten_results.assert_called_once()
 

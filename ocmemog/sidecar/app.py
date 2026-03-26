@@ -1109,7 +1109,17 @@ def memory_search(request: SearchRequest) -> dict[str, Any]:
     runtime = _runtime_payload()
     started = time.perf_counter()
     query = request.query or ""
+    active_lane = retrieval.infer_lane(query, explicit_lane=request.lane)
     skip_vector_provider = _parse_bool_env("OCMEMOG_SEARCH_SKIP_EMBEDDING_PROVIDER", default=True)
+    diagnostics = {
+        "strategy": "hybrid",
+        "fallback": False,
+        "skip_vector_provider": bool(skip_vector_provider),
+        "lane": active_lane,
+        "metadata_filter_keys": sorted((request.metadata_filters or {}).keys()),
+        "requested_limit": int(request.limit),
+        "categories": list(categories),
+    }
     try:
         results = retrieval.retrieve_for_queries(
             [query],
@@ -1120,14 +1130,31 @@ def memory_search(request: SearchRequest) -> dict[str, Any]:
             lane=request.lane,
         )
         flattened = flatten_results(results)
+        bucket_counts = {bucket: len(results.get(bucket, [])) for bucket in categories}
+        diagnostics["bucket_counts"] = bucket_counts
+        diagnostics["result_count_before_compaction"] = len(flattened)
         if len(flattened) > request.limit:
             flattened = flattened[: request.limit]
+        diagnostics["result_count"] = len(flattened)
         used_fallback = False
     except Exception as exc:
         flattened = _fallback_search(request.query, request.limit, categories, metadata_filters=request.metadata_filters, lane=request.lane)
+        diagnostics.update(
+            {
+                "strategy": "fallback-like",
+                "fallback": True,
+                "bucket_counts": {},
+                "result_count_before_compaction": len(flattened),
+                "result_count": len(flattened),
+                "fallback_reason": type(exc).__name__,
+            }
+        )
         used_fallback = True
         runtime["warnings"] = [*runtime["warnings"], f"search fallback enabled: {exc}"]
     elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
+    diagnostics["elapsed_ms"] = elapsed_ms
+    diagnostics["query_length"] = len(query)
+    diagnostics["query_token_count"] = len(retrieval._tokenize(query))
     if elapsed_ms >= 10:
         print(
             f"[ocmemog][route] memory_search elapsed_ms={elapsed_ms:.3f} limit={request.limit} categories={','.join(categories)} fallback={used_fallback}",
@@ -1146,6 +1173,7 @@ def memory_search(request: SearchRequest) -> dict[str, Any]:
         "categories": categories,
         "results": flattened,
         "usedFallback": used_fallback,
+        "searchDiagnostics": diagnostics,
         **runtime,
     }
 

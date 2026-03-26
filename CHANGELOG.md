@@ -7,8 +7,9 @@ Retrieval ranking quality pass plus collateral/doc alignment.
 ### Highlights
 - improved lexical retrieval scoring to consider token overlap, ordered phrase overlap, and light prefix matching instead of relying on blunt substring-or-overlap behavior
 - kept the retrieval path bounded and hybrid by continuing to blend lexical, semantic, reinforcement, promotion, recency, and lane-aware signals
+- added lightweight `searchDiagnostics` to `/memory/search` so retrieval strategy, lane, bucket counts, result compaction, and timing are visible in the API response
 - aligned README and architecture/usage docs with the actual shipped hybrid retrieval behavior
-- added regression coverage for partial-phrase lexical matches
+- added regression coverage for partial-phrase lexical matches and sidecar search diagnostics
 
 ## 0.1.16 — 2026-03-25
 

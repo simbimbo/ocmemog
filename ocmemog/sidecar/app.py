@@ -633,6 +633,10 @@ class GovernanceDecisionRequest(BaseModel):
     approved: bool = True
 
 
+class AutoHydrationPolicyRequest(BaseModel):
+    agent_id: Optional[str] = None
+
+
 class GovernanceReviewDecisionRequest(BaseModel):
     reference: str
     target_reference: str
@@ -810,6 +814,38 @@ def _fetch_recent(category: str, limit: int, since: Optional[str]) -> List[Dict[
 def _normalize_categories(categories: Optional[Iterable[str]]) -> List[str]:
     selected = [item for item in (categories or DEFAULT_CATEGORIES) if item in DEFAULT_CATEGORIES]
     return selected or list(DEFAULT_CATEGORIES)
+
+
+def _parse_agent_id_list(raw: str | None) -> list[str]:
+    return [item.strip() for item in str(raw or "").split(",") if item.strip()]
+
+
+def _auto_hydration_policy(agent_id: str | None = None) -> dict[str, Any]:
+    normalized = str(agent_id or "").strip() or None
+    allow_agent_ids = _parse_agent_id_list(os.environ.get("OCMEMOG_AUTO_HYDRATION_ALLOW_AGENT_IDS"))
+    deny_agent_ids = _parse_agent_id_list(os.environ.get("OCMEMOG_AUTO_HYDRATION_DENY_AGENT_IDS"))
+    enabled = _parse_bool_env("OCMEMOG_AUTO_HYDRATION", default=False)
+    if not enabled:
+        reason = "disabled_globally"
+        allowed = False
+    elif normalized and normalized in deny_agent_ids:
+        reason = "denied_by_agent_id"
+        allowed = False
+    elif allow_agent_ids:
+        allowed = bool(normalized and normalized in allow_agent_ids)
+        reason = "allowed_by_allowlist" if allowed else "not_in_allowlist"
+    else:
+        reason = "allowed_globally"
+        allowed = True
+    return {
+        "enabled": enabled,
+        "allowed": allowed,
+        "reason": reason,
+        "agent_id": normalized,
+        "allow_agent_ids": allow_agent_ids,
+        "deny_agent_ids": deny_agent_ids,
+        "scoped_by_agent": bool(allow_agent_ids or deny_agent_ids),
+    }
 
 
 def _runtime_payload() -> Dict[str, Any]:
@@ -1353,6 +1389,17 @@ def memory_governance_review_summary(request: GovernanceReviewRequest) -> dict[s
         {"key": cache_key, "expires_at": now + _GOVERNANCE_REVIEW_CACHE_TTL_SECONDS, "payload": payload}
     )
     return {**payload, **runtime}
+
+
+@app.post("/memory/auto_hydration/policy")
+def memory_auto_hydration_policy(request: AutoHydrationPolicyRequest) -> dict[str, Any]:
+    runtime = _runtime_payload()
+    policy = _auto_hydration_policy(request.agent_id)
+    return {
+        "ok": True,
+        "policy": policy,
+        **runtime,
+    }
 
 
 @app.post("/memory/governance/decision")

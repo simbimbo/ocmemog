@@ -141,6 +141,24 @@ class SidecarRouteTests(unittest.TestCase):
         self.assertTrue(payload["usedFallback"])
         self.assertTrue(payload["searchDiagnostics"]["execution_path"]["route_exception_fallback"])
 
+    def test_auto_hydration_policy_route_reports_agent_decision(self) -> None:
+        with self._client() as client, mock.patch.dict(
+            os.environ,
+            {
+                "OCMEMOG_AUTO_HYDRATION": "true",
+                "OCMEMOG_AUTO_HYDRATION_ALLOW_AGENT_IDS": "main,worker",
+                "OCMEMOG_AUTO_HYDRATION_DENY_AGENT_IDS": "chat-local",
+            },
+            clear=False,
+        ):
+            response = client.post("/memory/auto_hydration/policy", json={"agent_id": "chat-local"})
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["policy"]["reason"], "denied_by_agent_id")
+        self.assertFalse(payload["policy"]["allowed"])
+
     def test_memory_get_route_hydrates_reference(self) -> None:
         with self._client() as client, mock.patch(
             "ocmemog.sidecar.app.provenance.hydrate_reference",

@@ -1241,6 +1241,9 @@ def memory_search(request: SearchRequest) -> dict[str, Any]:
     vector_diagnostics = vector_index.get_last_search_diagnostics()
     if vector_diagnostics:
         diagnostics["vector_search"] = vector_diagnostics
+    retrieval_diagnostics = retrieval.get_last_retrieval_diagnostics()
+    if retrieval_diagnostics:
+        diagnostics["retrieval_governance"] = retrieval_diagnostics.get("suppressed_by_governance") or {}
     if elapsed_ms >= 10:
         print(
             f"[ocmemog][route] memory_search elapsed_ms={elapsed_ms:.3f} limit={request.limit} categories={','.join(categories)} fallback={used_fallback}",

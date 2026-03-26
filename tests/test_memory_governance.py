@@ -56,6 +56,20 @@ class MemoryGovernanceTests(unittest.TestCase):
         self.assertEqual(contested["governance"]["contradiction_status"], "contested")
         self.assertIn("contradiction_penalty", contested["retrieval_signals"])
 
+    def test_retrieval_diagnostics_track_hidden_governance_suppression(self) -> None:
+        old_id = api.store_memory("knowledge", "Steven's old phone number is 555-0000", source="test")
+        new_id = api.store_memory("knowledge", "Steven's phone number is 508-361-2323", source="test")
+        dup_id = api.store_memory("knowledge", "Steven's phone number is 508-361-2323", source="test")
+        api.mark_memory_relationship(f"knowledge:{new_id}", relationship="supersedes", target_reference=f"knowledge:{old_id}")
+        api.mark_memory_relationship(f"knowledge:{dup_id}", relationship="duplicate_of", target_reference=f"knowledge:{new_id}")
+
+        with mock.patch("ocmemog.runtime.memory.vector_index.search_memory", return_value=[]):
+            retrieval.retrieve("Steven phone number", limit=10, categories=["knowledge"])
+
+        diagnostics = retrieval.get_last_retrieval_diagnostics()
+        self.assertEqual(diagnostics["suppressed_by_governance"]["superseded"], 1)
+        self.assertEqual(diagnostics["suppressed_by_governance"]["duplicate"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

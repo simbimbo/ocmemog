@@ -11,6 +11,9 @@ from ocmemog.runtime.instrumentation import emit_event
 from . import memory_links, provenance, store, vector_index
 
 
+_LAST_RETRIEVAL_DIAGNOSTICS: Dict[str, Any] = {}
+
+
 def _tokenize(text: str) -> List[str]:
     return [token for token in "".join(ch.lower() if ch.isalnum() else " " for ch in (text or "")).split() if token]
 
@@ -256,6 +259,10 @@ def _lane_bonus(metadata: Dict[str, Any], lane: Optional[str]) -> float:
     return 0.0
 
 
+def get_last_retrieval_diagnostics() -> Dict[str, Any]:
+    return dict(_LAST_RETRIEVAL_DIAGNOSTICS)
+
+
 def retrieve(
     prompt: str,
     limit: int = 5,
@@ -265,6 +272,7 @@ def retrieve(
     metadata_filters: Optional[Dict[str, Any]] = None,
     lane: Optional[str] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
+    global _LAST_RETRIEVAL_DIAGNOSTICS
     emit_event(state_store.report_log_path(), "brain_memory_retrieval_start", status="ok")
     emit_event(state_store.report_log_path(), "brain_memory_retrieval_rank_start", status="ok")
 
@@ -272,6 +280,13 @@ def retrieve(
     results = _empty_results()
     selected_categories = tuple(dict.fromkeys(category for category in (categories or MEMORY_BUCKETS) if category in MEMORY_BUCKETS))
     active_lane = infer_lane(prompt, explicit_lane=lane)
+    _LAST_RETRIEVAL_DIAGNOSTICS = {
+        "suppressed_by_governance": {
+            "superseded": 0,
+            "duplicate": 0,
+        },
+        "selected_categories": list(selected_categories),
+    }
 
     reinf_rows = conn.execute("SELECT memory_reference, reward_score, confidence FROM experiences").fetchall()
     reinforcement: Dict[str, Dict[str, float]] = {}
@@ -343,6 +358,9 @@ def retrieve(
                 continue
             memory_status, governance = _governance_state(metadata_payload)
             if memory_status in {"superseded", "duplicate"}:
+                _LAST_RETRIEVAL_DIAGNOSTICS["suppressed_by_governance"][memory_status] = (
+                    int(_LAST_RETRIEVAL_DIAGNOSTICS["suppressed_by_governance"].get(memory_status) or 0) + 1
+                )
                 continue
             metadata = provenance.fetch_reference(mem_ref)
             score, signals = score_record(content=content, memory_ref=mem_ref, promo_conf=promo_conf, timestamp=timestamp, metadata_payload=metadata_payload)

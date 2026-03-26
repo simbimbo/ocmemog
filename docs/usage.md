@@ -202,6 +202,7 @@ Notes:
 - `runtimeSummary.queue` now includes lightweight operational judgment too: `severity` (`ok|warn|high`) plus short `hints` for backlog/worker/error situations.
 - `runtimeSummary.queue` now also distinguishes `invalid_lines`, `retrying_lines`, and `max_retry_seen`, so normal runtime payloads can hint at queue corruption vs poison-item retry churn without a full doctor pass.
 - For parity with doctor-style outputs, `runtimeSummary.queue` now also exposes `queue_depth` and `queue_backlog_severity` aliases alongside the compact fields.
+- `runtimeSummary.queue.config_issues` now surfaces compact worker-config validation problems (for example invalid poll interval or batch size), plus a hint when config is invalid.
 - Prompt-time auto-hydration can now be scoped per OpenClaw agent via plugin env vars:
   - `OCMEMOG_AUTO_HYDRATION_ALLOW_AGENT_IDS=agent-a,agent-b`
   - `OCMEMOG_AUTO_HYDRATION_DENY_AGENT_IDS=agent-x`

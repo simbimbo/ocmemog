@@ -255,6 +255,26 @@ class NamespaceCompatTests(unittest.TestCase):
         self.assertEqual(queue["queue_backlog_severity"], "low")
         self.assertIn("queue has backlog but async worker is disabled", queue["hints"])
 
+    def test_queue_runtime_summary_surfaces_worker_config_issues(self) -> None:
+        from ocmemog.sidecar.compat import probe_runtime
+
+        with patch.dict(
+            "os.environ",
+            {
+                "OCMEMOG_INGEST_ASYNC_WORKER": "true",
+                "OCMEMOG_INGEST_ASYNC_POLL_SECONDS": "-1",
+                "OCMEMOG_INGEST_ASYNC_BATCH_MAX": "0",
+            },
+            clear=False,
+        ):
+            status = probe_runtime()
+
+        queue = status.runtime_summary["queue"]
+        self.assertEqual(queue["severity"], "warn")
+        self.assertIn("queue worker config has invalid values", queue["hints"])
+        self.assertIn("OCMEMOG_INGEST_ASYNC_POLL_SECONDS must be >= 0", queue["config_issues"])
+        self.assertIn("OCMEMOG_INGEST_ASYNC_BATCH_MAX must be >= 1", queue["config_issues"])
+
     def test_sidecar_version_matches_package_version(self) -> None:
         from ocmemog import __version__
         from ocmemog.sidecar import app as sidecar_app

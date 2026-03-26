@@ -87,9 +87,25 @@ def _queue_runtime_summary() -> dict[str, Any]:
 
     worker_enabled = str(os.environ.get("OCMEMOG_INGEST_ASYNC_WORKER", "false")).strip().lower() in {"1", "true", "yes"}
     error_count = int(stats.get("errors") or 0)
+    config_issues: list[str] = []
+    try:
+        worker_poll_seconds = float(os.environ.get("OCMEMOG_INGEST_ASYNC_POLL_SECONDS", "5"))
+        if worker_poll_seconds < 0:
+            config_issues.append("OCMEMOG_INGEST_ASYNC_POLL_SECONDS must be >= 0")
+    except Exception:
+        config_issues.append("OCMEMOG_INGEST_ASYNC_POLL_SECONDS")
+    try:
+        worker_batch_max = int(os.environ.get("OCMEMOG_INGEST_ASYNC_BATCH_MAX", "25"))
+        if worker_batch_max < 1:
+            config_issues.append("OCMEMOG_INGEST_ASYNC_BATCH_MAX must be >= 1")
+    except Exception:
+        config_issues.append("OCMEMOG_INGEST_ASYNC_BATCH_MAX")
     hints: list[str] = []
     severity = "ok"
     backlog_severity = "low"
+    if config_issues:
+        severity = "warn"
+        hints.append("queue worker config has invalid values")
     if depth > 0 and not worker_enabled:
         severity = "warn"
         hints.append("queue has backlog but async worker is disabled")
@@ -128,6 +144,7 @@ def _queue_runtime_summary() -> dict[str, Any]:
         "retrying_lines": int(retrying_lines),
         "max_retry_seen": int(max_retry_seen),
         "worker_enabled": worker_enabled,
+        "config_issues": config_issues,
         "severity": severity,
         "hints": hints,
     }

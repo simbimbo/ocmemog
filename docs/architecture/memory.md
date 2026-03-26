@@ -113,6 +113,7 @@ The sidecar exposes a compact runtime summary in route payloads so operators can
 That queue snapshot now includes lightweight severity/hints so the normal runtime payload carries some operational judgment instead of raw counters only.
 It also now distinguishes invalid queue lines from retrying payloads, which brings a compact slice of doctor-style queue diagnosis into ordinary runtime payloads.
 To reduce translation friction with doctor output, the runtime queue snapshot now also carries doctor-style aliases such as `queue_depth` and `queue_backlog_severity`.
+It now also carries compact worker-config issue reporting so invalid poll/batch settings can surface in normal runtime payloads without a separate doctor run.
 
 Governance review summary responses now also expose lightweight diagnostics so operators can tell whether they are seeing cached data, how many review items are present, and how the queue splits across review kinds without scraping the full list.
 

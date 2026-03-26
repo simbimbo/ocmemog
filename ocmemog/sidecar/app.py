@@ -31,6 +31,7 @@ from ocmemog.runtime.memory import (
     reinforcement,
     retrieval,
     store,
+    vector_index,
 )
 from ocmemog.sidecar.compat import flatten_results, probe_runtime
 from ocmemog.sidecar.transcript_watcher import watch_forever
@@ -1155,6 +1156,9 @@ def memory_search(request: SearchRequest) -> dict[str, Any]:
     diagnostics["elapsed_ms"] = elapsed_ms
     diagnostics["query_length"] = len(query)
     diagnostics["query_token_count"] = len(retrieval._tokenize(query))
+    vector_diagnostics = vector_index.get_last_search_diagnostics()
+    if vector_diagnostics:
+        diagnostics["vector_search"] = vector_diagnostics
     if elapsed_ms >= 10:
         print(
             f"[ocmemog][route] memory_search elapsed_ms={elapsed_ms:.3f} limit={request.limit} categories={','.join(categories)} fallback={used_fallback}",

@@ -79,7 +79,11 @@ class SidecarRouteTests(unittest.TestCase):
         ) as retrieve_for_queries, mock.patch(
             "ocmemog.sidecar.app.flatten_results",
             return_value=[{"reference": "knowledge:12", "score": 0.9, "content": "relevant memory"}],
-        ) as flatten_results:
+        ) as flatten_results, mock.patch.object(
+            sidecar_app.vector_index,
+            "get_last_search_diagnostics",
+            return_value={"scan_limit": 1200, "prefilter_limit": 250, "candidate_rows": 1, "result_count": 1},
+        ):
             response = client.post(
                 "/memory/search",
                 json={"query": "relevant", "limit": 2, "categories": ["knowledge"]},
@@ -95,6 +99,8 @@ class SidecarRouteTests(unittest.TestCase):
         self.assertEqual(payload["searchDiagnostics"]["bucket_counts"], {"knowledge": 1})
         self.assertEqual(payload["searchDiagnostics"]["result_count"], 1)
         self.assertEqual(payload["searchDiagnostics"]["requested_limit"], 2)
+        self.assertIn("vector_search", payload["searchDiagnostics"])
+        self.assertIn("scan_limit", payload["searchDiagnostics"]["vector_search"])
         retrieve_for_queries.assert_called_once()
         flatten_results.assert_called_once()
 

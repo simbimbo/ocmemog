@@ -25,6 +25,7 @@ _EMBEDDING_EXTENDED_LIMIT = 2000
 _EMBEDDING_ULTRA_LIMIT = 4000
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
+_LAST_SEARCH_DIAGNOSTICS: Dict[str, Any] = {}
 
 
 def _tokenize(text: str) -> List[str]:
@@ -339,6 +340,10 @@ def backfill_missing_vectors(*, tables: Iterable[str] | None = None, limit_per_t
     return count
 
 
+def get_last_search_diagnostics() -> Dict[str, Any]:
+    return dict(_LAST_SEARCH_DIAGNOSTICS)
+
+
 def search_memory(
     query: str,
     limit: int = 5,
@@ -346,6 +351,7 @@ def search_memory(
     skip_provider: bool = False,
     source_types: Iterable[str] | None = None,
 ) -> List[Dict[str, Any]]:
+    global _LAST_SEARCH_DIAGNOSTICS
     emit_event(LOGFILE, "brain_memory_vector_search_start", status="ok")
     conn = store.connect()
     _ensure_vector_table(conn)
@@ -376,6 +382,18 @@ def search_memory(
             source_type
             for source_type in dict.fromkeys(source_type for source_type in source_types if source_type in EMBEDDING_TABLES)
         )
+
+    _LAST_SEARCH_DIAGNOSTICS = {
+        "scan_limit": int(scan_limit),
+        "prefilter_limit": int(lexical_prefilter_limit),
+        "source_types": list(filtered_source_types),
+        "query_embedding_ready": bool(query_embedding),
+        "scanned_rows": 0,
+        "prefilter_hits": 0,
+        "candidate_rows": 0,
+        "result_count": 0,
+        "used_memory_index_fallback": False,
+    }
     if filtered_source_types:
         placeholders = ",".join("?" for _ in filtered_source_types)
         vector_query = (
@@ -390,6 +408,7 @@ def search_memory(
 
     if query_embedding:
         rows = conn.execute(vector_query, scan_rows).fetchall()
+        _LAST_SEARCH_DIAGNOSTICS["scanned_rows"] = len(rows)
         lexical_ranked: List[tuple[float, Any]] = []
         for row in rows:
             lexical_score = 0.0
@@ -406,11 +425,13 @@ def search_memory(
         candidate_rows = rows
         if lexical_prefilter_limit and lexical_ranked:
             lexical_hits = [row for score, row in sorted(lexical_ranked, key=lambda item: item[0], reverse=True) if score > 0.0]
+            _LAST_SEARCH_DIAGNOSTICS["prefilter_hits"] = len(lexical_hits)
             if lexical_hits:
                 candidate_rows = lexical_hits[:lexical_prefilter_limit]
             else:
                 candidate_rows = rows[:lexical_prefilter_limit]
 
+        _LAST_SEARCH_DIAGNOSTICS["candidate_rows"] = len(candidate_rows)
         scored: List[Dict[str, Any]] = []
         for row in candidate_rows:
             try:
@@ -429,6 +450,7 @@ def search_memory(
             )
         scored.sort(key=lambda item: item["score"], reverse=True)
         results = scored[:limit]
+        _LAST_SEARCH_DIAGNOSTICS["result_count"] = len(results)
 
     if not results:
         fallback_where = ""
@@ -441,6 +463,8 @@ def search_memory(
             f"SELECT id, source, content, confidence, metadata_json FROM memory_index WHERE content LIKE ?{fallback_where} ORDER BY id DESC LIMIT ?",
             tuple(fallback_params + [limit]),
         ).fetchall()
+        _LAST_SEARCH_DIAGNOSTICS["used_memory_index_fallback"] = True
+        _LAST_SEARCH_DIAGNOSTICS["candidate_rows"] = len(rows)
         fallback_results: List[Dict[str, Any]] = []
         for row in rows:
             source_ref = str(row["source"] or "")

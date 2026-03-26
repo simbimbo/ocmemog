@@ -16,6 +16,7 @@ Retrieval ranking quality pass plus collateral/doc alignment.
 - improved doctor queue health output so malformed queue lines and retrying poison items are reported separately with clearer hints and samples
 - added `runtimeSummary` to sidecar/runtime payloads so provider path, hash-fallback state, degraded/ready mode, and compatibility residue are explicit to operators
 - expanded `/memory/search` diagnostics with a request-level `execution_path` block so provider-configured, provider-skipped, local-fallback-expected, and route-exception-fallback behavior is explicit per request
+- added `reviewDiagnostics` to `/memory/governance/review/summary` so cache freshness, item count, kind breakdown, and active filters are explicit to operators
 
 ## 0.1.16 — 2026-03-25
 

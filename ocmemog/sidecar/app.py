@@ -1301,9 +1301,17 @@ def memory_governance_review_summary(request: GovernanceReviewRequest) -> dict[s
         sort_keys=True,
     )
     now = time.time()
-    if _governance_review_cache.get("key") == cache_key and float(_governance_review_cache.get("expires_at") or 0.0) > now:
+    expires_at = float(_governance_review_cache.get("expires_at") or 0.0)
+    if _governance_review_cache.get("key") == cache_key and expires_at > now:
         cached_payload = _governance_review_cache.get("payload") or {}
-        return {**cached_payload, **runtime, "cached": True}
+        diagnostics = dict(cached_payload.get("reviewDiagnostics") or {})
+        diagnostics.update(
+            {
+                "cache_hit": True,
+                "cache_ttl_seconds": round(max(0.0, expires_at - now), 3),
+            }
+        )
+        return {**cached_payload, **runtime, "cached": True, "reviewDiagnostics": diagnostics}
 
     items = api.list_governance_review_items(
         categories=request.categories,
@@ -1311,6 +1319,22 @@ def memory_governance_review_summary(request: GovernanceReviewRequest) -> dict[s
         context_depth=0,
         scan_limit=scan_limit,
     )
+    kind_counts: Dict[str, int] = {}
+    for item in items:
+        item_kind = str(item.get("kind") or "unknown")
+        kind_counts[item_kind] = kind_counts.get(item_kind, 0) + 1
+    diagnostics = {
+        "cache_hit": False,
+        "cache_ttl_seconds": round(float(_GOVERNANCE_REVIEW_CACHE_TTL_SECONDS), 3),
+        "item_count": len(items),
+        "kind_counts": kind_counts,
+        "filters": {
+            "categories": list(request.categories or []),
+            "limit": limit,
+            "context_depth": 0,
+            "scan_limit": scan_limit,
+        },
+    }
     payload = {
         "ok": True,
         "categories": request.categories,
@@ -1319,6 +1343,7 @@ def memory_governance_review_summary(request: GovernanceReviewRequest) -> dict[s
         "scan_limit": scan_limit,
         "items": items,
         "cached": False,
+        "reviewDiagnostics": diagnostics,
     }
     _governance_review_cache.update(
         {"key": cache_key, "expires_at": now + _GOVERNANCE_REVIEW_CACHE_TTL_SECONDS, "payload": payload}

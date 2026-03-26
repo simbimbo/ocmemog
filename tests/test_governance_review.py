@@ -149,6 +149,24 @@ class GovernanceReviewTests(unittest.TestCase):
         ]
         self.assertEqual(pending, [])
 
+    def test_governance_review_summary_exposes_diagnostics_and_cache_state(self) -> None:
+        canonical = api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
+        with mock.patch("ocmemog.runtime.memory.api._model_contradiction_hint", return_value=None):
+            api.store_memory("knowledge", "FortiGate admin access stays restricted", source="test")
+
+        first = app.memory_governance_review_summary(app.GovernanceReviewRequest(categories=["knowledge"], limit=20))
+        self.assertTrue(first["ok"])
+        self.assertFalse(first["cached"])
+        self.assertIn("reviewDiagnostics", first)
+        self.assertFalse(first["reviewDiagnostics"]["cache_hit"])
+        self.assertGreaterEqual(first["reviewDiagnostics"]["item_count"], 1)
+        self.assertIn("duplicate_candidate", first["reviewDiagnostics"]["kind_counts"])
+
+        second = app.memory_governance_review_summary(app.GovernanceReviewRequest(categories=["knowledge"], limit=20))
+        self.assertTrue(second["cached"])
+        self.assertTrue(second["reviewDiagnostics"]["cache_hit"])
+        self.assertGreaterEqual(second["reviewDiagnostics"]["cache_ttl_seconds"], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

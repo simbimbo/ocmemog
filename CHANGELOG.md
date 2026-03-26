@@ -26,6 +26,7 @@ Retrieval ranking quality pass plus collateral/doc alignment.
 - improved plugin hydration observability with structured skip/apply decision logs that include agent id, decision reason, and prepend sizes
 - added compact `governance_summary` payloads to retrieval results so search consumers can triage governance state without unpacking the full provenance structure
 - added `governance_rollup` to `/memory/search` diagnostics so search consumers can quickly see visible result status counts and needs-review totals
+- extended visible governance rollups with per-bucket breakdowns so search consumers can see where visible governance pressure is concentrated
 - added retrieval governance suppression counts so `/memory/search` diagnostics can report how many candidates were hidden as `superseded` or `duplicate`
 - extended retrieval governance suppression diagnostics with per-bucket breakdowns so search consumers can see where hidden-governance pressure is concentrated
 

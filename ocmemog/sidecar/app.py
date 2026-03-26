@@ -1208,6 +1208,7 @@ def memory_search(request: SearchRequest) -> dict[str, Any]:
         governance_rollup = {
             "status_counts": {},
             "needs_review_count": 0,
+            "by_bucket": {},
         }
         for item in flattened:
             summary = item.get("governance_summary") if isinstance(item, dict) else {}
@@ -1215,8 +1216,12 @@ def memory_search(request: SearchRequest) -> dict[str, Any]:
                 summary = {}
             status = str(summary.get("memory_status") or item.get("memory_status") or "active")
             governance_rollup["status_counts"][status] = governance_rollup["status_counts"].get(status, 0) + 1
+            bucket = str(item.get("bucket") or item.get("category") or item.get("source_type") or "unknown")
+            bucket_rollup = governance_rollup["by_bucket"].setdefault(bucket, {"status_counts": {}, "needs_review_count": 0})
+            bucket_rollup["status_counts"][status] = bucket_rollup["status_counts"].get(status, 0) + 1
             if bool(summary.get("needs_review")):
                 governance_rollup["needs_review_count"] += 1
+                bucket_rollup["needs_review_count"] += 1
         diagnostics["governance_rollup"] = governance_rollup
         used_fallback = False
     except Exception as exc:

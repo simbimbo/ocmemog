@@ -94,13 +94,16 @@ Design intent:
 - this started as an explainability/control surface, but it now also drives a small active anti-cruft gate
 - it gives future automation a better input for “only good memories are remembered” without requiring a risky schema or policy rewrite first
 
-Current active anti-cruft rule:
+Current active anti-cruft rules:
 - if a candidate is below the promotion threshold **and** only resolves to the generic `knowledge` destination,
   it is treated as likely cruft and rejected with `rejected_as_generic_cruft`
-- why this is the right first rule:
+- if that same low-confidence generic candidate is also textually redundant with existing generic knowledge,
+  it is classified more specifically as `rejected_as_redundant_generic_cruft`
+- why these are the right first rules:
   - generic low-confidence memories are among the easiest ways for memory stores to accumulate junk
+  - redundant generic memories are even worse because they increase clutter without increasing recall value
   - specific, higher-signal memories still flow through the normal promote/reject path
-  - the rule is intentionally narrow to reduce surprise and avoid over-pruning while the quality system matures
+  - the rules are intentionally narrow to reduce surprise and avoid over-pruning while the quality system matures
 
 ## Write paths
 

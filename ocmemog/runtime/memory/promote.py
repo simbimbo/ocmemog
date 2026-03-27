@@ -60,11 +60,31 @@ def _destination_table(summary: str) -> str:
     return "knowledge"
 
 
-def _should_reject_as_cruft(*, confidence: float, threshold: float, destination: str) -> bool:
-    return destination == "knowledge" and confidence < threshold
+def _is_redundant_generic_candidate(summary_text: str) -> bool:
+    normalized = _normalized_text(summary_text)
+    if not normalized:
+        return False
+    conn = store.connect()
+    try:
+        rows = conn.execute(
+            "SELECT content FROM knowledge ORDER BY id DESC LIMIT 200"
+        ).fetchall()
+    finally:
+        conn.close()
+    for row in rows:
+        existing = _normalized_text(row[0] if row else "")
+        if existing and existing == normalized:
+            return True
+    return False
 
 
-def _quality_summary(*, decision: str, confidence: float, threshold: float, destination: str) -> Dict[str, Any]:
+def _should_reject_as_cruft(*, confidence: float, threshold: float, destination: str, summary_text: str) -> bool:
+    if destination != "knowledge" or confidence >= threshold:
+        return False
+    return True
+
+
+def _quality_summary(*, decision: str, confidence: float, threshold: float, destination: str, redundant_generic: bool = False) -> Dict[str, Any]:
     margin = round(confidence - threshold, 3)
     if decision == "promote":
         quality = "high" if margin >= 0.2 else "medium"
@@ -79,6 +99,14 @@ def _quality_summary(*, decision: str, confidence: float, threshold: float, dest
             quality = "medium"
             keep_recommendation = "review"
             noise_risk = "medium"
+     return {
+         "quality": quality,
+         "keep_recommendation": keep_recommendation,
+         "noise_risk": noise_risk,
+         "margin": margin,
+         "destination_specificity": "generic" if destination == "knowledge" else "specific",
++        "redundant_generic": bool(redundant_generic),
+     }
     return {
         "quality": quality,
         "keep_recommendation": keep_recommendation,
@@ -88,14 +116,16 @@ def _quality_summary(*, decision: str, confidence: float, threshold: float, dest
     }
 
 
-def _verification_summary(*, decision: str, confidence: float, threshold: float, destination: str) -> Dict[str, Any]:
+def _verification_summary(*, decision: str, confidence: float, threshold: float, destination: str, redundant_generic: bool = False) -> Dict[str, Any]:
     margin = round(confidence - threshold, 3)
     if decision == "promote":
         status = "verified"
         reason = "meets_threshold"
     else:
         status = "needs_review"
-        if destination == "knowledge":
+        if destination == "knowledge" and redundant_generic:
+            reason = "rejected_as_redundant_generic_cruft"
+        elif destination == "knowledge":
             reason = "rejected_as_generic_cruft"
         else:
             reason = "below_threshold"
@@ -108,12 +138,15 @@ def _verification_summary(*, decision: str, confidence: float, threshold: float,
     }
 
 
-def _promotion_explanation(*, decision: str, destination: str, confidence: float, threshold: float, summary: str) -> Dict[str, Any]:
+def _promotion_explanation(*, decision: str, destination: str, confidence: float, threshold: float, summary: str, redundant_generic: bool = False) -> Dict[str, Any]:
     if decision == "promote":
         short = f"Promoted to {destination} because confidence {confidence:.2f} met threshold {threshold:.2f}."
         reason = "confidence_threshold"
     else:
-        if destination == "knowledge":
+        if destination == "knowledge" and redundant_generic:
+            short = f"Rejected as redundant memory cruft because confidence {confidence:.2f} was below threshold {threshold:.2f} and the summary closely matched existing generic knowledge."
+            reason = "rejected_as_redundant_generic_cruft"
+        elif destination == "knowledge":
             short = f"Rejected as likely memory cruft because confidence {confidence:.2f} was below threshold {threshold:.2f} and the summary did not strongly fit a more specific bucket."
             reason = "rejected_as_generic_cruft"
         else:
@@ -264,12 +297,14 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
             confidence=confidence,
             threshold=threshold,
             destination=destination,
+            redundant_generic=redundant_generic,
         ),
         "verification_summary": _verification_summary(
             decision=decision,
             confidence=confidence,
             threshold=threshold,
             destination=destination,
+            redundant_generic=redundant_generic,
         ),
         "explanation": _promotion_explanation(
             decision=decision,
@@ -277,6 +312,7 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
             confidence=confidence,
             threshold=threshold,
             summary=str(candidate.get("distilled_summary", "") or ""),
+            redundant_generic=redundant_generic,
         ),
     }
 

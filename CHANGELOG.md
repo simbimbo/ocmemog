@@ -35,6 +35,7 @@ Retrieval ranking quality pass plus collateral/doc alignment.
 - enriched rejected promotion reasons so generic-destination low-confidence cases are easier to distinguish from ordinary below-threshold outcomes
 - added `quality_summary` to promotion decisions so low-value generic candidates are easier to identify as likely memory cruft (`drop` / high-noise-risk) while stronger specific memories are easier to keep
 - activated a first anti-cruft retention gate: low-confidence candidates that only resolve to generic `knowledge` are now rejected as `rejected_as_generic_cruft`
+- added a second anti-cruft distinction for low-confidence generic candidates that merely restate existing generic knowledge: `rejected_as_redundant_generic_cruft`
 - added compact reinforcement rollups to `/memory/search` diagnostics so operators can see visible and retrieval-side reinforcement totals, including per-bucket visible counts
 - extended retrieval-side reinforcement diagnostics with per-bucket totals for parity with other search/operator rollups
 - extended visible and retrieval-side reinforcement rollups with bounded negative/polarity totals so failed experience is inspectable too

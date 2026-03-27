@@ -250,7 +250,9 @@ Notes:
 - the anti-cruft gate is now partially active, not just advisory:
   - low-confidence candidates that only resolve to the generic `knowledge` destination are rejected as likely cruft instead of being treated like ordinary generic rejects
   - this shows up explicitly as `rejected_as_generic_cruft` in both `verification_summary.reason` and `explanation.reason`
-  - intent: weak generic memories should fail earlier so they do not accumulate as low-value long-term memory objects
+  - if the low-confidence generic candidate is also textually redundant with existing generic knowledge, it is now flagged more specifically as `rejected_as_redundant_generic_cruft`
+  - `quality_summary.redundant_generic=true` marks that stronger duplicate-ish generic junk case
+  - intent: weak generic memories should fail earlier so they do not accumulate as low-value long-term memory objects, especially when they merely restate already-kept generic knowledge
 - `retrieval.retrieve_for_queries()` is the main sidecar search path
 - search is hybrid-ranked, not substring-only:
   - lexical scoring blends exact match, token overlap, ordered phrase overlap, and light prefix matching

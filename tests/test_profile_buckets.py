@@ -126,6 +126,32 @@ class ProfileBucketTests(unittest.TestCase):
         self.assertEqual(result["verification_summary"]["reason"], "rejected_as_generic_cruft")
         self.assertEqual(result["explanation"]["reason"], "rejected_as_generic_cruft")
 
+    def test_reject_candidate_flags_redundant_generic_cruft(self) -> None:
+        promote.promote_candidate(
+            {
+                "candidate_id": "cand-existing-generic",
+                "source_event_id": "event-existing-generic",
+                "distilled_summary": "There was a conversation about something important.",
+                "confidence_score": 0.95,
+                "metadata": {"source_labels": ["distill"]},
+            }
+        )
+        result = promote.promote_candidate(
+            {
+                "candidate_id": "cand-redundant-generic",
+                "source_event_id": "event-redundant-generic",
+                "distilled_summary": "There was a conversation about something important.",
+                "confidence_score": 0.25,
+                "metadata": {"source_labels": ["distill"]},
+            }
+        )
+
+        self.assertEqual(result["decision"], "reject")
+        self.assertEqual(result["destination"], "knowledge")
+        self.assertTrue(result["quality_summary"]["redundant_generic"])
+        self.assertEqual(result["verification_summary"]["reason"], "rejected_as_redundant_generic_cruft")
+        self.assertEqual(result["explanation"]["reason"], "rejected_as_redundant_generic_cruft")
+
 
 if __name__ == "__main__":
     unittest.main()

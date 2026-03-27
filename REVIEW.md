@@ -260,7 +260,8 @@
 - Updated: promotion outcomes now expose explanation, verification summary, and quality summary.
 - Updated later: low-confidence candidates that only resolve to generic `knowledge` are now actively rejected as `rejected_as_generic_cruft`.
 - Updated later again: if that low-confidence generic candidate is also redundant with existing generic knowledge text, it is flagged more specifically as `rejected_as_redundant_generic_cruft` and `quality_summary.redundant_generic=true`.
-- Product intent: durable memory should preferentially keep high-signal, destination-specific memories and make weak generic memories easy to drop.
+- Updated later again: if a candidate weakly fits a specific bucket while still falling below threshold, it is now labeled `rejected_as_ambiguous_specific_memory` with `quality_summary.ambiguous_specific=true`.
+- Product intent: durable memory should preferentially keep high-signal, destination-specific memories and make weak generic memories easy to drop, while preserving a clearer distinction between junky generic noise and weak-but-possibly-meaningful specific memories.
 - This is intentionally still a narrow anti-cruft gate set, not a full retention-policy engine yet.
 
 ### `brain/runtime/memory/vector_index.py`

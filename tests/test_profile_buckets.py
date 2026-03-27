@@ -152,6 +152,24 @@ class ProfileBucketTests(unittest.TestCase):
         self.assertEqual(result["verification_summary"]["reason"], "rejected_as_redundant_generic_cruft")
         self.assertEqual(result["explanation"]["reason"], "rejected_as_redundant_generic_cruft")
 
+    def test_reject_candidate_flags_ambiguous_specific_memory(self) -> None:
+        result = promote.promote_candidate(
+            {
+                "candidate_id": "cand-ambiguous-pref",
+                "source_event_id": "event-ambiguous-pref",
+                "distilled_summary": "I prefer quiet mornings.",
+                "confidence_score": 0.45,
+                "metadata": {"source_labels": ["distill"]},
+            }
+        )
+
+        self.assertEqual(result["decision"], "reject")
+        self.assertEqual(result["destination"], "preferences")
+        self.assertTrue(result["quality_summary"]["ambiguous_specific"])
+        self.assertEqual(result["quality_summary"]["keep_recommendation"], "review")
+        self.assertEqual(result["verification_summary"]["reason"], "rejected_as_ambiguous_specific_memory")
+        self.assertEqual(result["explanation"]["reason"], "rejected_as_ambiguous_specific_memory")
+
 
 if __name__ == "__main__":
     unittest.main()

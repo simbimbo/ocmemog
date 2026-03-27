@@ -2,7 +2,20 @@
 
 ## Unreleased
 
-Retrieval ranking quality pass plus collateral/doc alignment.
+## 0.1.17 — 2026-03-26
+
+Promotion/governance observability, anti-cruft hardening, queue/runtime summary parity, and release validation recovery.
+
+### Highlights
+- surfaced agent-scoped auto-hydration policy and decision reasons in runtime and dedicated sidecar diagnostics
+- added request-level embedding execution diagnostics and promoted key embedding outcomes into the search execution path summary
+- added compact governance, reinforcement, and suppression rollups to `/memory/search` diagnostics, including per-bucket parity
+- added queue health, severity, invalid/retrying payload indicators, and doctor-style aliases to `runtimeSummary.queue`
+- added governance queue/review/audit/rollback/auto-resolve diagnostics plus normalized priority labels and concise explanations
+- added promotion decision explanations, verification summaries, quality summaries, and richer rejection reasons
+- activated anti-cruft promotion gating for low-confidence generic memories, including a distinct redundant-generic rejection path
+- repaired a malformed local edit in `promote.py` and revalidated the branch tip with full test coverage before release
+- full validation passed: `188 passed`
 
 ### Highlights
 - improved lexical retrieval scoring to consider token overlap, ordered phrase overlap, and light prefix matching instead of relying on blunt substring-or-overlap behavior
@@ -36,6 +49,7 @@ Retrieval ranking quality pass plus collateral/doc alignment.
 - added `quality_summary` to promotion decisions so low-value generic candidates are easier to identify as likely memory cruft (`drop` / high-noise-risk) while stronger specific memories are easier to keep
 - activated a first anti-cruft retention gate: low-confidence candidates that only resolve to generic `knowledge` are now rejected as `rejected_as_generic_cruft`
 - added a second anti-cruft distinction for low-confidence generic candidates that merely restate existing generic knowledge: `rejected_as_redundant_generic_cruft`
+- added a weak-specific ambiguity distinction so below-threshold candidates that fit a specific bucket only loosely are labeled `rejected_as_ambiguous_specific_memory` and surfaced for review more clearly
 - added compact reinforcement rollups to `/memory/search` diagnostics so operators can see visible and retrieval-side reinforcement totals, including per-bucket visible counts
 - extended retrieval-side reinforcement diagnostics with per-bucket totals for parity with other search/operator rollups
 - extended visible and retrieval-side reinforcement rollups with bounded negative/polarity totals so failed experience is inspectable too

@@ -25,7 +25,7 @@ It is designed to go beyond simple memory search by providing:
 - **compact governance summaries in retrieval results to bridge search and review workflows**
 - **promotion decision explanations, verification summaries, and quality summaries for better distill/promote operator clarity**
 - **an explicit anti-cruft quality signal so weak generic memories are easier to spot and avoid keeping long-term**
-- **active anti-cruft retention gates that reject low-confidence generic memories, especially redundant generic junk**
+- **active anti-cruft retention gates that reject low-confidence generic memories, especially redundant generic junk, while flagging weak specific-fit memories more explicitly for review**
 - **compact governance queue diagnostics for faster operator triage**
 - **governance review apply/dismiss + auto-apply flows that do not depend on dashboard approval input**
 - **governance queue item explanations that align queue and review surfaces**

@@ -60,6 +60,10 @@ def _destination_table(summary: str) -> str:
     return "knowledge"
 
 
+def _normalized_text(text: str) -> str:
+    return " ".join((text or "").strip().lower().split())
+
+
 def _is_redundant_generic_candidate(summary_text: str) -> bool:
     normalized = _normalized_text(summary_text)
     if not normalized:
@@ -81,10 +85,17 @@ def _is_redundant_generic_candidate(summary_text: str) -> bool:
 def _should_reject_as_cruft(*, confidence: float, threshold: float, destination: str, summary_text: str) -> bool:
     if destination != "knowledge" or confidence >= threshold:
         return False
-    return True
+    return bool(_normalized_text(summary_text))
 
 
-def _quality_summary(*, decision: str, confidence: float, threshold: float, destination: str, redundant_generic: bool = False) -> Dict[str, Any]:
+def _is_ambiguous_specific_candidate(*, confidence: float, threshold: float, destination: str) -> bool:
+    if destination == "knowledge":
+        return False
+    margin = confidence - threshold
+    return margin < 0 and margin >= -0.2
+
+
+def _quality_summary(*, decision: str, confidence: float, threshold: float, destination: str, redundant_generic: bool = False, ambiguous_specific: bool = False) -> Dict[str, Any]:
     margin = round(confidence - threshold, 3)
     if decision == "promote":
         quality = "high" if margin >= 0.2 else "medium"
@@ -95,28 +106,26 @@ def _quality_summary(*, decision: str, confidence: float, threshold: float, dest
             quality = "low"
             keep_recommendation = "drop"
             noise_risk = "high"
+        elif ambiguous_specific:
+            quality = "medium"
+            keep_recommendation = "review"
+            noise_risk = "medium"
         else:
             quality = "medium"
             keep_recommendation = "review"
             noise_risk = "medium"
-     return {
-         "quality": quality,
-         "keep_recommendation": keep_recommendation,
-         "noise_risk": noise_risk,
-         "margin": margin,
-         "destination_specificity": "generic" if destination == "knowledge" else "specific",
-+        "redundant_generic": bool(redundant_generic),
-     }
     return {
         "quality": quality,
         "keep_recommendation": keep_recommendation,
         "noise_risk": noise_risk,
         "margin": margin,
         "destination_specificity": "generic" if destination == "knowledge" else "specific",
+        "redundant_generic": bool(redundant_generic),
+        "ambiguous_specific": bool(ambiguous_specific),
     }
 
 
-def _verification_summary(*, decision: str, confidence: float, threshold: float, destination: str, redundant_generic: bool = False) -> Dict[str, Any]:
+def _verification_summary(*, decision: str, confidence: float, threshold: float, destination: str, redundant_generic: bool = False, ambiguous_specific: bool = False) -> Dict[str, Any]:
     margin = round(confidence - threshold, 3)
     if decision == "promote":
         status = "verified"
@@ -127,6 +136,8 @@ def _verification_summary(*, decision: str, confidence: float, threshold: float,
             reason = "rejected_as_redundant_generic_cruft"
         elif destination == "knowledge":
             reason = "rejected_as_generic_cruft"
+        elif ambiguous_specific:
+            reason = "rejected_as_ambiguous_specific_memory"
         else:
             reason = "below_threshold"
     return {
@@ -138,7 +149,7 @@ def _verification_summary(*, decision: str, confidence: float, threshold: float,
     }
 
 
-def _promotion_explanation(*, decision: str, destination: str, confidence: float, threshold: float, summary: str, redundant_generic: bool = False) -> Dict[str, Any]:
+def _promotion_explanation(*, decision: str, destination: str, confidence: float, threshold: float, summary: str, redundant_generic: bool = False, ambiguous_specific: bool = False) -> Dict[str, Any]:
     if decision == "promote":
         short = f"Promoted to {destination} because confidence {confidence:.2f} met threshold {threshold:.2f}."
         reason = "confidence_threshold"
@@ -149,6 +160,9 @@ def _promotion_explanation(*, decision: str, destination: str, confidence: float
         elif destination == "knowledge":
             short = f"Rejected as likely memory cruft because confidence {confidence:.2f} was below threshold {threshold:.2f} and the summary did not strongly fit a more specific bucket."
             reason = "rejected_as_generic_cruft"
+        elif ambiguous_specific:
+            short = f"Rejected as an ambiguous specific memory because confidence {confidence:.2f} was below threshold {threshold:.2f} and the summary only weakly fit destination {destination}."
+            reason = "rejected_as_ambiguous_specific_memory"
         else:
             short = f"Rejected because confidence {confidence:.2f} was below threshold {threshold:.2f} for destination {destination}."
             reason = "below_threshold"
@@ -169,6 +183,7 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
     confidence = float(candidate.get("confidence_score", 0.0))
     threshold = float(config.OCMEMOG_PROMOTION_THRESHOLD)
     candidate_id = str(candidate.get("candidate_id") or "")
+    summary_text = str(candidate.get("distilled_summary", "") or "")
 
     candidate_metadata = provenance.normalize_metadata(candidate.get("metadata", {}), source="promote")
     candidate_metadata["candidate_id"] = candidate_id
@@ -177,11 +192,37 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
 
     conn = store.connect()
     promotion_id = None
-    destination = _destination_table(str(candidate.get("distilled_summary", "")))
+    destination = _destination_table(summary_text)
+    redundant_generic = False
+    should_promote = _should_promote(confidence, threshold)
+    ambiguous_specific = _is_ambiguous_specific_candidate(
+        confidence=confidence,
+        threshold=threshold,
+        destination=destination,
+    )
+    if not should_promote and destination == "knowledge":
+        redundant_generic = _is_redundant_generic_candidate(summary_text)
+    reject_as_cruft = _should_reject_as_cruft(
+        confidence=confidence,
+        threshold=threshold,
+        destination=destination,
+        summary_text=summary_text,
+    )
+    decision = "promote" if should_promote and not reject_as_cruft else "reject"
+    decision_reason = "confidence_threshold"
+    if decision == "reject":
+        if destination == "knowledge" and redundant_generic:
+            decision_reason = "rejected_as_redundant_generic_cruft"
+        elif destination == "knowledge":
+            decision_reason = "rejected_as_generic_cruft"
+        elif ambiguous_specific:
+            decision_reason = "rejected_as_ambiguous_specific_memory"
+        else:
+            decision_reason = "below_threshold"
     if decision == "promote":
         row = conn.execute(
             "SELECT id FROM promotions WHERE source=? AND content=?",
-            (str(candidate.get("source_event_id")), candidate.get("distilled_summary", "")),
+            (str(candidate.get("source_event_id")), summary_text),
         ).fetchone()
         if not row:
             cur = conn.execute(
@@ -196,9 +237,9 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
                     str(candidate.get("source_event_id")),
                     confidence,
                     "promoted",
-                    "confidence_threshold",
+                    decision_reason,
                     json.dumps(candidate_metadata, ensure_ascii=False),
-                    candidate.get("distilled_summary", ""),
+                    summary_text,
                     store.SCHEMA_VERSION,
                 ),
             )
@@ -208,7 +249,7 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
                     str(candidate.get("source_event_id")),
                     confidence,
                     json.dumps(candidate_metadata, ensure_ascii=False),
-                    candidate.get("distilled_summary", ""),
+                    summary_text,
                     store.SCHEMA_VERSION,
                 ),
             )
@@ -244,9 +285,9 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
                 str(candidate.get("source_event_id")),
                 confidence,
                 "rejected",
-                "below_threshold",
+                decision_reason,
                 json.dumps(candidate_metadata, ensure_ascii=False),
-                candidate.get("distilled_summary", ""),
+                summary_text,
                 store.SCHEMA_VERSION,
             ),
         )
@@ -275,7 +316,7 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
         )
         emit_event(LOGFILE, "brain_memory_reinforcement_created", status="ok")
         if memory_id:
-            vector_index.insert_memory(memory_id, candidate.get("distilled_summary", ""), confidence, source_type=destination)
+            vector_index.insert_memory(memory_id, summary_text, confidence, source_type=destination)
             try:
                 api._auto_attach_governance_candidates(promoted_reference)
             except Exception as exc:
@@ -298,6 +339,7 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
             threshold=threshold,
             destination=destination,
             redundant_generic=redundant_generic,
+            ambiguous_specific=ambiguous_specific,
         ),
         "verification_summary": _verification_summary(
             decision=decision,
@@ -305,6 +347,7 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
             threshold=threshold,
             destination=destination,
             redundant_generic=redundant_generic,
+            ambiguous_specific=ambiguous_specific,
         ),
         "explanation": _promotion_explanation(
             decision=decision,
@@ -313,6 +356,7 @@ def promote_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
             threshold=threshold,
             summary=str(candidate.get("distilled_summary", "") or ""),
             redundant_generic=redundant_generic,
+            ambiguous_specific=ambiguous_specific,
         ),
     }
 

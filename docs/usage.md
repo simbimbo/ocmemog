@@ -252,7 +252,9 @@ Notes:
   - this shows up explicitly as `rejected_as_generic_cruft` in both `verification_summary.reason` and `explanation.reason`
   - if the low-confidence generic candidate is also textually redundant with existing generic knowledge, it is now flagged more specifically as `rejected_as_redundant_generic_cruft`
   - `quality_summary.redundant_generic=true` marks that stronger duplicate-ish generic junk case
-  - intent: weak generic memories should fail earlier so they do not accumulate as low-value long-term memory objects, especially when they merely restate already-kept generic knowledge
+  - low-confidence candidates that do resolve to a more specific bucket can now still be called out as weak/ambiguous specific memories instead of being lumped into an undifferentiated threshold failure
+  - `quality_summary.ambiguous_specific=true` plus `rejected_as_ambiguous_specific_memory` mark these cases for review rather than treating them like generic junk
+  - intent: weak generic memories should fail earlier so they do not accumulate as low-value long-term memory objects, especially when they merely restate already-kept generic knowledge, while weak specific-fit memories stay visible as review-worthy instead of silently blending into ordinary rejects
 - `retrieval.retrieve_for_queries()` is the main sidecar search path
 - search is hybrid-ranked, not substring-only:
   - lexical scoring blends exact match, token overlap, ordered phrase overlap, and light prefix matching

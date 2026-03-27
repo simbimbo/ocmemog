@@ -99,10 +99,11 @@ Current active anti-cruft rules:
   it is treated as likely cruft and rejected with `rejected_as_generic_cruft`
 - if that same low-confidence generic candidate is also textually redundant with existing generic knowledge,
   it is classified more specifically as `rejected_as_redundant_generic_cruft`
+- if a candidate resolves to a more specific destination but still falls modestly below threshold, it is now called out as `rejected_as_ambiguous_specific_memory`
 - why these are the right first rules:
   - generic low-confidence memories are among the easiest ways for memory stores to accumulate junk
   - redundant generic memories are even worse because they increase clutter without increasing recall value
-  - specific, higher-signal memories still flow through the normal promote/reject path
+  - weak specific-fit memories are not necessarily junk, but they should be made explicitly reviewable instead of being treated as cleanly trustworthy
   - the rules are intentionally narrow to reduce surprise and avoid over-pruning while the quality system matures
 
 ## Write paths

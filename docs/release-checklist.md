@@ -19,7 +19,7 @@ The release gate is now codified by:
 - [ ] `./scripts/ocmemog-release-check.sh`
 - [ ] If prompt-time hydration behavior changed, validate the plugin gating path too (for example `node --test tests/test_auto_hydration_agent_scope.ts`) so agent-scoped `before_prompt_build` controls are covered
 - [ ] If runtime/operator summary surfaces changed, validate the targeted runtime parity tests too (for example `tests/test_namespace_compat.py`) so `runtimeSummary` queue / embedding / auto-hydration blocks stay aligned
-- [ ] If promotion/retention behavior changed, validate targeted promotion tests (for example `tests/test_profile_buckets.py`) and verify docs still reflect current anti-cruft gates and quality signals, including redundant-generic rejection behavior when applicable
+- [ ] If promotion/retention behavior changed, validate targeted promotion tests (for example `tests/test_profile_buckets.py`) and verify docs still reflect current anti-cruft gates and quality signals, including redundant-generic and ambiguous-specific rejection behavior when applicable
 - [ ] Verify `tests/test_doctor.py` still passes for doctor health surfaces if you changed check coverage
 - [ ] Verify `reports/release-gate-proof.json` exists after a passing gate and documents:
   - live ingest/search/get/hydrate verification

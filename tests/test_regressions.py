@@ -440,12 +440,62 @@ class OcmemogRegressionTests(unittest.TestCase):
         latest_turn = hydrate["recent_turns"][-1]
         resolution = latest_turn["metadata"]["resolution"]
         self.assertEqual(resolution["resolved_message_id"], "b-a1")
-        self.assertEqual(hydrate["summary"]["latest_user_intent"]["effective_content"], "sure")
-        self.assertEqual(hydrate["state"]["latest_user_ask"], "sure")
+        self.assertEqual(
+            hydrate["summary"]["latest_user_intent"]["effective_content"],
+            "Continue approved step: Yes — I can ship checkpoints first if you want.",
+        )
+        self.assertEqual(
+            hydrate["state"]["latest_user_ask"],
+            "Continue approved step: Yes — I can ship checkpoints first if you want.",
+        )
         self.assertEqual(latest_turn["metadata"]["reply_to_message_id"], "b-a1")
         self.assertEqual(hydrate["active_branch"]["reply_chain"][-1]["message_id"], "b-u2")
         self.assertEqual(hydrate["active_branch"]["reply_chain"][0]["message_id"], "b-u1")
         self.assertNotIn("b-a2", [turn["message_id"] for turn in hydrate["active_branch"]["turns"]])
+
+    def test_proceed_short_reply_promotes_resolved_assistant_step(self) -> None:
+        app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="assistant",
+                content="I will patch short-reply continuation hydration next.",
+                conversation_id="conv-proceed",
+                session_id="sess-proceed",
+                thread_id="thread-proceed",
+                message_id="p-a1",
+                timestamp="2026-03-15 12:10:00",
+            )
+        )
+        proceed_reply = app.conversation_ingest_turn(
+            app.ConversationTurnRequest(
+                role="user",
+                content="Proceed",
+                conversation_id="conv-proceed",
+                session_id="sess-proceed",
+                thread_id="thread-proceed",
+                message_id="p-u1",
+                timestamp="2026-03-15 12:10:01",
+                metadata={"reply_to_message_id": "p-a1"},
+            )
+        )
+        self.assertTrue(proceed_reply["ok"])
+
+        hydrate = app.conversation_hydrate(
+            app.ConversationHydrateRequest(conversation_id="conv-proceed", session_id="sess-proceed", thread_id="thread-proceed")
+        )
+        latest_turn = hydrate["recent_turns"][-1]
+        resolution = latest_turn["metadata"]["resolution"]
+        self.assertEqual(resolution["decision"], "confirm")
+        self.assertEqual(resolution["resolved_message_id"], "p-a1")
+        self.assertEqual(
+            resolution["effective_summary"],
+            "Continue approved step: I will patch short-reply continuation hydration next.",
+        )
+        self.assertEqual(
+            hydrate["summary"]["latest_user_intent"]["effective_content"],
+            "Continue approved step: I will patch short-reply continuation hydration next.",
+        )
+        pending_kinds = [item["kind"] for item in hydrate["summary"]["pending_actions"]]
+        self.assertIn("fulfill_confirmed_branch", pending_kinds)
 
     def test_provider_embedding_takes_precedence_when_configured(self) -> None:
         with mock.patch.object(embedding_engine.config, "BRAIN_EMBED_MODEL_PROVIDER", "openai"), \
@@ -1484,7 +1534,10 @@ class OcmemogRegressionTests(unittest.TestCase):
         )
         self.assertTrue(hydrate["ok"])
         self.assertEqual(hydrate["state"]["latest_checkpoint_id"], checkpoint["checkpoint"]["id"])
-        self.assertEqual(hydrate["state"]["latest_user_ask"], "yes")
+        self.assertEqual(
+            hydrate["state"]["latest_user_ask"],
+            "Continue approved step: I will resume the migration and verify the checksum next.",
+        )
         self.assertEqual(hydrate["checkpoint_graph"]["latest"]["id"], checkpoint["checkpoint"]["id"])
 
         expanded = app.conversation_turn_expand(
@@ -1551,7 +1604,10 @@ class OcmemogRegressionTests(unittest.TestCase):
             )
         )
         self.assertIn("rank checkpoint and turn expansion by salience", hydrate["state"]["last_assistant_commitment"].lower())
-        self.assertEqual(hydrate["summary"]["latest_user_intent"]["effective_content"], "yes")
+        self.assertEqual(
+            hydrate["summary"]["latest_user_intent"]["effective_content"],
+            "Continue approved step: One more question: do you want checkpoint expansion ranked by salience too?",
+        )
         active_branch_ids = [turn["message_id"] for turn in hydrate["active_branch"]["turns"]]
         self.assertNotIn("s-a6", active_branch_ids)
         self.assertIn("s-u6", [turn["message_id"] for turn in hydrate["active_branch"]["reply_chain"]])

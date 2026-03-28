@@ -29,6 +29,10 @@ _SHORT_REPLY_NORMALIZED = {
     "okay",
     "do it",
     "go ahead",
+    "proceed",
+    "get on it",
+    "lets go",
+    "let us go",
     "sounds good",
     "lets do it",
     "let us do it",
@@ -395,7 +399,10 @@ def _infer_short_reply_resolution(
     if not referent_content:
         return None
     decision = "decline" if normalized in _NEGATIVE_SHORT_REPLY_NORMALIZED else "confirm"
-    effective_summary = turn_content.strip()
+    if decision == "confirm":
+        effective_summary = f"Continue approved step: {referent_content}"
+    else:
+        effective_summary = f"Decline proposed step: {referent_content}"
     return {
         "kind": "short_reply_reference",
         "decision": decision,
